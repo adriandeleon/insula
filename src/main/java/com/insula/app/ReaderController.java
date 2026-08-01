@@ -49,6 +49,8 @@ import com.insula.download.TorrentTransport;
 import com.insula.download.TransportSelector;
 import com.insula.library.Library;
 import com.insula.library.LibraryEntry;
+import com.insula.reader.ReaderTheme;
+import com.insula.reader.ReadingPositions;
 import com.insula.reader.WebViewRenderer;
 import com.insula.search.LibrarySearch;
 import com.insula.server.ZimHttpServer;
@@ -108,6 +110,10 @@ final class ReaderController {
     private final LibrarySearch librarySearch = new LibrarySearch();
 
     private final java.util.Map<Path, ZimArchive> searchArchives = new java.util.LinkedHashMap<>();
+    private final ReadingPositions positions;
+    /** The article currently shown, for saving its scroll position when we navigate away. */
+    private String currentPositionKey;
+
     private SplitPane readerSplit;
     private boolean showingLibrary;
 
@@ -116,6 +122,7 @@ final class ReaderController {
         this.hostServices = hostServices;
         this.settings = settings;
         this.library = Library.load(dataDir.resolve("library.properties"));
+        this.positions = ReadingPositions.load(dataDir.resolve("reading.properties"));
         this.transports = new TransportSelector(new HttpMultiSourceTransport());
         // BitTorrent is an option, never the only way: it is registered only when its native
         // library actually loads, and HTTP stays the fallback regardless.
@@ -187,6 +194,21 @@ final class ReaderController {
             saveAndApply();
             status.setText("Reopen last archive on startup: " + (settings.isReopenLastArchive() ? "on" : "off"));
         });
+        commands.register("reader.cycleMode", "Reader Mode: Original / Comfortable / Dark", this::cycleReaderMode);
+        commands.register(
+                "reader.modeOriginal", "Reader Mode: Original", () -> setReaderMode(ReaderTheme.Mode.ORIGINAL));
+        commands.register(
+                "reader.modeComfortable",
+                "Reader Mode: Comfortable",
+                () -> setReaderMode(ReaderTheme.Mode.COMFORTABLE));
+        commands.register("reader.modeDark", "Reader Mode: Dark", () -> setReaderMode(ReaderTheme.Mode.DARK));
+        commands.register("reader.widerColumn", "Reader: Wider Column", () -> adjustReaderWidth(100));
+        commands.register("reader.narrowerColumn", "Reader: Narrower Column", () -> adjustReaderWidth(-100));
+        commands.register("reader.toggleRememberPosition", "Toggle: Remember Reading Position", () -> {
+            settings.setRememberPosition(!settings.isRememberPosition());
+            saveAndApply();
+            status.setText("Remember reading position: " + (settings.isRememberPosition() ? "on" : "off"));
+        });
         commands.register("library.show", "Show Library and Downloads", this::showLibrary);
         commands.register("library.reader", "Back to Reader", this::showReader);
         commands.register("library.toggle", "Toggle Library / Reader", this::toggleLibrary);
@@ -220,6 +242,7 @@ final class ReaderController {
         keys.bind("view.zoomOut", new KeyCodeCombination(KeyCode.MINUS, KeyCombination.SHORTCUT_DOWN));
         keys.bind("view.zoomReset", new KeyCodeCombination(KeyCode.DIGIT0, KeyCombination.SHORTCUT_DOWN));
         keys.bind("library.toggle", new KeyCodeCombination(KeyCode.B, KeyCombination.SHORTCUT_DOWN));
+        keys.bind("reader.cycleMode", new KeyCodeCombination(KeyCode.R, KeyCombination.SHORTCUT_DOWN));
     }
 
     void installShortcuts(Scene scene) {
@@ -372,6 +395,7 @@ final class ReaderController {
                         ? new PrimerDark().getUserAgentStylesheet()
                         : new PrimerLight().getUserAgentStylesheet());
         renderer.setZoom(settings.getZoomPercent() / 100.0);
+        applyReaderTheme();
         transports.setTorrentEnabled(settings.isTorrentEnabled());
         if (settingsDialog != null) {
             settingsDialog.sync();
@@ -575,14 +599,82 @@ final class ReaderController {
                 hostServices.showDocument(location);
             });
         } else if (location.startsWith(server.baseUrl())) {
-            status.setText(bookTitle + " · "
-                    + java.net.URLDecoder.decode(
-                            location.substring(location.indexOf("/zim/") + 5),
-                            java.nio.charset.StandardCharsets.UTF_8));
+            String decoded = java.net.URLDecoder.decode(
+                    location.substring(location.indexOf("/zim/") + 5), java.nio.charset.StandardCharsets.UTF_8);
+            status.setText(bookTitle + " · " + decoded);
+            onArticleShown(decoded);
+        }
+    }
+
+    private void setReaderMode(ReaderTheme.Mode mode) {
+        settings.setReaderMode(ReaderTheme.nameOf(mode));
+        saveAndApply();
+        status.setText("Reader mode: " + ReaderTheme.nameOf(mode));
+    }
+
+    private void cycleReaderMode() {
+        ReaderTheme.Mode[] modes = ReaderTheme.Mode.values();
+        ReaderTheme.Mode current = ReaderTheme.modeOf(settings.getReaderMode());
+        setReaderMode(modes[(current.ordinal() + 1) % modes.length]);
+    }
+
+    private void adjustReaderWidth(int delta) {
+        int width = ReaderTheme.clampWidth(settings.getReaderWidth() + delta);
+        settings.setReaderWidth(width);
+        saveAndApply();
+        status.setText(
+                width >= ReaderTheme.MAX_WIDTH ? "Reader column: unconstrained" : "Reader column: " + width + " px");
+    }
+
+    // ---------------------------------------------------------------- reading layer
+
+    /** Re-applies the reader stylesheet over whatever the archive shipped. */
+    private void applyReaderTheme() {
+        renderer.injectCss(
+                ReaderTheme.css(ReaderTheme.modeOf(settings.getReaderMode()), settings.getReaderWidth(), 1.0));
+    }
+
+    /**
+     * Runs for every article the view lands on: saves where we were in the previous one, restyles
+     * the new one, and returns to its remembered position.
+     */
+    private void onArticleShown(String decodedPath) {
+        savePosition();
+        applyReaderTheme();
+
+        if (currentArchiveFile == null) {
+            return;
+        }
+        int slash = decodedPath.indexOf('/');
+        currentPositionKey =
+                ReadingPositions.key(currentArchiveFile, slash < 0 ? decodedPath : decodedPath.substring(slash + 1));
+
+        if (settings.isRememberPosition()) {
+            double saved = positions.positionOf(currentPositionKey);
+            if (saved > 0) {
+                // The document has only just loaded; let layout settle first, or the fraction is
+                // applied against a height that is still growing and lands in the wrong place.
+                PauseTransition settle = new PauseTransition(Duration.millis(150));
+                settle.setOnFinished(e -> renderer.scrollTo(saved));
+                settle.play();
+            }
+        }
+    }
+
+    /** Records the scroll position of the article being left. */
+    private void savePosition() {
+        if (currentPositionKey != null && settings.isRememberPosition()) {
+            positions.remember(currentPositionKey, renderer.scrollPosition());
         }
     }
 
     void dispose() {
+        savePosition();
+        try {
+            positions.save();
+        } catch (RuntimeException e) {
+            // a failed position save must never block shutdown
+        }
         renderer.dispose();
         searchExecutor.shutdownNow();
         librarySearch.close();

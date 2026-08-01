@@ -22,6 +22,7 @@ import javafx.stage.Stage;
 import javafx.stage.Window;
 
 import com.insula.config.Settings;
+import com.insula.reader.ReaderTheme;
 
 /**
  * Settings window (mini Editora shell): a category sidebar over per-category pages, with
@@ -39,6 +40,10 @@ final class SettingsDialog {
     private final CheckBox reopenCheck = new CheckBox("Reopen the last archive on startup");
     private final Spinner<Integer> searchLimitSpinner =
             new Spinner<>(Settings.MIN_SEARCH_LIMIT, Settings.MAX_SEARCH_LIMIT, 40, 5);
+    private final ComboBox<String> readerModeCombo = new ComboBox<>();
+    private final Spinner<Integer> readerWidthSpinner =
+            new Spinner<>(ReaderTheme.MIN_WIDTH, ReaderTheme.MAX_WIDTH, 900, 50);
+    private final CheckBox rememberPositionCheck = new CheckBox("Return to where I left off in an article");
     private final CheckBox torrentCheck = new CheckBox("Prefer BitTorrent for large archives");
     private final CheckBox seedingCheck = new CheckBox("Share downloaded archives with others (seeding)");
 
@@ -57,6 +62,7 @@ final class SettingsDialog {
         Map<String, Region> pages = new LinkedHashMap<>();
         pages.put("Appearance", appearancePage());
         pages.put("Reader", readerPage());
+        pages.put("Reading view", readingViewPage());
         pages.put("Downloads", downloadsPage());
 
         ListView<String> sidebar = new ListView<>();
@@ -126,6 +132,41 @@ final class SettingsDialog {
         return page("Reader", box);
     }
 
+    private Region readingViewPage() {
+        readerModeCombo.getItems().setAll("Original", "Comfortable", "Dark");
+        readerModeCombo.valueProperty().addListener((obs, old, value) -> {
+            if (!loading && value != null) {
+                settings.setReaderMode(value.toLowerCase(java.util.Locale.ROOT));
+                applyAndSave();
+            }
+        });
+        readerWidthSpinner.setEditable(true);
+        readerWidthSpinner.valueProperty().addListener((obs, old, value) -> {
+            if (!loading && value != null) {
+                settings.setReaderWidth(value);
+                applyAndSave();
+            }
+        });
+        rememberPositionCheck.selectedProperty().addListener((obs, old, selected) -> {
+            if (!loading) {
+                settings.setRememberPosition(selected);
+                applyAndSave();
+            }
+        });
+
+        GridPane grid = grid();
+        grid.addRow(0, new Label("Reader mode"), readerModeCombo);
+        grid.addRow(1, new Label("Content width (px)"), readerWidthSpinner);
+        VBox box = new VBox(
+                12,
+                grid,
+                note("Dark mode restyles the article over whatever the archive shipped, including its "
+                        + "tables and inline colours. Images are dimmed rather than inverted, so photographs "
+                        + "and maps still look right."),
+                rememberPositionCheck);
+        return page("Reading view", box);
+    }
+
     private Region downloadsPage() {
         torrentCheck.selectedProperty().addListener((obs, old, selected) -> {
             if (!loading) {
@@ -188,6 +229,10 @@ final class SettingsDialog {
             zoomSpinner.getValueFactory().setValue(settings.getZoomPercent());
             reopenCheck.setSelected(settings.isReopenLastArchive());
             searchLimitSpinner.getValueFactory().setValue(settings.getSearchLimit());
+            readerModeCombo.setValue(settings.getReaderMode().substring(0, 1).toUpperCase(java.util.Locale.ROOT)
+                    + settings.getReaderMode().substring(1));
+            readerWidthSpinner.getValueFactory().setValue(ReaderTheme.clampWidth(settings.getReaderWidth()));
+            rememberPositionCheck.setSelected(settings.isRememberPosition());
             torrentCheck.setSelected(settings.isTorrentEnabled());
             seedingCheck.setSelected(settings.isSeedingEnabled());
         } finally {

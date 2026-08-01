@@ -46,6 +46,13 @@ public final class Settings {
      */
     private boolean seedingEnabled = false;
 
+    /** Reader mode: how much of the archive's own styling to override ("original"/"comfortable"/"dark"). */
+    private String readerMode = "original";
+    /** Content column in pixels; MAX means unconstrained. */
+    private int readerWidth = 900;
+    /** Whether to return to where you left off in an article. */
+    private boolean rememberPosition = true;
+
     private Settings(Path file) {
         this.file = file;
     }
@@ -69,6 +76,9 @@ public final class Settings {
                     parseInt(props.getProperty("searchLimit"), settings.searchLimit),
                     MIN_SEARCH_LIMIT,
                     MAX_SEARCH_LIMIT);
+            settings.readerMode = props.getProperty("readerMode", settings.readerMode);
+            settings.readerWidth = parseInt(props.getProperty("readerWidth"), settings.readerWidth);
+            settings.rememberPosition = Boolean.parseBoolean(props.getProperty("rememberPosition", "true"));
             settings.torrentEnabled = Boolean.parseBoolean(props.getProperty("torrentEnabled", "false"));
             settings.seedingEnabled = Boolean.parseBoolean(props.getProperty("seedingEnabled", "false"));
         }
@@ -82,6 +92,9 @@ public final class Settings {
         props.setProperty("reopenLastArchive", String.valueOf(reopenLastArchive));
         props.setProperty("lastArchive", lastArchive);
         props.setProperty("searchLimit", String.valueOf(searchLimit));
+        props.setProperty("readerMode", readerMode);
+        props.setProperty("readerWidth", String.valueOf(readerWidth));
+        props.setProperty("rememberPosition", String.valueOf(rememberPosition));
         props.setProperty("torrentEnabled", String.valueOf(torrentEnabled));
         props.setProperty("seedingEnabled", String.valueOf(seedingEnabled));
         try {
@@ -157,6 +170,30 @@ public final class Settings {
 
     public void setLastArchive(String lastArchive) {
         this.lastArchive = lastArchive == null ? "" : lastArchive;
+    }
+
+    public String getReaderMode() {
+        return readerMode;
+    }
+
+    public void setReaderMode(String readerMode) {
+        this.readerMode = readerMode == null ? "original" : readerMode;
+    }
+
+    public int getReaderWidth() {
+        return readerWidth;
+    }
+
+    public void setReaderWidth(int readerWidth) {
+        this.readerWidth = readerWidth;
+    }
+
+    public boolean isRememberPosition() {
+        return rememberPosition;
+    }
+
+    public void setRememberPosition(boolean rememberPosition) {
+        this.rememberPosition = rememberPosition;
     }
 
     public boolean isTorrentEnabled() {

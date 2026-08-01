@@ -28,6 +28,11 @@ Everything below is in `main` and unreleased; there has been no tagged version y
   result switches archives automatically. Titles are indexed in memory lazily and off-thread on
   first search — measured at ~13 ms per query across 197k entries in four archives.
 - Back/forward history; links to the live web open in the system browser.
+- **Reader mode** that restyles an article over whatever CSS the archive shipped: a real dark
+  theme (including tables, striped rows and inline colours, with images dimmed rather than
+  inverted), a readable content column and looser line height. Cycle with `Ctrl+R`.
+- **Reading position remembered per article**, stored as a fraction of document height so it
+  survives a resize or font change, and restored when you return.
 - Rendering sits behind an `ArticleRenderer` interface (load, history, zoom, CSS injection, scroll
   position), so the engine is a replaceable part rather than woven through the reading layer.
 

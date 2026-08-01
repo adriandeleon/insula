@@ -50,9 +50,11 @@ download layer never import JavaFX**, and `app` is the only package that builds 
 - **`command/`** — `CommandRegistry`, `Keybindings`, and the pure `PaletteFilter` ranking.
 - **`config/`** — `Settings`: a properties file with atomic save, values clamped/normalized on
   read so a hand-edited or truncated file degrades to defaults per field.
-- **`reader/`** — `ArticleRenderer` and its `WebViewRenderer` implementation: load, history,
-  zoom, CSS injection (the hook for reader mode and a real dark theme) and scroll position. The
-  reading layer talks to this, not to WebView.
+- **`reader/`** — `ArticleRenderer` and its `WebViewRenderer` implementation (load, history, zoom,
+  CSS injection, scroll position); `ReaderTheme`, the pure generator for the stylesheet layered
+  over the archive's own; `ReadingPositions`, scroll positions per article stored as a fraction of
+  document height so they survive a resize or font change. The reading layer talks to this, not to
+  WebView.
 - **`app/`** — the JavaFX shell: `Main`, `ReaderController` (toolbar, search sidebar, WebView),
   `CommandPalette`, `SettingsDialog`, `LibraryPane`, and the pure `Formats`.
 
@@ -159,6 +161,22 @@ it was timing error pages. Assert the loaded DOM (`document.body.innerHTML.lengt
 against what the source says, or the numbers are fiction. Frame pacing likewise needs a real
 `Timeline` between scroll steps — chained `Platform.runLater` calls complete without any frames
 elapsing and record nothing.
+
+**Reader mode CSS — specificity is the whole problem**
+
+Overriding an archive's own stylesheet is what the brief means by "Kiwix's dark mode fights
+embedded stylesheets and loses". `!important` is mandatory here (we cannot edit the sheet we are
+overriding), but the trap is *self*-inflicted specificity: a blanket
+`*:not(img):not(video):not(canvas):not(svg):not(svg *)` scores **(0,0,5)** — higher than a bare
+`th` — so it silently defeated the theme's own table-header shading and every table rendered flat.
+Wrap blanket selectors in **`:where(...)`**, which contributes zero specificity, and put the whole
+selector inside it (`:where(*:not(img)…)`, not `:where(*):not(img)…` — only what is *inside*
+`:where` is zeroed). `html`/`body` must be excluded from the transparent-everything rule or the
+page keeps no colour of its own. Images are **dimmed, never inverted**; an inverted photo or map
+is the usual giveaway of a naive dark mode.
+
+Verify by reading back `getComputedStyle` on a real article rather than by eye — both bugs above
+looked plausible in a screenshot.
 
 **Delta updates — measured, and the answer is no**
 

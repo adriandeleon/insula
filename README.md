@@ -25,6 +25,11 @@ step, no platform-specific native toolchain to install.
 - **Cross-archive search**: one box spanning every archive on disk, so you can look something up
   without first deciding which book it lives in. Results are ranked, tolerate a typo, and are
   labelled with the archive they came from; opening one switches archives for you.
+- **Reader mode** with a dark theme that actually wins against the archive's own stylesheet —
+  including its tables and inline colours — plus a readable content column. Images are dimmed, not
+  inverted, so photographs and maps still look right. `Ctrl+R` cycles it.
+- Your **reading position is remembered per article**, so returning to a long page puts you back
+  where you were.
 - Back/forward history. Links to the live web open in your system browser rather than pretending
   to work offline.
 
@@ -86,6 +91,7 @@ with `sha256sum -c` against the published `.sha256`.
 | `Ctrl+Shift+P` | Command palette |
 | `Ctrl+L` | Focus search |
 | `Ctrl+B` | Library and downloads |
+| `Ctrl+R` | Cycle reader mode (original / comfortable / dark) |
 | `Ctrl+O` | Open an archive from disk |
 | `Ctrl+,` | Settings |
 | `Alt+←` / `Alt+→` | Back / forward |
