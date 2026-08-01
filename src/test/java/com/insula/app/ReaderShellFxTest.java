@@ -4,7 +4,6 @@ import java.nio.file.Path;
 
 import javafx.scene.Scene;
 import javafx.scene.layout.StackPane;
-import javafx.scene.web.WebView;
 import javafx.stage.Stage;
 
 import com.insula.config.Settings;
@@ -89,8 +88,9 @@ class ReaderShellFxTest {
 
             controller.commandsForTest().run("view.zoomIn");
             assertEquals(110, settings.getZoomPercent());
-            WebView web = controller.webViewForTest();
-            assertEquals(1.10, web.getZoom(), 0.001, "zoom must reach the WebView, not just settings");
+            javafx.scene.web.WebView web =
+                    (javafx.scene.web.WebView) controller.rendererForTest().node();
+            assertEquals(1.10, web.getZoom(), 0.001, "zoom must reach the renderer, not just settings");
 
             controller.commandsForTest().run("view.zoomReset");
             assertEquals(100, settings.getZoomPercent());

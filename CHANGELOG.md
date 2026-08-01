@@ -28,6 +28,8 @@ Everything below is in `main` and unreleased; there has been no tagged version y
   result switches archives automatically. Titles are indexed in memory lazily and off-thread on
   first search — measured at ~13 ms per query across 197k entries in four archives.
 - Back/forward history; links to the live web open in the system browser.
+- Rendering sits behind an `ArticleRenderer` interface (load, history, zoom, CSS injection, scroll
+  position), so the engine is a replaceable part rather than woven through the reading layer.
 
 **Library and downloads**
 

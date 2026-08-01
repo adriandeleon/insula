@@ -33,9 +33,6 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
-import javafx.scene.web.WebEngine;
-import javafx.scene.web.WebHistory;
-import javafx.scene.web.WebView;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 import javafx.util.Duration;
@@ -52,6 +49,7 @@ import com.insula.download.TorrentTransport;
 import com.insula.download.TransportSelector;
 import com.insula.library.Library;
 import com.insula.library.LibraryEntry;
+import com.insula.reader.WebViewRenderer;
 import com.insula.search.LibrarySearch;
 import com.insula.server.ZimHttpServer;
 import com.insula.zim.Dirent;
@@ -76,7 +74,7 @@ final class ReaderController {
     private final BorderPane shell = new BorderPane();
     private final TextField searchField = new TextField();
     private final ListView<LibrarySearch.Result> results = new ListView<>();
-    private final WebView webView = new WebView();
+    private final WebViewRenderer renderer = new WebViewRenderer();
     private final Button backButton = new Button("←");
     private final Button forwardButton = new Button("→");
     private final Button homeButton = new Button("Home");
@@ -147,8 +145,8 @@ final class ReaderController {
         return keys;
     }
 
-    WebView webViewForTest() {
-        return webView;
+    WebViewRenderer rendererForTest() {
+        return renderer;
     }
 
     void searchForTest(String query) {
@@ -314,16 +312,15 @@ final class ReaderController {
         sidebar.setMinWidth(220);
         sidebar.setPrefWidth(300);
 
-        readerSplit = new SplitPane(sidebar, webView);
+        readerSplit = new SplitPane(sidebar, renderer.node());
         readerSplit.setOrientation(Orientation.HORIZONTAL);
         readerSplit.setDividerPositions(0.24);
         SplitPane.setResizableWithParent(sidebar, false);
 
-        WebEngine engine = webView.getEngine();
-        engine.locationProperty().addListener((obs, old, location) -> onLocationChanged(location));
-        engine.getHistory().currentIndexProperty().addListener((obs, old, idx) -> updateNavButtons());
-        engine.getHistory().getEntries().addListener((javafx.collections.ListChangeListener<WebHistory.Entry>)
-                c -> updateNavButtons());
+        renderer.setOnLocationChanged(location -> {
+            onLocationChanged(location);
+            updateNavButtons();
+        });
 
         HBox statusBar = new HBox(status);
         statusBar.setPadding(new Insets(4, 10, 4, 10));
@@ -374,7 +371,7 @@ final class ReaderController {
                 settings.isDark()
                         ? new PrimerDark().getUserAgentStylesheet()
                         : new PrimerLight().getUserAgentStylesheet());
-        webView.setZoom(settings.getZoomPercent() / 100.0);
+        renderer.setZoom(settings.getZoomPercent() / 100.0);
         transports.setTorrentEnabled(settings.isTorrentEnabled());
         if (settingsDialog != null) {
             settingsDialog.sync();
@@ -485,7 +482,7 @@ final class ReaderController {
         try {
             Optional<Dirent> main = archive.mainPage();
             if (main.isPresent()) {
-                webView.getEngine().load(server.urlFor(token, main.get().fullPath()));
+                renderer.load(server.urlFor(token, main.get().fullPath()));
             } else {
                 status.setText(bookTitle + " · this archive declares no main page — use search");
             }
@@ -540,30 +537,29 @@ final class ReaderController {
      */
     private void openResult(LibrarySearch.Result result) {
         if (archive != null && result.archiveFile().equals(currentArchiveFile)) {
-            webView.getEngine().load(server.urlFor(token, result.fullPath()));
+            renderer.load(server.urlFor(token, result.fullPath()));
             return;
         }
         openZim(result.archiveFile());
         if (archive != null) {
-            webView.getEngine().load(server.urlFor(token, result.fullPath()));
+            renderer.load(server.urlFor(token, result.fullPath()));
         }
     }
 
     // ---------------------------------------------------------------- navigation
 
     private void historyGo(int offset) {
-        WebHistory history = webView.getEngine().getHistory();
-        int target = history.getCurrentIndex() + offset;
-        if (target >= 0 && target < history.getEntries().size()) {
-            history.go(offset);
+        if (offset < 0) {
+            renderer.goBack();
+        } else {
+            renderer.goForward();
         }
+        updateNavButtons();
     }
 
     private void updateNavButtons() {
-        WebHistory history = webView.getEngine().getHistory();
-        backButton.setDisable(history.getCurrentIndex() <= 0);
-        forwardButton.setDisable(
-                history.getCurrentIndex() >= history.getEntries().size() - 1);
+        backButton.setDisable(!renderer.canGoBack());
+        forwardButton.setDisable(!renderer.canGoForward());
     }
 
     private void onLocationChanged(String location) {
@@ -575,7 +571,7 @@ final class ReaderController {
         if (external) {
             // ZIM content is offline; anything pointing at the live web opens in the system browser.
             Platform.runLater(() -> {
-                webView.getEngine().getLoadWorker().cancel();
+                renderer.load("about:blank");
                 hostServices.showDocument(location);
             });
         } else if (location.startsWith(server.baseUrl())) {
@@ -587,6 +583,7 @@ final class ReaderController {
     }
 
     void dispose() {
+        renderer.dispose();
         searchExecutor.shutdownNow();
         librarySearch.close();
         searchArchives.values().forEach(a -> {

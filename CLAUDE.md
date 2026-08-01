@@ -50,6 +50,9 @@ download layer never import JavaFX**, and `app` is the only package that builds 
 - **`command/`** — `CommandRegistry`, `Keybindings`, and the pure `PaletteFilter` ranking.
 - **`config/`** — `Settings`: a properties file with atomic save, values clamped/normalized on
   read so a hand-edited or truncated file degrades to defaults per field.
+- **`reader/`** — `ArticleRenderer` and its `WebViewRenderer` implementation: load, history,
+  zoom, CSS injection (the hook for reader mode and a real dark theme) and scroll position. The
+  reading layer talks to this, not to WebView.
 - **`app/`** — the JavaFX shell: `Main`, `ReaderController` (toolbar, search sidebar, WebView),
   `CommandPalette`, `SettingsDialog`, `LibraryPane`, and the pure `Formats`.
 
@@ -130,6 +133,32 @@ Config lives in `~/.insula/` (`INSULA_CONFIG_DIR` overrides): `settings.properti
 - A resume bitmap whose length disagrees with the current chunk plan describes a *different* file;
   it must be rejected outright, or never-downloaded ranges get marked present and the archive is
   silently corrupt.
+
+**Rendering — WebView measured, and it is fine**
+
+The "JavaFX WebView is ancient WebKit" reputation does not hold for 26.x. Measured against the
+worst content in a real archive (OpenStreetMap Wiki), loading through the loopback server and
+scrolling the whole document:
+
+| article | load | scroll frames | heap |
+| --- | --- | --- | --- |
+| 3.4 MB, 924 rows | 770 ms | p50 16 ms, worst 25 ms, 0 janky of 231 | flat |
+| 2.7 MB, 781 rows | 438 ms | p50 16 ms, worst 16 ms, 0 janky of 207 | flat |
+| 2.5 MB, 3957 rows | 785 ms | p50 15 ms, worst 16 ms, 0 janky of 241 | flat |
+| 1.1 MB, **13,347 rows** | 899 ms | p50 15 ms, worst 16 ms, 0 janky of 246 | flat |
+
+A locked 60 fps with no frame over 32 ms, and heap stayed at ~90–96 MB throughout. **Stay on
+WebView**; there is no performance case for JCEF. The reason `reader/ArticleRenderer` exists
+anyway is that WebView is *single-process*, so a WebKit crash kills the whole JVM mid-download —
+the interface makes swapping to an out-of-process engine a new implementation rather than a
+rewrite. Untested: MathML (no local archive contains any).
+
+*Measuring this is easy to get wrong.* The first run reported 4 ms loads and flat memory because
+the harness had been given article **titles** where paths were required, so every case 404'd and
+it was timing error pages. Assert the loaded DOM (`document.body.innerHTML.length`, `<tr>` count)
+against what the source says, or the numbers are fiction. Frame pacing likewise needs a real
+`Timeline` between scroll steps — chained `Platform.runLater` calls complete without any frames
+elapsing and record nothing.
 
 **Delta updates — measured, and the answer is no**
 
