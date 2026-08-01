@@ -55,8 +55,17 @@ or with an archive:
 mvn javafx:run -Djavafx.args=/path/to/some.zim
 ```
 
-Get archives from the [Kiwix library](https://library.kiwix.org/) — a small one to try:
-`wikipedia_en_ray_charles` (a few MB).
+Get archives from the [Kiwix library](https://library.kiwix.org/). Good small English ones for
+testing (`download.kiwix.org/zim/wikipedia/`):
+
+| File | Size | Notes |
+| --- | --- | --- |
+| `wikipedia_en_100_mini_<date>.zim` | ~4.5 MB | top-100 articles, text only |
+| `wikipedia_en_100_maxi_<date>.zim` | ~51 MB | top-100 **with images** — best manual test |
+| `wikipedia_en_climate-change_mini_<date>.zim` | ~12 MB | a themed subset |
+
+Every ZIM on the mirror has `.sha256`, `.meta4`, `.torrent` and `.magnet` sidecars beside it;
+verify a download with `sha256sum -c` against the published `.sha256`.
 
 ## Test
 
