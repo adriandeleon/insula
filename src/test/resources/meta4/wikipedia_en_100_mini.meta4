@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<metalink xmlns="urn:ietf:params:xml:ns:metalink">
+  <generator>MirrorBrain/2.19.0</generator>
+  <origin dynamic="true">https://lb.download.kiwix.org/zim/wikipedia/wikipedia_en_100_mini_2026-07.zim.meta4</origin>
+  <published>2026-08-01T05:44:54Z</published>
+  <publisher>
+    <name>Kiwix project</name>
+    <url>https://kiwix.org</url>
+  </publisher>
+
+  <file name="wikipedia_en_100_mini_2026-07.zim">
+    <size>4621915</size>
+
+    <!-- <mtime>1784278023</mtime> -->
+
+    <!-- internal id: 8375 -->
+    <hash type="md5">0f1d290f4f501994466e700fc9c63dfa</hash>
+    <hash type="sha-1">be0bb44ae99bf5b68d8541d2639afb02b5a49bdb</hash>
+    <hash type="sha-256">b3d5db724e2ef884eaf43e3677ba2dc5c4d17619114b3de4602c119ca23dcfcd</hash>
+    <pieces length="4194304" type="sha-1">
+      <hash>f6dc33924096656d9952a6ffe0de101d1b3aa5c6</hash>
+      <hash>33534cc215d7a94fba21cf264a64f2ef954dedce</hash>
+    </pieces>
+
+
+    <!-- Found 13 mirrors: 0 in the same network prefix, 0 in the same autonomous system,
+         4 handling this country, 1 in the same region, 4 elsewhere -->
+
+    <!-- Mirrors in the same network (unknown): -->
+
+    <!-- Mirrors in the same AS (unknown): -->
+
+    <!-- Mirrors which handle this country (MX): -->
+    <url location="us" priority="1">https://wi.mirror.driftle.ss/kiwix/zim/wikipedia/wikipedia_en_100_mini_2026-07.zim</url>
+    <url location="us" priority="2">https://ny.mirror.driftle.ss/kiwix/zim/wikipedia/wikipedia_en_100_mini_2026-07.zim</url>
+    <url location="ca" priority="3">https://mirror-sites-ca.mblibrary.info/mirror-sites/download.kiwix.org/zim/wikipedia/wikipedia_en_100_mini_2026-07.zim</url>
+    <url location="us" priority="4">https://ftpmirror.your.org/pub/kiwix/zim/wikipedia/wikipedia_en_100_mini_2026-07.zim</url>
+
+    <!-- Mirrors in the same continent (NA): -->
+    <url location="us" priority="5">https://dumps.wikimedia.org/kiwix/zim/wikipedia/wikipedia_en_100_mini_2026-07.zim</url>
+
+    <!-- Mirrors in the rest of the world: -->
+    <url location="nl" priority="6">https://ftp.nluug.nl/pub/kiwix/zim/wikipedia/wikipedia_en_100_mini_2026-07.zim</url>
+    <url location="fr" priority="7">https://mirror.download.kiwix.org/zim/wikipedia/wikipedia_en_100_mini_2026-07.zim</url>
+    <url location="dk" priority="8">https://mirrors.dotsrc.org/kiwix/zim/wikipedia/wikipedia_en_100_mini_2026-07.zim</url>
+    <url location="aq" priority="9">https://mirror-sites-in.mblibrary.info/mirror-sites/download.kiwix.org/zim/wikipedia/wikipedia_en_100_mini_2026-07.zim</url>
+  </file>
+</metalink>

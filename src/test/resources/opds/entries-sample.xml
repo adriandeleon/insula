@@ -1,0 +1,129 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/terms/">
+  <id>207096fe-573b-0491-c778-5f9a107058aa</id>
+
+  <link rel="self" href="/catalog/v2/entries?count=200" type="application/atom+xml;profile=opds-catalog;kind=acquisition" />
+  <link rel="start" href="/catalog/v2/root.xml" type="application/atom+xml;profile=opds-catalog;kind=navigation" />
+  <link rel="up" href="/catalog/v2/root.xml" type="application/atom+xml;profile=opds-catalog;kind=navigation" />
+
+  <title>Filtered Entries (count=200)</title>
+  <updated>2026-08-01T05:41:44Z</updated>
+  <totalResults>3611</totalResults>
+  <startIndex>0</startIndex>
+  <itemsPerPage>200</itemsPerPage>
+  <entry>
+    <id>urn:uuid:0002ed21-81ff-39eb-7274-d80240a8ea78</id>
+    <title>Lit Docs</title>
+    <updated>2026-07-06T00:00:00Z</updated>
+    <summary>Lit documentation, by DevDocs</summary>
+    <language>eng</language>
+    <name>devdocs_en_lit</name>
+    <flavour />
+    <category />
+    <tags>devdocs;lit;_ftindex:no;_pictures:yes;_videos:yes;_details:yes</tags>
+    <articleCount>57</articleCount>
+    <mediaCount>0</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail" href="/catalog/v2/illustration/0002ed21-81ff-39eb-7274-d80240a8ea78/?size=48" type="image/png;width=48;height=48;scale=1" />
+    <link type="text/html" href="https://browse.library.kiwix.org/content/devdocs_en_lit_2026-07" />
+    <author>
+      <name>DevDocs</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <dc:issued>2026-07-06T00:00:00Z</dc:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/devdocs/devdocs_en_lit_2026-07.zim.meta4" length="739328" />
+  </entry>
+  <entry>
+    <id>urn:uuid:00072115-bf0f-1e6e-e1cd-9d8c0751f7ed</id>
+    <title>Klexikon – das Kinderlexikon</title>
+    <updated>2026-05-09T00:00:00Z</updated>
+    <summary>Klexikon ist die Wikipedia für Kinder.</summary>
+    <language>deu</language>
+    <name>klexikon_de_all</name>
+    <flavour>nopic</flavour>
+    <category />
+    <tags>zum;_pictures:no;_videos:no;_details:yes;_ftindex:yes</tags>
+    <articleCount>5659</articleCount>
+    <mediaCount>73</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail" href="/catalog/v2/illustration/00072115-bf0f-1e6e-e1cd-9d8c0751f7ed/?size=48" type="image/png;width=48;height=48;scale=1" />
+    <link type="text/html" href="https://browse.library.kiwix.org/content/klexikon_de_all_nopic_2026-05" />
+    <author>
+      <name>Klexikon</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <dc:issued>2026-05-09T00:00:00Z</dc:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/other/klexikon_de_all_nopic_2026-05.zim.meta4" length="9807872" />
+  </entry>
+  <entry>
+    <id>urn:uuid:00083b78-227a-daa7-fb0f-21d764604abc</id>
+    <title>Уикипедия</title>
+    <updated>2026-07-09T00:00:00Z</updated>
+    <summary>офлайн версия на Wikipedia на български език</summary>
+    <language>bul</language>
+    <name>wikipedia_bg_all</name>
+    <flavour>maxi</flavour>
+    <category>wikipedia</category>
+    <tags>wikipedia;_category:wikipedia;_pictures:yes;_videos:no;_details:yes;_ftindex:yes</tags>
+    <articleCount>452996</articleCount>
+    <mediaCount>459506</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail" href="/catalog/v2/illustration/00083b78-227a-daa7-fb0f-21d764604abc/?size=48" type="image/png;width=48;height=48;scale=1" />
+    <link type="text/html" href="https://browse.library.kiwix.org/content/wikipedia_bg_all_maxi_2026-07" />
+    <author>
+      <name>Wikipedia</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <dc:issued>2026-07-09T00:00:00Z</dc:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/wikipedia/wikipedia_bg_all_maxi_2026-07.zim.meta4" length="5121103872" />
+  </entry>
+  <entry>
+    <id>urn:uuid:000d570c-6a48-f3c6-bf54-b934a1474a60</id>
+    <title>UnrealIRCd Docs</title>
+    <updated>2026-05-05T00:00:00Z</updated>
+    <summary>UnrealIRCd documentation</summary>
+    <language>eng</language>
+    <name>unrealircd_en_all</name>
+    <flavour>maxi</flavour>
+    <category />
+    <tags>IRC,computing,documentation;unrealircd;_pictures:yes;_videos:no;_details:yes;_ftindex:yes</tags>
+    <articleCount>366</articleCount>
+    <mediaCount>33</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail" href="/catalog/v2/illustration/000d570c-6a48-f3c6-bf54-b934a1474a60/?size=48" type="image/png;width=48;height=48;scale=1" />
+    <link type="text/html" href="https://browse.library.kiwix.org/content/unrealircd_en_all_maxi_2026-05" />
+    <author>
+      <name>Unrealircd</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <dc:issued>2026-05-05T00:00:00Z</dc:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/zimit/unrealircd_en_all_maxi_2026-05.zim.meta4" length="1500160" />
+  </entry>
+  <entry>
+    <id>urn:uuid:0052a8e1-d874-d619-63f8-ac304012b8f8</id>
+    <title>TED sex</title>
+    <updated>2026-05-01T00:00:00Z</updated>
+    <summary>A collection of TED videos about sex</summary>
+    <language>eng,spa,ara,fra,zho,ita,por,kor,zho,rus,vie,por,heb,tur,deu,jpn,hun,fas,ind,ron,pol,ell</language>
+    <name>ted_mul_sex</name>
+    <flavour />
+    <category>ted</category>
+    <tags>_category:ted;ted;_videos:yes;_ftindex:no;_pictures:yes;_details:yes</tags>
+    <articleCount>73</articleCount>
+    <mediaCount>205</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail" href="/catalog/v2/illustration/0052a8e1-d874-d619-63f8-ac304012b8f8/?size=48" type="image/png;width=48;height=48;scale=1" />
+    <link type="text/html" href="https://browse.library.kiwix.org/content/ted_mul_sex_2026-05" />
+    <author>
+      <name>TED</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <dc:issued>2026-05-01T00:00:00Z</dc:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/ted/ted_mul_sex_2026-05.zim.meta4" length="884545536" />
+  </entry>
+  </feed>
