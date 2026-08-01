@@ -1,0 +1,8 @@
+target/
+*.class
+.idea/
+*.iml
+.vscode/
+.DS_Store
+# local ZIM archives for manual testing (fixtures under src/test/resources are committed)
+/zims/
