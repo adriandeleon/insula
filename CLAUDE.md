@@ -28,15 +28,27 @@ download layer never import JavaFX**, and `app` is the only package that builds 
 - **`server/`** — `ZimHttpServer`: a **loopback-only** HTTP server that serves each entry at its
   real archive path (`/zim/<token>/<ns>/<path>`). Serving at real paths is what makes relative
   links, images and CSS inside archived HTML work with **zero rewriting**; ZIM redirects answer
-  302 so the browser's base URL stays canonical.
-- **`catalog/`** — `ZimEntry` (the model), `OpdsCatalogParser` (Kiwix OPDS v2), `CatalogClient`
-  (queries off the FX thread, generation-guarded).
+  302 so the browser's base URL stays canonical. `LanServer` is the LAN-facing sibling (bind-all,
+  stable slugs, a phone-first index page, read-only by construction, **session-only by design**);
+  the two are separate classes on purpose — different bind, lifetime, and URL contracts.
+- **`catalog/`** — `ZimEntry` (the model), `OpdsCatalogParser` (Kiwix OPDS v2), `CatalogCache`
+  (the full 3,611-entry feed cached on disk with ETag/304, parse-before-swap, never-emptier rule,
+  7-day auto-refresh), `CatalogGroups` (one card per (name, language), variants smallest-first),
+  `StoreFilter` (query × language × category facets, counts ignoring their own dimension),
+  `UpdateCheck` (installed file ↔ catalog match by file-name base + `_YYYY-MM` build stamps;
+  `supersedes` is deliberately conservative because its caller deletes files), and `StarterPicks`
+  (first-run suggestions as catalog **names, never URLs** — `wikipedia_en_simple_all` vanishing
+  from the live feed is why).
 - **`download/`** — the acquisition pipeline. `DownloadTransport`/`DownloadHandle`/
   `ProgressSnapshot`/`ProgressListener` are the seam; `HttpMultiSourceTransport` and the optional
   `TorrentTransport` are the implementations; `Metalink`/`MetalinkParser`, `ChunkPlan`
   (piece-aligned chunking + resume bitmap), `WebSeeds` (the Metalink→torrent merge),
   `Sha256Verifier`, `Quarantine`, `TransportSelector`, `DownloadManager` (the transport → verify →
-  library pipeline).
+  library pipeline), `RecoverySidecar` (title + Metalink URL persisted beside every unfinished
+  download so quit-during-verify resumes and Repair works after the catalog rotates), and
+  `PieceRepair` (scan a quarantined file against the Metalink's SHA-1 piece hashes, re-fetch only
+  the bad ranges — each piece hash-checked before it is written — with the whole-file SHA-256
+  keeping the final say).
 - **`library/`** — `Library`/`LibraryEntry`: local archives and, crucially, their **verified**
   flag. Only a verified archive may be opened automatically.
 - **`search/`** — cross-archive search. `MatchScore` is the pure ranking function (exact > prefix >
@@ -55,11 +67,16 @@ download layer never import JavaFX**, and `app` is the only package that builds 
   over the archive's own; `ReadingPositions`, scroll positions per article stored as a fraction of
   document height so they survive a resize or font change. The reading layer talks to this, not to
   WebView.
-- **`app/`** — the JavaFX shell: `Main`, `ReaderController` (toolbar, search sidebar, WebView),
-  `CommandPalette`, `SettingsDialog`, `LibraryPane`, and the pure `Formats`.
+- **`app/`** — the JavaFX shell: `Main`, `ReaderController` (toolbar, search sidebar, WebView,
+  and the three-surface switch: Reader / Library `Ctrl+1` / Store `Ctrl+2`, Library being home at
+  startup when nothing reopens), `CommandPalette`, `SettingsDialog`, `LibraryPane` (disk gauge +
+  Arriving + Needs-attention + device rows + starter empty-state), `StorePane`, `DownloadRow`
+  (built once per job, updated in place by the 4 Hz tick), `IconCache`, `QrImage`, and the pure
+  `Formats`.
 
 Config lives in `~/.insula/` (`INSULA_CONFIG_DIR` overrides): `settings.properties`,
-`library.properties`, and `archives/`.
+`library.properties`, `archives/` (plus per-download `*.zim.insula` recovery sidecars and
+`*.corrupt` quarantined files), and `catalog/` (cached feed + icons).
 
 ## Conventions
 
@@ -224,7 +241,9 @@ openZIM conversation, not a client feature. The table above is a concrete thing 
 
 ## Roadmap
 
-BitTorrent transport behind the existing seam (plus seeding settings, opt-in and off by default);
-full-text search (the Xapian index inside ZIMs needs native code — a Lucene re-index on first open
-is the likelier path); richer library screen (thumbnails, language/category filters, paging); tabs,
-bookmarks and history; reading themes; split archives (`.zimaa`…); jpackage installers.
+Full-text search (the Xapian index inside ZIMs needs native code — a Lucene re-index on first
+open is the likelier path); tabs, bookmarks and history; split archives (`.zimaa`…); jpackage
+installers; store polish (pagination past MAX_CARDS, locale-aware starter picks); LAN sharing
+extras (mDNS discovery, choosing which archives to share). Done since the original roadmap:
+BitTorrent transport, the card Store with facets, Library-as-home, update pills, starters,
+piece-level Repair, LAN serving + QR.
