@@ -7,7 +7,6 @@ import java.util.function.Consumer;
 import javafx.animation.Animation;
 import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
-import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
@@ -16,7 +15,6 @@ import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
 import javafx.scene.control.ProgressBar;
 import javafx.scene.control.SplitPane;
-import javafx.scene.control.TextField;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -24,8 +22,6 @@ import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.util.Duration;
 
-import com.insula.catalog.CatalogClient;
-import com.insula.catalog.ZimEntry;
 import com.insula.download.DownloadManager;
 import com.insula.download.DownloadState;
 import com.insula.download.ProgressSnapshot;
@@ -49,28 +45,25 @@ final class LibraryPane {
     static final int REFRESH_MILLIS = 250;
     private static final int CATALOG_PAGE = 40;
 
-    private final CatalogClient catalog;
+    private final Region storeNode;
     private final DownloadManager downloads;
     private final Library library;
     private final Consumer<Path> onOpenArchive;
     private final Consumer<String> onStatus;
 
     private final BorderPane root = new BorderPane();
-    private final TextField searchField = new TextField();
-    private final ListView<ZimEntry> catalogList = new ListView<>();
     private final ListView<Object> localList = new ListView<>();
-    private final Label catalogStatus = new Label("");
 
     private final Timeline refresh =
             new Timeline(new KeyFrame(Duration.millis(REFRESH_MILLIS), e -> refreshDownloadRows()));
 
     LibraryPane(
-            CatalogClient catalog,
+            Region storeNode,
             DownloadManager downloads,
             Library library,
             Consumer<Path> onOpenArchive,
             Consumer<String> onStatus) {
-        this.catalog = catalog;
+        this.storeNode = storeNode;
         this.downloads = downloads;
         this.library = library;
         this.onOpenArchive = onOpenArchive;
@@ -96,26 +89,7 @@ final class LibraryPane {
         refresh.stop();
     }
 
-    void focusSearch() {
-        searchField.requestFocus();
-        searchField.selectAll();
-    }
-
     private void build() {
-        searchField.setPromptText("Search the Kiwix catalog (Wikipedia, Wiktionary, StackExchange…)");
-        searchField.setOnAction(e -> runSearch());
-        Button searchButton = new Button("Search");
-        searchButton.setOnAction(e -> runSearch());
-        HBox searchRow = new HBox(8, searchField, searchButton);
-        HBox.setHgrow(searchField, Priority.ALWAYS);
-        searchRow.setPadding(new Insets(8));
-
-        catalogList.setCellFactory(v -> new CatalogCell());
-        catalogList.setPlaceholder(new Label("Search the catalog to find archives to download"));
-        VBox.setVgrow(catalogList, Priority.ALWAYS);
-        catalogStatus.setPadding(new Insets(4, 10, 6, 10));
-        VBox catalogSide = new VBox(searchRow, catalogList, catalogStatus);
-
         localList.setCellFactory(v -> new LocalCell());
         localList.setPlaceholder(new Label("Nothing downloaded yet"));
         VBox.setVgrow(localList, Priority.ALWAYS);
@@ -124,41 +98,9 @@ final class LibraryPane {
         localHeading.setStyle("-fx-font-weight: bold;");
         VBox localSide = new VBox(localHeading, localList);
 
-        SplitPane split = new SplitPane(catalogSide, localSide);
-        split.setDividerPositions(0.58);
+        SplitPane split = new SplitPane(storeNode, localSide);
+        split.setDividerPositions(0.62);
         root.setCenter(split);
-    }
-
-    private void runSearch() {
-        String query = searchField.getText();
-        catalogStatus.setText("Searching…");
-        catalog.search(
-                query,
-                "",
-                CATALOG_PAGE,
-                outcome -> Platform.runLater(() -> {
-                    if (!outcome.ok()) {
-                        catalogStatus.setText(outcome.error());
-                        onStatus.accept(outcome.error());
-                        return;
-                    }
-                    List<ZimEntry> entries = outcome.feed().entries();
-                    catalogList.getItems().setAll(entries);
-                    catalogStatus.setText(
-                            entries.isEmpty()
-                                    ? "No archives matched"
-                                    : entries.size() + " shown"
-                                            + (outcome.feed().totalResults() > entries.size()
-                                                    ? " of " + outcome.feed().totalResults()
-                                                    : ""));
-                }));
-    }
-
-    private void download(ZimEntry entry) {
-        downloads.enqueue(entry);
-        onStatus.accept("Downloading " + entry.displayName());
-        refreshLocal();
-        activate();
     }
 
     /** Rebuilds the local list: active downloads first, then archives already on disk. */
@@ -198,40 +140,6 @@ final class LibraryPane {
         if (!anyActive) {
             refresh.stop();
             refreshLocal();
-        }
-    }
-
-    /** A catalog row: title, summary, and the facts that justify the download. */
-    private final class CatalogCell extends ListCell<ZimEntry> {
-        @Override
-        protected void updateItem(ZimEntry entry, boolean empty) {
-            super.updateItem(entry, empty);
-            if (empty || entry == null) {
-                setGraphic(null);
-                return;
-            }
-            Label title = new Label(entry.displayName());
-            title.setStyle("-fx-font-weight: bold;");
-            Label summary = new Label(entry.summary());
-            summary.setWrapText(true);
-            summary.setStyle("-fx-opacity: 0.75;");
-
-            String facts = Formats.bytes(entry.sizeBytes())
-                    + (entry.articleCount() > 0 ? " · " + entry.articleCount() + " articles" : "")
-                    + (entry.languages().isEmpty() ? "" : " · " + String.join(", ", entry.languages()));
-            Label meta = new Label(facts);
-            meta.setStyle("-fx-opacity: 0.6;");
-
-            Button get = new Button("Download");
-            get.setOnAction(e -> download(entry));
-            Region spacer = new Region();
-            HBox.setHgrow(spacer, Priority.ALWAYS);
-            HBox bottom = new HBox(8, meta, spacer, get);
-            bottom.setAlignment(Pos.CENTER_LEFT);
-
-            VBox box = new VBox(4, title, summary, bottom);
-            box.setPadding(new Insets(8, 4, 8, 4));
-            setGraphic(box);
         }
     }
 

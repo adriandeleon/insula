@@ -39,7 +39,9 @@ import javafx.util.Duration;
 
 import atlantafx.base.theme.PrimerDark;
 import atlantafx.base.theme.PrimerLight;
-import com.insula.catalog.CatalogClient;
+import com.insula.catalog.CatalogCache;
+import com.insula.catalog.StoreFilter;
+import com.insula.catalog.ZimEntry;
 import com.insula.command.CommandRegistry;
 import com.insula.command.Keybindings;
 import com.insula.config.Settings;
@@ -101,7 +103,9 @@ final class ReaderController {
     private String token;
     private String bookTitle = "";
 
-    private final CatalogClient catalog = new CatalogClient();
+    private final CatalogCache catalogCache;
+    private final IconCache iconCache;
+    private final StorePane storePane;
     private final Library library;
     private final TransportSelector transports;
     private final DownloadManager downloads;
@@ -130,7 +134,22 @@ final class ReaderController {
             transports.register(new TorrentTransport(settings.isSeedingEnabled()));
         }
         this.downloads = new DownloadManager(transports, library, dataDir.resolve("archives"));
-        this.libraryPane = new LibraryPane(catalog, downloads, library, this::openFromLibrary, status::setText);
+        this.catalogCache = new CatalogCache(dataDir.resolve("catalog"));
+        this.iconCache = new IconCache(dataDir.resolve("catalog/icons"));
+        this.storePane = new StorePane(
+                catalogCache,
+                iconCache,
+                (entry, title) -> {
+                    downloads.enqueue(entry);
+                    status.setText("Downloading " + title);
+                },
+                entry -> installedFileFor(entry) != null ? StorePane.Installed.YES : StorePane.Installed.NO,
+                this::installedFileFor,
+                this::openFromLibrary,
+                status::setText,
+                () -> freeDiskBytes(dataDir));
+        this.libraryPane =
+                new LibraryPane(storePane.node(), downloads, library, this::openFromLibrary, status::setText);
         buildUi();
         registerCommands();
         bindKeys();
@@ -170,6 +189,10 @@ final class ReaderController {
 
     boolean libraryShowingForTest() {
         return showingLibrary;
+    }
+
+    StorePane storePaneForTest() {
+        return storePane;
     }
 
     // ---------------------------------------------------------------- commands
@@ -214,7 +237,11 @@ final class ReaderController {
         commands.register("library.toggle", "Toggle Library / Reader", this::toggleLibrary);
         commands.register("library.search", "Search the Online Catalog", () -> {
             showLibrary();
-            libraryPane.focusSearch();
+            storePane.focusSearch();
+        });
+        commands.register("catalog.refresh", "Refresh the Catalog", () -> {
+            showLibrary();
+            storePane.refreshCommand();
         });
         commands.register("download.cancelAll", "Cancel All Downloads", () -> {
             downloads.jobs().forEach(DownloadManager.Job::cancel);
@@ -243,6 +270,7 @@ final class ReaderController {
         keys.bind("view.zoomReset", new KeyCodeCombination(KeyCode.DIGIT0, KeyCombination.SHORTCUT_DOWN));
         keys.bind("library.toggle", new KeyCodeCombination(KeyCode.B, KeyCombination.SHORTCUT_DOWN));
         keys.bind("reader.cycleMode", new KeyCodeCombination(KeyCode.R, KeyCombination.SHORTCUT_DOWN));
+        keys.bind("catalog.refresh", new KeyCodeCombination(KeyCode.F5));
     }
 
     void installShortcuts(Scene scene) {
@@ -360,7 +388,27 @@ final class ReaderController {
         if (!showingLibrary) {
             shell.setCenter(libraryPane.node());
             libraryPane.activate();
+            storePane.activate();
             showingLibrary = true;
+        }
+    }
+
+    /** The verified installed file matching this catalog entry's (name, flavour), or null. */
+    private Path installedFileFor(ZimEntry entry) {
+        String base = StoreFilter.installedBaseOf(entry.fileName());
+        return library.verifiedEntries().stream()
+                .filter(e -> StoreFilter.installedBaseOf(e.fileName()).equals(base))
+                .map(com.insula.library.LibraryEntry::file)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private static long freeDiskBytes(Path dataDir) {
+        try {
+            Files.createDirectories(dataDir);
+            return Files.getFileStore(dataDir).getUsableSpace();
+        } catch (IOException e) {
+            return Long.MAX_VALUE; // unknown: do not artificially shrink the default flavour
         }
     }
 
@@ -691,7 +739,8 @@ final class ReaderController {
         searchArchives.clear();
         libraryPane.deactivate();
         downloads.close();
-        catalog.close();
+        catalogCache.close();
+        iconCache.close();
         closeArchive();
         if (server != null) {
             server.close();
