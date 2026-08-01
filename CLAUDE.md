@@ -123,6 +123,35 @@ Config lives in `~/.insula/` (`INSULA_CONFIG_DIR` overrides): `settings.properti
   it must be rejected outright, or never-downloaded ranges get marked present and the archive is
   silently corrupt.
 
+**Delta updates — measured, and the answer is no**
+
+Re-downloading a whole archive for a monthly rebuild is the obvious thing to want to fix. It was
+measured with the rsync experiment (an old build on disk, renamed to the new build's name, then
+`rsync --stats --partial --inplace --no-whole-file` from a mirror that runs an rsync daemon —
+`ftp.nluug.nl::kiwix` works; `mirror.download.kiwix.org` allows only one connection at a time).
+Every result below produced a file whose SHA-256 matched the published digest, so the numbers are
+real transfers, not aborted ones.
+
+| archive | build pair | bytes saved |
+| --- | --- | --- |
+| `wikipedia_fr_chemistry_nopic` | 2026-04 → 2026-07 | **−0.0%** (10 KB *more* than a fresh download) |
+| `bitcoin_en_all_nopic` | 2021-02 → 2021-03 | 0.9% |
+| `alpinelinux_en_all_maxi` | 2026-04 → 2026-07 | 5.1% |
+| `wikipedia_gan_all_maxi` | 2026-04 → 2026-07 | 11.3% |
+| `openzim_en_all_maxi` | 2026-02 → 2026-05 | 11.9% |
+| `termux_en_all_maxi` | 2022-09 → 2022-12 | 27.4% |
+
+Median about 8%; only one of six clears 20% and none comes close to 50%. One real Wikipedia pair
+found **essentially nothing in common** — the delta cost slightly more than downloading the file
+outright. This is the recompression problem: ZIM compresses whole clusters, and between builds
+cluster *membership* shifts, so even unchanged articles land in different clusters and compress to
+different bytes. Rolling-hash tools handle shifted offsets fine; they cannot handle recompression.
+
+**Verdict: do not build delta updates.** `zimdiff`/`zimpatch` are separately unusable (nobody
+publishes diffs, and zimpatch has never produced byte-identical output — openzim/zim-tools#8). The
+real fix is stable cluster assignment and rsyncable framing in the ZIM *writer*, which is an
+openZIM conversation, not a client feature. The table above is a concrete thing to bring them.
+
 **BitTorrent**
 - jlibtorrent on Maven Central is **1.2.0.18 from 2018** with an x86_64-only macOS artifact, so
   2.0.12.9 is **vendored** in `m2-repo/` (~21 MB, checksums in `m2-repo/CHECKSUMS.txt`). A build

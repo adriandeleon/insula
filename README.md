@@ -156,9 +156,14 @@ ZIM format and the Kiwix mirror infrastructure that are easy to get wrong.
 
 ## Roadmap
 
-See [CHANGELOG.md](CHANGELOG.md) for what has landed. Next up: a BitTorrent transport behind the
-existing seam, full-text search, a richer library screen with thumbnails and filters, tabs and
-bookmarks, reading themes, and native installers.
+See [CHANGELOG.md](CHANGELOG.md) for what has landed. Next up: full-text search, a richer library
+screen with thumbnails and filters, tabs and bookmarks, reading themes, and native installers.
+
+**Delta updates are deliberately not planned.** Fetching only what changed between monthly builds
+sounds like the obvious win, but it was measured rather than assumed: across six real build pairs
+the median saving was about 8%, and one Wikipedia pair saved *nothing at all*. ZIM compresses
+whole clusters and cluster membership shifts between builds, so even unchanged articles compress
+to different bytes. The details are in [CLAUDE.md](CLAUDE.md).
 
 ## License
 
