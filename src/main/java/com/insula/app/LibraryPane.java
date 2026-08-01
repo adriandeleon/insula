@@ -64,6 +64,8 @@ final class LibraryPane {
     private final Label gaugeLabel = new Label();
     private final VBox arrivingSection = new VBox(8);
     private final VBox arrivingRows = new VBox(8);
+    private final VBox attentionSection = new VBox(8);
+    private final VBox attentionRows = new VBox(8);
     private final VBox deviceRows = new VBox(8);
 
     private final Map<DownloadManager.Job, DownloadRow> rows = new LinkedHashMap<>();
@@ -73,6 +75,9 @@ final class LibraryPane {
     private List<com.insula.catalog.StarterPicks.Resolved> starters = List.of();
     private Consumer<com.insula.catalog.ZimEntry> onDownloadStarter = e -> {};
     private Runnable onOpenStore = () -> {};
+    private List<Path> quarantined = List.of();
+    private Consumer<Path> onRepair = p -> {};
+    private Consumer<Path> onDeleteQuarantined = p -> {};
     private final Timeline sampler = new Timeline(new KeyFrame(Duration.millis(REFRESH_MILLIS), e -> tick()));
 
     LibraryPane(
@@ -99,9 +104,11 @@ final class LibraryPane {
         gaugeLabel.setStyle("-fx-opacity: 0.7;");
 
         arrivingSection.getChildren().addAll(sectionTitle("Arriving"), arrivingRows);
+        attentionSection.getChildren().addAll(sectionTitle("Needs attention"), attentionRows);
 
         content.setPadding(new Insets(14));
-        content.getChildren().addAll(gauge, arrivingSection, sectionTitle("On this device"), deviceRows);
+        content.getChildren()
+                .addAll(gauge, arrivingSection, attentionSection, sectionTitle("On this device"), deviceRows);
 
         root = new ScrollPane(content);
         root.setFitToWidth(true);
@@ -130,6 +137,14 @@ final class LibraryPane {
         this.updates = Map.copyOf(updates);
         this.onUpdate = onUpdate;
         rebuildDevice();
+    }
+
+    /** Quarantined files offered for piece-level Repair (or deletion). */
+    void setAttention(List<Path> quarantined, Consumer<Path> onRepair, Consumer<Path> onDeleteQuarantined) {
+        this.quarantined = List.copyOf(quarantined);
+        this.onRepair = onRepair;
+        this.onDeleteQuarantined = onDeleteQuarantined;
+        rebuildAttention();
     }
 
     /** First-run suggestions shown while the library is empty; resolved names, never links. */
@@ -164,7 +179,43 @@ final class LibraryPane {
 
     private void rebuildAll() {
         rebuildArriving(downloads.jobs());
+        rebuildAttention();
         rebuildDevice();
+    }
+
+    private void rebuildAttention() {
+        attentionRows.getChildren().clear();
+        for (Path file : quarantined) {
+            attentionRows.getChildren().add(attentionRow(file));
+        }
+        boolean visible = !quarantined.isEmpty();
+        attentionSection.setVisible(visible);
+        attentionSection.setManaged(visible);
+    }
+
+    /** A quarantined file: what it is, why it's here, and the two ways out. */
+    private Region attentionRow(Path file) {
+        Label title = new Label(file.getFileName().toString());
+        title.setStyle("-fx-font-weight: bold;");
+        Label meta = new Label("Failed checksum verification — repair re-downloads only the damaged parts");
+        meta.setStyle("-fx-opacity: 0.55; -fx-font-size: 0.85em;");
+        VBox main = new VBox(2, title, meta);
+        HBox.setHgrow(main, Priority.ALWAYS);
+
+        Button repair = new Button("Repair");
+        repair.setOnAction(e -> {
+            repair.setDisable(true);
+            onRepair.accept(file);
+        });
+        Button delete = new Button("Delete");
+        delete.setOnAction(e -> onDeleteQuarantined.accept(file));
+
+        HBox row = new HBox(12, main, repair, delete);
+        row.setAlignment(Pos.CENTER_LEFT);
+        row.setPadding(new Insets(10, 12, 10, 12));
+        row.setStyle("-fx-background-color: -color-bg-default; -fx-border-color: #a16207;"
+                + " -fx-border-radius: 8; -fx-background-radius: 8;");
+        return row;
     }
 
     private void rebuildArriving(List<DownloadManager.Job> jobs) {
@@ -327,6 +378,10 @@ final class LibraryPane {
 
     int updatePillsForTest() {
         return updatePillCount;
+    }
+
+    int attentionRowsForTest() {
+        return attentionRows.getChildren().size();
     }
 
     int starterRowsForTest() {

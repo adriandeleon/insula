@@ -86,6 +86,7 @@ class LibraryPaneFxTest {
                 "store.open",
                 "library.checkUpdates",
                 "library.updateAll",
+                "library.repairAll",
                 "library.reader",
                 "library.toggle",
                 "library.search",
@@ -159,6 +160,23 @@ class LibraryPaneFxTest {
             assertEquals(ReaderController.Surface.LIBRARY, controller.surfaceForTest());
             return null;
         });
+    }
+
+    @Test
+    void quarantinedFilesSurfaceInTheNeedsAttentionSection(@TempDir Path dir) throws Exception {
+        Path archives = dir.resolve("archives");
+        Files.createDirectories(archives);
+        Files.writeString(archives.resolve("broken_2026-01.zim.corrupt"), "damaged bytes");
+
+        withShell(dir, (controller, settings) -> {
+            controller.commandsForTest().run("library.open");
+            assertEquals(1, controller.libraryPaneForTest().attentionRowsForTest());
+
+            // Declining the delete confirm keeps the file and the row.
+            controller.quarantineDeleteConfirmerForTest(f -> false);
+            return null;
+        });
+        assertTrue(Files.exists(archives.resolve("broken_2026-01.zim.corrupt")));
     }
 
     @Test

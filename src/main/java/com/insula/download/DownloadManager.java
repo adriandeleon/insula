@@ -136,6 +136,11 @@ public final class DownloadManager implements AutoCloseable {
     private void runPipeline(Job job) {
         try {
             Files.createDirectories(downloadDir);
+            try {
+                RecoverySidecar.write(job.destination(), job.entry());
+            } catch (IOException e) {
+                LOG.log(Level.FINE, "Could not write recovery sidecar", e); // repair degrades, download proceeds
+            }
             DownloadTransport transport = selector.select(job.entry());
             DownloadResult result = download(job, transport);
 
@@ -267,9 +272,148 @@ public final class DownloadManager implements AutoCloseable {
                     job.destination(), job.entry().title(), size, sha256, verified, System.currentTimeMillis()));
             library.save();
         }
+        RecoverySidecar.delete(job.destination());
         if (verified) {
             onAdmitted.accept(job);
         }
+    }
+
+    /**
+     * Picks up files whose verification a previous run never finished: a bare {@code .zim} with a
+     * recovery sidecar and no in-flight {@code .part}. The sidecar's Metalink supplies the
+     * published SHA-256; unreachable network keeps the file pending for the next launch.
+     * Runs on the pipeline executor; callbacks arrive on that thread.
+     */
+    public void resumePendingVerification(Consumer<String> onStatus) {
+        pipeline.execute(() -> {
+            List<Path> pending = pendingVerifications();
+            for (Path zim : pending) {
+                RecoverySidecar.Info info = RecoverySidecar.read(zim).orElse(null);
+                if (info == null) {
+                    continue;
+                }
+                onStatus.accept("Finishing verification of " + zim.getFileName());
+                Metalink metalink = fetchMetalinkByUrl(info.metalinkUrl());
+                if (metalink == null) {
+                    onStatus.accept("Verification of " + zim.getFileName() + " postponed (offline?)");
+                    continue;
+                }
+                verifyStandalone(zim, info.title(), metalink, onStatus);
+            }
+        });
+    }
+
+    /** Bare {@code .zim} files with a sidecar and no {@code .part} — quit-during-verify leftovers. */
+    List<Path> pendingVerifications() {
+        try (var stream = Files.list(downloadDir)) {
+            return stream.filter(f -> f.getFileName().toString().endsWith(".zim"))
+                    .filter(f -> Files.isRegularFile(RecoverySidecar.sidecarFor(f)))
+                    .filter(f -> !Files.exists(f.resolveSibling(f.getFileName() + ".part")))
+                    .sorted()
+                    .toList();
+        } catch (IOException e) {
+            return List.of();
+        }
+    }
+
+    private void verifyStandalone(Path zim, String title, Metalink metalink, Consumer<String> onStatus) {
+        String published = Sha256Verifier.normalize(metalink.sha256Hash().orElse(""));
+        try {
+            if (published.isBlank()) {
+                admitFile(zim, title, "", false);
+                onStatus.accept(zim.getFileName() + " admitted (no checksum published)");
+                return;
+            }
+            Sha256Verifier.Verification verification = Sha256Verifier.verify(zim, published, read -> {}, () -> false);
+            if (verification.ok()) {
+                admitFile(zim, title, verification.actual(), true);
+                onStatus.accept(zim.getFileName() + " verified");
+            } else {
+                Path quarantined = Quarantine.quarantine(zim);
+                onStatus.accept(zim.getFileName() + " failed verification — kept at " + quarantined.getFileName());
+            }
+        } catch (IOException e) {
+            onStatus.accept("Verification of " + zim.getFileName() + " failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Repairs a quarantined file piece by piece (see {@link PieceRepair}), then admits it.
+     * Needs the recovery sidecar written when the file was downloaded; without it there is no
+     * Metalink to repair against. Runs on the pipeline executor.
+     */
+    public void repairQuarantined(Path quarantined, Consumer<String> onStatus, Consumer<Boolean> onDone) {
+        pipeline.execute(() -> {
+            boolean ok = false;
+            try {
+                Path zim = RecoverySidecar.zimFor(quarantined);
+                RecoverySidecar.Info info = RecoverySidecar.read(zim).orElse(null);
+                if (info == null) {
+                    onStatus.accept(
+                            "No recovery info for " + quarantined.getFileName() + " — delete it and download again");
+                    return;
+                }
+                if (Files.exists(zim)) {
+                    onStatus.accept(zim.getFileName() + " already exists — delete the quarantined copy");
+                    return;
+                }
+                Metalink metalink = fetchMetalinkByUrl(info.metalinkUrl());
+                if (metalink == null) {
+                    onStatus.accept("Could not fetch the Metalink for " + quarantined.getFileName());
+                    return;
+                }
+                PieceRepair.Result result = PieceRepair.repair(
+                        quarantined,
+                        metalink,
+                        http,
+                        phase -> onStatus.accept(quarantined.getFileName() + ": " + phase));
+                if (!result.ok()) {
+                    onStatus.accept("Repair failed: " + result.message());
+                    return;
+                }
+                Files.move(quarantined, zim);
+                admitFile(zim, info.title(), result.sha256(), !result.sha256().isBlank());
+                onStatus.accept(zim.getFileName() + " repaired — " + result.message());
+                ok = true;
+            } catch (IOException e) {
+                onStatus.accept("Repair failed: " + e.getMessage());
+            } finally {
+                onDone.accept(ok);
+            }
+        });
+    }
+
+    /** Fetches and parses a Metalink by URL; null when unreachable or unparseable. */
+    Metalink fetchMetalinkByUrl(String url) {
+        try {
+            HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+                    .header("User-Agent", AppInfo.USER_AGENT)
+                    .timeout(Duration.ofSeconds(30))
+                    .GET()
+                    .build();
+            HttpResponse<InputStream> response = http.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            if (response.statusCode() != 200) {
+                return null;
+            }
+            try (InputStream in = response.body()) {
+                return MetalinkParser.parse(in);
+            }
+        } catch (IOException | RuntimeException e) {
+            LOG.log(Level.FINE, "Metalink fetch failed: " + url, e);
+            return null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        }
+    }
+
+    private void admitFile(Path file, String title, String sha256, boolean verified) throws IOException {
+        long size = Files.size(file);
+        synchronized (library) {
+            library.put(new LibraryEntry(file, title, size, sha256, verified, System.currentTimeMillis()));
+            library.save();
+        }
+        RecoverySidecar.delete(file);
     }
 
     String fetchSha256(ZimEntry entry) {

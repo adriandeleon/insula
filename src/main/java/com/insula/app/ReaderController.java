@@ -174,6 +174,14 @@ final class ReaderController {
         bindKeys();
         palette = new CommandPalette(root, commands, keys::displayFor);
         applySettings();
+        // Verification a previous run never finished resumes now that the whole shell exists.
+        downloads.resumePendingVerification(msg -> Platform.runLater(() -> {
+            status.setText(msg);
+            if (surface == Surface.LIBRARY) {
+                refreshAttention();
+                libraryPane.activate();
+            }
+        }));
     }
 
     Parent root() {
@@ -266,6 +274,7 @@ final class ReaderController {
         commands.register("library.toggle", "Toggle Library / Reader", this::toggleLibrary);
         commands.register("library.checkUpdates", "Check for Archive Updates", () -> checkForUpdates(true));
         commands.register("library.updateAll", "Update All Archives", this::updateAllArchives);
+        commands.register("library.repairAll", "Repair Quarantined Archives", this::repairAllQuarantined);
         commands.register("library.search", "Search the Online Catalog", () -> {
             showStore();
             storePane.focusSearch();
@@ -427,6 +436,7 @@ final class ReaderController {
             libraryPane.activate();
             surface = Surface.LIBRARY;
             syncNavTabs();
+            refreshAttention();
             checkForUpdates(false); // starters + update pills, off-thread, disk cache only
         }
     }
@@ -617,6 +627,81 @@ final class ReaderController {
                 javafx.scene.control.ButtonType.OK,
                 javafx.scene.control.ButtonType.CANCEL);
         alert.setHeaderText("Delete superseded archive" + (names.size() == 1 ? "" : "s") + "?");
+        return alert.showAndWait().orElse(javafx.scene.control.ButtonType.CANCEL) == javafx.scene.control.ButtonType.OK;
+    }
+
+    // ---------------------------------------------------------------- quarantine repair
+
+    /** Test seam: replaces the modal delete-quarantined confirm. */
+    private java.util.function.Predicate<Path> quarantineDeleteConfirmer = this::confirmQuarantineDelete;
+
+    void quarantineDeleteConfirmerForTest(java.util.function.Predicate<Path> confirmer) {
+        this.quarantineDeleteConfirmer = confirmer;
+    }
+
+    /** Quarantined downloads on disk, oldest name first. */
+    List<Path> listQuarantined() {
+        try (var stream = Files.list(dataDir.resolve("archives"))) {
+            return stream.filter(f -> f.getFileName().toString().contains(com.insula.download.Quarantine.SUFFIX))
+                    .sorted()
+                    .toList();
+        } catch (IOException e) {
+            return List.of();
+        }
+    }
+
+    void refreshAttention() {
+        libraryPane.setAttention(listQuarantined(), this::repairArchive, this::deleteQuarantined);
+    }
+
+    private void repairArchive(Path quarantined) {
+        status.setText("Repairing " + quarantined.getFileName() + "…");
+        downloads.repairQuarantined(
+                quarantined,
+                msg -> Platform.runLater(() -> status.setText(msg)),
+                ok -> Platform.runLater(() -> {
+                    refreshAttention();
+                    if (surface == Surface.LIBRARY) {
+                        libraryPane.activate();
+                    }
+                }));
+    }
+
+    private void repairAllQuarantined() {
+        List<Path> files = listQuarantined();
+        if (files.isEmpty()) {
+            status.setText("Nothing is quarantined");
+            return;
+        }
+        showLibrary();
+        files.forEach(this::repairArchive);
+    }
+
+    private void deleteQuarantined(Path file) {
+        if (!quarantineDeleteConfirmer.test(file)) {
+            return;
+        }
+        try {
+            Files.deleteIfExists(file);
+            // Drop the sidecar only when no other copy still needs it.
+            Path zim = com.insula.download.RecoverySidecar.zimFor(file);
+            if (!Files.exists(zim) && listQuarantined().isEmpty()) {
+                com.insula.download.RecoverySidecar.delete(zim);
+            }
+            status.setText("Deleted " + file.getFileName());
+        } catch (IOException e) {
+            status.setText("Could not delete " + file.getFileName() + ": " + e.getMessage());
+        }
+        refreshAttention();
+    }
+
+    private boolean confirmQuarantineDelete(Path file) {
+        javafx.scene.control.Alert alert = new javafx.scene.control.Alert(
+                javafx.scene.control.Alert.AlertType.CONFIRMATION,
+                "Delete " + file.getFileName() + "? Repair could still salvage it without a full re-download.",
+                javafx.scene.control.ButtonType.OK,
+                javafx.scene.control.ButtonType.CANCEL);
+        alert.setHeaderText("Delete quarantined file?");
         return alert.showAndWait().orElse(javafx.scene.control.ButtonType.CANCEL) == javafx.scene.control.ButtonType.OK;
     }
 
