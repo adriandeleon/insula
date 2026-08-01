@@ -1,4 +1,4 @@
-module com.offlinewiki {
+module com.insula {
     requires javafx.controls;
     requires javafx.web;
     requires atlantafx.base;
@@ -9,6 +9,6 @@ module com.offlinewiki {
     requires org.tukaani.xz;
     requires com.github.luben.zstd_jni;
 
-    exports com.offlinewiki.app to
+    exports com.insula.app to
             javafx.graphics;
 }
