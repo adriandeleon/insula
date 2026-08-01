@@ -3,7 +3,6 @@ package com.insula.app;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -52,6 +51,8 @@ import com.insula.download.HttpMultiSourceTransport;
 import com.insula.download.TorrentTransport;
 import com.insula.download.TransportSelector;
 import com.insula.library.Library;
+import com.insula.library.LibraryEntry;
+import com.insula.search.LibrarySearch;
 import com.insula.server.ZimHttpServer;
 import com.insula.zim.Dirent;
 import com.insula.zim.ZimArchive;
@@ -74,7 +75,7 @@ final class ReaderController {
     private final StackPane root = new StackPane();
     private final BorderPane shell = new BorderPane();
     private final TextField searchField = new TextField();
-    private final ListView<ZimArchive.SearchResult> results = new ListView<>();
+    private final ListView<LibrarySearch.Result> results = new ListView<>();
     private final WebView webView = new WebView();
     private final Button backButton = new Button("←");
     private final Button forwardButton = new Button("→");
@@ -96,6 +97,7 @@ final class ReaderController {
 
     private ZimHttpServer server;
     private ZimArchive archive;
+    private Path currentArchiveFile;
     private String token;
     private String bookTitle = "";
 
@@ -104,6 +106,10 @@ final class ReaderController {
     private final TransportSelector transports;
     private final DownloadManager downloads;
     private final LibraryPane libraryPane;
+    /** Cross-archive search: every archive in the library, not just the one being read. */
+    private final LibrarySearch librarySearch = new LibrarySearch();
+
+    private final java.util.Map<Path, ZimArchive> searchArchives = new java.util.LinkedHashMap<>();
     private SplitPane readerSplit;
     private boolean showingLibrary;
 
@@ -275,19 +281,27 @@ final class ReaderController {
 
         results.setCellFactory(list -> new ListCell<>() {
             @Override
-            protected void updateItem(ZimArchive.SearchResult item, boolean empty) {
+            protected void updateItem(LibrarySearch.Result item, boolean empty) {
                 super.updateItem(item, empty);
-                setText(empty || item == null ? null : item.title());
+                if (empty || item == null) {
+                    setGraphic(null);
+                    return;
+                }
+                Label title = new Label(item.title());
+                Label source = new Label(item.archiveTitle());
+                source.setStyle("-fx-opacity: 0.6; -fx-font-size: 0.85em;");
+                VBox box = new VBox(1, title, source);
+                setGraphic(box);
             }
         });
         results.setOnMouseClicked(e -> {
-            ZimArchive.SearchResult selected = results.getSelectionModel().getSelectedItem();
+            LibrarySearch.Result selected = results.getSelectionModel().getSelectedItem();
             if (selected != null) {
                 openResult(selected);
             }
         });
         results.setOnKeyPressed(e -> {
-            ZimArchive.SearchResult selected = results.getSelectionModel().getSelectedItem();
+            LibrarySearch.Result selected = results.getSelectionModel().getSelectedItem();
             if (e.getCode() == KeyCode.ENTER && selected != null) {
                 openResult(selected);
                 e.consume();
@@ -436,8 +450,12 @@ final class ReaderController {
             homeButton.setDisable(false);
             results.getItems().clear();
             searchField.clear();
-            settings.setLastArchive(file.toAbsolutePath().toString());
+            currentArchiveFile = file.toAbsolutePath();
+            settings.setLastArchive(currentArchiveFile.toString());
             settings.save();
+            // The archive being read participates in search alongside the rest of the library.
+            librarySearch.add(currentArchiveFile, bookTitle, archive);
+            refreshSearchSources();
             goHome();
             searchField.requestFocus();
         } catch (IOException e) {
@@ -479,30 +497,53 @@ final class ReaderController {
     // ---------------------------------------------------------------- search
 
     private void runSearch(String query) {
-        if (archive == null || query == null || query.isBlank()) {
+        if (query == null || query.isBlank()) {
             results.getItems().clear();
             return;
         }
         long generation = searchGeneration.incrementAndGet();
-        ZimArchive current = archive;
-        int limit = settings.getSearchLimit();
-        searchExecutor.execute(() -> {
-            try {
-                List<ZimArchive.SearchResult> found = current.searchByTitle(query.strip(), limit);
-                if (generation == searchGeneration.get()) {
-                    Platform.runLater(() -> {
-                        if (generation == searchGeneration.get()) {
-                            results.getItems().setAll(found);
-                        }
-                    });
-                }
-            } catch (IOException ignored) {
-                // stale archive or truncated file; the next keystroke retries
+        librarySearch.search(query, settings.getSearchLimit(), found -> {
+            if (generation == searchGeneration.get()) {
+                Platform.runLater(() -> {
+                    if (generation == searchGeneration.get()) {
+                        results.getItems().setAll(found);
+                    }
+                });
             }
         });
     }
 
-    private void openResult(ZimArchive.SearchResult result) {
+    /**
+     * Registers every verified archive in the library plus the one being read, so one search box
+     * spans them all. Archives are opened here but indexed lazily on first search, so adding a
+     * large library costs a file handle each and nothing more until the user actually types.
+     */
+    private void refreshSearchSources() {
+        for (LibraryEntry entry : library.verifiedEntries()) {
+            searchArchives.computeIfAbsent(entry.file(), file -> {
+                try {
+                    ZimArchive opened = ZimArchive.open(file);
+                    librarySearch.add(file, entry.title(), opened);
+                    return opened;
+                } catch (IOException e) {
+                    return null;
+                }
+            });
+        }
+        searchArchives.values().removeIf(java.util.Objects::isNull);
+    }
+
+    /**
+     * Opens a result, switching archives first when the hit came from one that is not currently
+     * being read — that is the whole point of searching across the library rather than within one
+     * book.
+     */
+    private void openResult(LibrarySearch.Result result) {
+        if (archive != null && result.archiveFile().equals(currentArchiveFile)) {
+            webView.getEngine().load(server.urlFor(token, result.fullPath()));
+            return;
+        }
+        openZim(result.archiveFile());
         if (archive != null) {
             webView.getEngine().load(server.urlFor(token, result.fullPath()));
         }
@@ -547,6 +588,15 @@ final class ReaderController {
 
     void dispose() {
         searchExecutor.shutdownNow();
+        librarySearch.close();
+        searchArchives.values().forEach(a -> {
+            try {
+                a.close();
+            } catch (IOException ignored) {
+                // read-only handles; nothing actionable
+            }
+        });
+        searchArchives.clear();
         libraryPane.deactivate();
         downloads.close();
         catalog.close();

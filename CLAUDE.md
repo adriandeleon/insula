@@ -39,6 +39,14 @@ download layer never import JavaFX**, and `app` is the only package that builds 
   library pipeline).
 - **`library/`** — `Library`/`LibraryEntry`: local archives and, crucially, their **verified**
   flag. Only a verified archive may be opened automatically.
+- **`search/`** — cross-archive search. `MatchScore` is the pure ranking function (exact > prefix >
+  word-start > substring > subsequence > single Damerau–Levenshtein edit); `TitleIndex` holds one
+  archive's titles in memory; `LibrarySearch` merges every archive's results. Fuzzy matching
+  cannot use the on-disk title index — that is sorted for prefix lookup, and scanning it per
+  keystroke would re-read every dirent (~350 ms on a 192k-entry archive). Titles are therefore
+  walked **once, off-thread, lazily on first search** and kept pre-lower-cased, because
+  lower-casing 192k strings per keystroke would cost more than the search. Measured: ~13 ms per
+  query across 197k entries in four archives.
 - **`command/`** — `CommandRegistry`, `Keybindings`, and the pure `PaletteFilter` ranking.
 - **`config/`** — `Settings`: a properties file with atomic save, values clamped/normalized on
   read so a hand-edited or truncated file degrades to defaults per field.

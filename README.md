@@ -22,8 +22,11 @@ step, no platform-specific native toolchain to install.
   uncompressed, XZ and Zstandard clusters.
 - Articles render with their images and stylesheets intact — entries are served at their real
   archive paths, so nothing inside the archived HTML has to be rewritten.
-- Search-as-you-type over the archive's title index, with back/forward history. Links to the live
-  web open in your system browser rather than pretending to work offline.
+- **Cross-archive search**: one box spanning every archive on disk, so you can look something up
+  without first deciding which book it lives in. Results are ranked, tolerate a typo, and are
+  labelled with the archive they came from; opening one switches archives for you.
+- Back/forward history. Links to the live web open in your system browser rather than pretending
+  to work offline.
 
 **Library and downloads**
 

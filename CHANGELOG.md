@@ -21,6 +21,12 @@ Everything below is in `main` and unreleased; there has been no tagged version y
   ZIM redirects answer HTTP 302 to keep the browser's base URL canonical.
 - Title-prefix search over the archive index, preferring the `X/listing/titleOrdered/v1`
   front-article listing when present.
+- **Cross-archive fuzzy search**: one query spans every verified archive in the library, so you
+  need not know which book an article lives in. Ranked by match quality (exact > prefix >
+  word-start > substring > subsequence > single typo), tolerant of insertions, deletions,
+  substitutions and transpositions, and each result labelled with its source archive; opening a
+  result switches archives automatically. Titles are indexed in memory lazily and off-thread on
+  first search — measured at ~13 ms per query across 197k entries in four archives.
 - Back/forward history; links to the live web open in the system browser.
 
 **Library and downloads**
