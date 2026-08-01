@@ -91,6 +91,7 @@ with `sha256sum -c` against the published `.sha256`.
 | `Ctrl+Shift+P` | Command palette |
 | `Ctrl+L` | Focus search |
 | `Ctrl+B` | Library and downloads |
+| `Ctrl+1` / `Ctrl+2` | Library / Store |
 | `Ctrl+R` | Cycle reader mode (original / comfortable / dark) |
 | `Ctrl+O` | Open an archive from disk |
 | `Ctrl+,` | Settings |

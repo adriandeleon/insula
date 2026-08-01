@@ -275,6 +275,7 @@ final class ReaderController {
         commands.register("library.checkUpdates", "Check for Archive Updates", () -> checkForUpdates(true));
         commands.register("library.updateAll", "Update All Archives", this::updateAllArchives);
         commands.register("library.repairAll", "Repair Quarantined Archives", this::repairAllQuarantined);
+        commands.register("lan.share", "Share Library on Local Network", this::toggleLanSharing);
         commands.register("library.search", "Search the Online Catalog", () -> {
             showStore();
             storePane.focusSearch();
@@ -628,6 +629,121 @@ final class ReaderController {
                 javafx.scene.control.ButtonType.CANCEL);
         alert.setHeaderText("Delete superseded archive" + (names.size() == 1 ? "" : "s") + "?");
         return alert.showAndWait().orElse(javafx.scene.control.ButtonType.CANCEL) == javafx.scene.control.ButtonType.OK;
+    }
+
+    // ---------------------------------------------------------------- LAN sharing
+
+    private com.insula.server.LanServer lanServer;
+    private final List<com.insula.zim.ZimArchive> lanArchives = new java.util.ArrayList<>();
+    private Stage lanShareWindow;
+
+    com.insula.server.LanServer lanServerForTest() {
+        return lanServer;
+    }
+
+    private void toggleLanSharing() {
+        if (lanServer != null) {
+            stopLanSharing();
+            return;
+        }
+        String url = startLanSharing();
+        if (url != null) {
+            showLanShareWindow(url);
+        }
+    }
+
+    /**
+     * Opens every verified library archive read-only and serves it on the LAN. Session-only by
+     * design; returns the URL other devices should use, or null when nothing could be shared.
+     */
+    String startLanSharing() {
+        List<com.insula.library.LibraryEntry> entries = library.verifiedEntries();
+        if (entries.isEmpty()) {
+            status.setText("Nothing to share — the library has no verified archives");
+            return null;
+        }
+        try {
+            lanServer = new com.insula.server.LanServer(
+                    new java.net.InetSocketAddress(0).getAddress(), settings.getLanPort());
+        } catch (IOException e) {
+            status.setText("Could not start sharing: " + e.getMessage());
+            lanServer = null;
+            return null;
+        }
+        int sharedCount = 0;
+        for (com.insula.library.LibraryEntry entry : entries) {
+            try {
+                com.insula.zim.ZimArchive opened = com.insula.zim.ZimArchive.open(entry.file());
+                lanArchives.add(opened);
+                lanServer.share(
+                        com.insula.server.LanServer.slugFor(entry.fileName()),
+                        entry.title(),
+                        entry.sizeBytes(),
+                        opened);
+                sharedCount++;
+            } catch (IOException e) {
+                status.setText("Could not share " + entry.fileName() + ": " + e.getMessage());
+            }
+        }
+        if (sharedCount == 0) {
+            stopLanSharing();
+            return null;
+        }
+        String host = com.insula.server.LanServer.lanAddress().orElse("127.0.0.1");
+        String url = "http://" + host + ":" + lanServer.port() + "/";
+        status.setText("Sharing " + sharedCount + (sharedCount == 1 ? " archive at " : " archives at ") + url);
+        return url;
+    }
+
+    void stopLanSharing() {
+        if (lanShareWindow != null) {
+            lanShareWindow.close();
+            lanShareWindow = null;
+        }
+        if (lanServer != null) {
+            lanServer.close();
+            lanServer = null;
+        }
+        for (com.insula.zim.ZimArchive opened : lanArchives) {
+            try {
+                opened.close();
+            } catch (IOException ignored) {
+                // read-only handles; nothing to lose
+            }
+        }
+        lanArchives.clear();
+        status.setText("Stopped sharing");
+    }
+
+    /** URL + QR in a small window — the point is a phone camera, not a copy-paste. */
+    private void showLanShareWindow(String url) {
+        javafx.scene.image.ImageView qr = new javafx.scene.image.ImageView(QrImage.render(url));
+        Label heading = new Label("Scan on your phone, or open:");
+        TextField urlField = new TextField(url);
+        urlField.setEditable(false);
+        Button copy = new Button("Copy");
+        copy.setOnAction(e -> {
+            javafx.scene.input.ClipboardContent content = new javafx.scene.input.ClipboardContent();
+            content.putString(url);
+            javafx.scene.input.Clipboard.getSystemClipboard().setContent(content);
+            status.setText("Copied " + url);
+        });
+        HBox urlRow = new HBox(8, urlField, copy);
+        HBox.setHgrow(urlField, Priority.ALWAYS);
+        Label note = new Label("Visible to everyone on this network. Sharing stops when you close Insula.");
+        note.setStyle("-fx-opacity: 0.6; -fx-font-size: 0.85em;");
+        note.setWrapText(true);
+        Button stop = new Button("Stop sharing");
+        stop.setOnAction(e -> stopLanSharing());
+
+        VBox box = new VBox(12, heading, qr, urlRow, note, stop);
+        box.setPadding(new Insets(18));
+        box.setAlignment(Pos.CENTER);
+        lanShareWindow = new Stage();
+        lanShareWindow.setTitle("Share on local network");
+        lanShareWindow.setScene(new Scene(box));
+        lanShareWindow.setOnCloseRequest(e -> lanShareWindow = null);
+        lanShareWindow.show();
     }
 
     // ---------------------------------------------------------------- quarantine repair
@@ -1052,6 +1168,9 @@ final class ReaderController {
         });
         searchArchives.clear();
         libraryPane.deactivate();
+        if (lanServer != null) {
+            stopLanSharing();
+        }
         downloads.close();
         catalogCache.close();
         iconCache.close();

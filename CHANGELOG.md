@@ -83,6 +83,34 @@ Everything below is in `main` and unreleased; there has been no tagged version y
   and range-ignoring mirrors, and headless-FX tests on JavaFX 26's built-in headless platform, so
   the whole suite runs without a display.
 
+**Library & Store**
+
+- The Library is the home surface: a disk gauge (space used by archives, free space written out),
+  a pinned "Arriving" section of in-place-updated download rows while anything is in flight, and
+  the on-device archive list. The Store is its own full surface with toolbar navtabs; `Ctrl+1`
+  opens the Library, `Ctrl+2` the Store, and startup lands on the Library when nothing reopens.
+- **Update detection**: installed archives are matched to the cached catalog by file-name base
+  (name + flavour, build date stripped) and get an "Update to YYYY-MM" pill when the catalog has a
+  strictly newer build; `library.checkUpdates` announces the count and `library.updateAll` queues
+  everything. After a verified update lands, Insula offers — never silently performs — deletion of
+  the superseded older build, and never touches the archive currently being read.
+- **First-run starters**: an empty library suggests a few curated archives (a seconds-sized
+  Wikipedia demo, Wikipedia's most-read articles, Wikivoyage, Vikidia), resolved against the
+  cached catalog by name at display time — never hardcoded links — with the flavour sized to fit
+  free disk.
+- **Piece-level repair**: a quarantined file can be repaired instead of re-downloaded. The
+  Metalink's 4 MiB SHA-1 piece hashes pinpoint the damaged ranges; only those travel again (each
+  piece hash-checked before it is written), and the whole-file SHA-256 keeps the final say. A
+  recovery sidecar written beside every download also lets a quit-during-verification resume at
+  the next launch instead of stranding the file.
+
+**LAN sharing**
+
+- `lan.share` serves the verified library to other devices on the local network, kiwix-serve
+  style: a phone-friendly index page plus every archive at a stable URL, with a QR code window for
+  pointing a phone camera at. Read-only by construction, session-only by design — sharing never
+  survives a restart.
+
 ### Changed
 
 - Renamed from "Offline Wiki" to **Insula**: package `com.offlinewiki.*` → `com.insula.*`, module

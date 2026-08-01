@@ -12,6 +12,7 @@ repository or in a build, and under what terms.
 | [XZ for Java](https://tukaani.org/xz/java.html) (`org.tukaani:xz`) | XZ/LZMA2 cluster decompression | 0BSD |
 | [zstd-jni](https://github.com/luben/zstd-jni) | Zstandard cluster decompression | BSD-2-Clause |
 | [jlibtorrent](https://github.com/frostwire/frostwire-jlibtorrent) (vendored, see below) | the optional BitTorrent transport | MIT (wrapping [libtorrent](https://libtorrent.org), BSD-3-Clause) |
+| [QR Code generator](https://github.com/nayuki/QR-Code-generator) (`io.nayuki:qrcodegen`) | the QR code shown when sharing the library on the local network | MIT |
 | [JUnit 5](https://junit.org/junit5/) | tests only | EPL-2.0 |
 
 Licenses were read from each artifact's published POM where it declares one (zstd-jni: BSD

@@ -53,6 +53,9 @@ public final class Settings {
     /** Whether to return to where you left off in an article. */
     private boolean rememberPosition = true;
 
+    /** Port for "Share on local network"; 0 = pick an ephemeral port. Sharing itself is session-only. */
+    private int lanPort = 8181;
+
     private Settings(Path file) {
         this.file = file;
     }
@@ -81,6 +84,7 @@ public final class Settings {
             settings.rememberPosition = Boolean.parseBoolean(props.getProperty("rememberPosition", "true"));
             settings.torrentEnabled = Boolean.parseBoolean(props.getProperty("torrentEnabled", "false"));
             settings.seedingEnabled = Boolean.parseBoolean(props.getProperty("seedingEnabled", "false"));
+            settings.lanPort = clamp(parseInt(props.getProperty("lanPort"), settings.lanPort), 0, 65535);
         }
         return settings;
     }
@@ -97,6 +101,7 @@ public final class Settings {
         props.setProperty("rememberPosition", String.valueOf(rememberPosition));
         props.setProperty("torrentEnabled", String.valueOf(torrentEnabled));
         props.setProperty("seedingEnabled", String.valueOf(seedingEnabled));
+        props.setProperty("lanPort", String.valueOf(lanPort));
         try {
             Files.createDirectories(file.getParent());
             Path temp = file.resolveSibling(file.getFileName() + ".tmp");
@@ -210,6 +215,14 @@ public final class Settings {
 
     public void setSeedingEnabled(boolean seedingEnabled) {
         this.seedingEnabled = seedingEnabled;
+    }
+
+    public int getLanPort() {
+        return lanPort;
+    }
+
+    public void setLanPort(int lanPort) {
+        this.lanPort = clamp(lanPort, 0, 65535);
     }
 
     public int getSearchLimit() {

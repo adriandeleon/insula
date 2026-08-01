@@ -3,6 +3,7 @@ module com.insula {
     requires javafx.web;
     requires atlantafx.base;
     requires jdk.httpserver;
+    requires io.nayuki.qrcodegen;
     requires java.logging;
     requires java.net.http;
     requires java.xml;

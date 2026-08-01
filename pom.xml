@@ -89,6 +89,12 @@
             <version>${jlibtorrent.version}</version>
         </dependency>
         <dependency>
+            <!-- QR code generation for LAN sharing (MIT, a real JPMS module, zero deps). -->
+            <groupId>io.nayuki</groupId>
+            <artifactId>qrcodegen</artifactId>
+            <version>1.8.0</version>
+        </dependency>
+        <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
             <version>${junit.version}</version>
