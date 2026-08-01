@@ -10,6 +10,30 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class WebViewRendererTest {
 
     @Test
+    void stylesheetIsEncodedAsADataUri() {
+        // Regression: the reader stylesheet used to be appended by script after navigation, which
+        // landed *after* the new document had painted — so every link click flashed unstyled and
+        // then reflowed. A user stylesheet is applied during parsing instead, and persists across
+        // navigations without re-injection.
+        String uri = WebViewRenderer.dataUri("body { color: red }");
+        assertTrue(uri.startsWith("data:text/css;base64,"), uri);
+        String decoded = new String(
+                java.util.Base64.getDecoder().decode(uri.substring("data:text/css;base64,".length())),
+                java.nio.charset.StandardCharsets.UTF_8);
+        assertEquals("body { color: red }", decoded);
+    }
+
+    @Test
+    void nonAsciiCssSurvivesEncoding() {
+        String css = "a::after { content: '→ ünïcode' }";
+        String decoded = new String(
+                java.util.Base64.getDecoder()
+                        .decode(WebViewRenderer.dataUri(css).substring("data:text/css;base64,".length())),
+                java.nio.charset.StandardCharsets.UTF_8);
+        assertEquals(css, decoded);
+    }
+
+    @Test
     void quotesCssAsAJavaScriptStringLiteral() {
         assertEquals("\"body { color: red }\"", WebViewRenderer.quote("body { color: red }"));
     }

@@ -635,12 +635,15 @@ final class ReaderController {
     }
 
     /**
-     * Runs for every article the view lands on: saves where we were in the previous one, restyles
-     * the new one, and returns to its remembered position.
+     * Runs for every article the view lands on: saves where we were in the previous one, and
+     * returns to the new one's remembered position.
+     *
+     * <p>The reader stylesheet is deliberately <b>not</b> re-applied here. It is a user stylesheet
+     * on the engine, so it already covers every document loaded; re-applying it per navigation is
+     * what made each link click flash, because the script landed after the new page had painted.
      */
     private void onArticleShown(String decodedPath) {
         savePosition();
-        applyReaderTheme();
 
         if (currentArchiveFile == null) {
             return;

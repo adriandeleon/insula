@@ -1,5 +1,7 @@
 package com.insula.reader;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.function.Consumer;
 
 import javafx.scene.Node;
@@ -69,26 +71,28 @@ public final class WebViewRenderer implements ArticleRenderer {
         webView.setZoom(factor);
     }
 
+    /**
+     * Applies the reader stylesheet as WebKit's <b>user stylesheet</b>.
+     *
+     * <p>The obvious implementation — appending a {@code <style>} element by script once the page
+     * has navigated — flashes on every link click: the new document parses and paints with its own
+     * styling, and only then does the script reflow it. With a content width set that is a visible
+     * full-width-then-narrow jump on every article, even in "original" mode.
+     *
+     * <p>A user stylesheet is applied while the document is parsed, so there is nothing to reflow,
+     * and it persists across navigations by itself rather than needing re-injection. It is also
+     * the correct level of the cascade: a <em>user</em> {@code !important} rule outranks an
+     * <em>author</em> {@code !important} rule, which is exactly the precedence needed to override
+     * a stylesheet shipped inside the archive.
+     */
     @Override
     public void injectCss(String css) {
-        if (css == null || css.isBlank()) {
-            return;
-        }
-        // Appended as a <style> element rather than set as a user stylesheet so it wins against
-        // the archive's own rules and can be replaced without reloading the page.
-        String script = """
-                (function() {
-                  var id = 'insula-reader-style';
-                  var el = document.getElementById(id);
-                  if (!el) {
-                    el = document.createElement('style');
-                    el.id = id;
-                    (document.head || document.documentElement).appendChild(el);
-                  }
-                  el.textContent = %s;
-                })();
-                """.formatted(quote(css));
-        run(script);
+        webView.getEngine().setUserStyleSheetLocation(css == null || css.isBlank() ? null : dataUri(css));
+    }
+
+    /** Encodes a stylesheet as a {@code data:} URI, which is what the engine accepts. */
+    static String dataUri(String css) {
+        return "data:text/css;base64," + Base64.getEncoder().encodeToString(css.getBytes(StandardCharsets.UTF_8));
     }
 
     @Override
