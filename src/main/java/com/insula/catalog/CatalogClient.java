@@ -14,6 +14,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
+import com.insula.AppInfo;
+
 /**
  * Fetches pages of the Kiwix OPDS catalog off the FX thread.
  *
@@ -78,7 +80,7 @@ public final class CatalogClient implements AutoCloseable {
                 url.append("&lang=").append(URLEncoder.encode(language.strip(), StandardCharsets.UTF_8));
             }
             HttpRequest request = HttpRequest.newBuilder(URI.create(url.toString()))
-                    .header("User-Agent", "insula")
+                    .header("User-Agent", AppInfo.USER_AGENT)
                     .timeout(Duration.ofSeconds(30))
                     .GET()
                     .build();

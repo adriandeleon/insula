@@ -28,6 +28,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import com.insula.AppInfo;
 import com.insula.catalog.ZimEntry;
 
 /**
@@ -59,7 +60,7 @@ public final class HttpMultiSourceTransport implements DownloadTransport {
 
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(20);
     private static final Duration REQUEST_TIMEOUT = Duration.ofMinutes(10);
-    private static final String USER_AGENT = "insula";
+    private static final String USER_AGENT = AppInfo.USER_AGENT;
     /** Suffix of the sidecar holding the resume bitmap. */
     static final String PART_SUFFIX = ".part";
 

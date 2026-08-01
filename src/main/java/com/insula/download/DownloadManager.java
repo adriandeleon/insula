@@ -19,6 +19,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import com.insula.AppInfo;
 import com.insula.catalog.ZimEntry;
 import com.insula.library.Library;
 import com.insula.library.LibraryEntry;
@@ -262,7 +263,7 @@ public final class DownloadManager implements AutoCloseable {
     String fetchSha256(ZimEntry entry) {
         try {
             HttpRequest request = HttpRequest.newBuilder(URI.create(entry.sha256Url()))
-                    .header("User-Agent", "insula")
+                    .header("User-Agent", AppInfo.USER_AGENT)
                     .timeout(Duration.ofSeconds(30))
                     .GET()
                     .build();

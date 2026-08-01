@@ -27,7 +27,14 @@ final class ClusterStore {
     private static final int COMP_XZ = 4;
     private static final int COMP_ZSTD = 5;
 
-    private static final int CACHE_SIZE = 32;
+    /**
+     * The cache is bounded by <b>decompressed bytes, not entry count</b>. Cluster sizes vary by
+     * two orders of magnitude between archives, so a count-based bound is a bound in the wrong
+     * dimension: 32 entries sounds modest but permits ~4 GB of retention at the per-cluster cap
+     * below. This is a hard ceiling on what an open archive can hold.
+     */
+    static final long MAX_CACHE_BYTES = 64L * 1024 * 1024;
+
     /** Safety cap on a single decompressed cluster (nominal cluster size is ~2 MB). */
     private static final int MAX_DECOMPRESSED = 128 * 1024 * 1024;
 
@@ -36,16 +43,22 @@ final class ClusterStore {
     private final LittleEndianFile in;
     private final ZimHeader header;
 
-    private final Map<Long, Decoded> cache = new LinkedHashMap<>(CACHE_SIZE, 0.75f, true) {
-        @Override
-        protected boolean removeEldestEntry(Map.Entry<Long, Decoded> eldest) {
-            return size() > CACHE_SIZE;
-        }
-    };
+    /** Access-ordered; eviction is driven by {@link #cachedBytes}, see {@link #decodedCluster}. */
+    private final Map<Long, Decoded> cache = new LinkedHashMap<>(16, 0.75f, true);
+
+    private long cachedBytes;
+
+    private final long maxCacheBytes;
 
     ClusterStore(LittleEndianFile in, ZimHeader header) {
+        this(in, header, MAX_CACHE_BYTES);
+    }
+
+    /** Test seam: a small budget makes eviction observable without a multi-gigabyte archive. */
+    ClusterStore(LittleEndianFile in, ZimHeader header, long maxCacheBytes) {
         this.in = in;
         this.header = header;
+        this.maxCacheBytes = maxCacheBytes;
     }
 
     byte[] blob(long clusterNumber, long blobNumber) throws IOException {
@@ -105,8 +118,36 @@ final class ClusterStore {
             offsets[i] = readOffset(data, i, extended);
         }
         Decoded decoded = new Decoded(offsets, data);
-        cache.put(clusterNumber, decoded);
+        admit(clusterNumber, decoded);
         return decoded;
+    }
+
+    /**
+     * Caches a cluster, evicting least-recently-used entries until the total fits. A cluster
+     * larger than the whole budget is returned to the caller but never cached — admitting it
+     * would evict everything else to hold one item.
+     */
+    private void admit(long clusterNumber, Decoded decoded) {
+        long size = decoded.data().length;
+        if (size > maxCacheBytes) {
+            return;
+        }
+        var eldest = cache.entrySet().iterator();
+        while (cachedBytes + size > maxCacheBytes && eldest.hasNext()) {
+            cachedBytes -= eldest.next().getValue().data().length;
+            eldest.remove();
+        }
+        cache.put(clusterNumber, decoded);
+        cachedBytes += size;
+    }
+
+    /** Total decompressed bytes currently retained — the quantity the bound actually cares about. */
+    synchronized long cachedBytes() {
+        return cachedBytes;
+    }
+
+    synchronized int cachedClusterCount() {
+        return cache.size();
     }
 
     private long clusterEnd(long clusterNumber) throws IOException {
