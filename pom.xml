@@ -76,6 +76,11 @@
                     <useModulePath>false</useModulePath>
                     <!-- zstd-jni loads its bundled native library -->
                     <argLine>--enable-native-access=ALL-UNNAMED</argLine>
+                    <systemPropertyVariables>
+                        <!-- JavaFX 26's built-in Headless Glass platform: UI tests need no display. -->
+                        <glass.platform>Headless</glass.platform>
+                        <prism.order>sw</prism.order>
+                    </systemPropertyVariables>
                 </configuration>
             </plugin>
             <plugin>

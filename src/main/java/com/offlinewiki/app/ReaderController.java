@@ -1,6 +1,7 @@
 package com.offlinewiki.app;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
@@ -23,7 +24,6 @@ import javafx.scene.control.ListView;
 import javafx.scene.control.Separator;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.TextField;
-import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToolBar;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyCodeCombination;
@@ -32,6 +32,7 @@ import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
+import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.web.WebEngine;
 import javafx.scene.web.WebHistory;
@@ -42,23 +43,30 @@ import javafx.util.Duration;
 
 import atlantafx.base.theme.PrimerDark;
 import atlantafx.base.theme.PrimerLight;
+import com.offlinewiki.command.CommandRegistry;
+import com.offlinewiki.command.Keybindings;
+import com.offlinewiki.config.Settings;
 import com.offlinewiki.server.ZimHttpServer;
 import com.offlinewiki.zim.Dirent;
 import com.offlinewiki.zim.ZimArchive;
 
 /**
- * The reader shell: toolbar (open / back / forward / home / theme), a search-as-you-type
- * sidebar over the archive's title index, and a WebView reading pane fed by the loopback
- * {@link ZimHttpServer}. Keyboard-first: Ctrl+L jumps to search, Alt+Left/Right navigate.
+ * The reader shell: toolbar, a search-as-you-type sidebar over the archive's title index, and a
+ * WebView reading pane fed by the loopback {@link ZimHttpServer}.
+ *
+ * <p>Every user-facing action is a {@link com.offlinewiki.command.Command} in the registry — the
+ * toolbar, the keybindings and the command palette all dispatch through it, so nothing is
+ * reachable by mouse alone. Preferences live in {@link Settings} and apply live via
+ * {@link #applySettings()}.
  */
 final class ReaderController {
 
-    private static final int SEARCH_LIMIT = 40;
-
     private final Stage stage;
     private final HostServices hostServices;
+    private final Settings settings;
 
-    private final BorderPane root = new BorderPane();
+    private final StackPane root = new StackPane();
+    private final BorderPane shell = new BorderPane();
     private final TextField searchField = new TextField();
     private final ListView<ZimArchive.SearchResult> results = new ListView<>();
     private final WebView webView = new WebView();
@@ -66,6 +74,11 @@ final class ReaderController {
     private final Button forwardButton = new Button("→");
     private final Button homeButton = new Button("Home");
     private final Label status = new Label("Open a .zim archive to start reading");
+
+    private final CommandRegistry commands = new CommandRegistry();
+    private final Keybindings keys = new Keybindings();
+    private final CommandPalette palette;
+    private SettingsDialog settingsDialog;
 
     private final ExecutorService searchExecutor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "zim-search");
@@ -80,38 +93,116 @@ final class ReaderController {
     private String token;
     private String bookTitle = "";
 
-    ReaderController(Stage stage, HostServices hostServices) {
+    ReaderController(Stage stage, HostServices hostServices, Settings settings) {
         this.stage = stage;
         this.hostServices = hostServices;
+        this.settings = settings;
         buildUi();
+        registerCommands();
+        bindKeys();
+        palette = new CommandPalette(root, commands, keys::displayFor);
+        applySettings();
     }
 
     Parent root() {
         return root;
     }
 
+    // ------------------------------------------------------- package-visible test seams
+
+    CommandRegistry commandsForTest() {
+        return commands;
+    }
+
+    Keybindings keybindingsForTest() {
+        return keys;
+    }
+
+    WebView webViewForTest() {
+        return webView;
+    }
+
+    void searchForTest(String query) {
+        runSearch(query);
+    }
+
+    boolean hasArchiveForTest() {
+        return archive != null;
+    }
+
+    // ---------------------------------------------------------------- commands
+
+    private void registerCommands() {
+        commands.register("file.open", "Open ZIM Archive…", this::chooseAndOpen);
+        commands.register("view.commandPalette", "Show Command Palette", () -> palette.toggle());
+        commands.register("view.settings", "Open Settings", this::showSettings);
+        commands.register("search.focus", "Focus Search", () -> {
+            searchField.requestFocus();
+            searchField.selectAll();
+        });
+        commands.register("nav.back", "Go Back", () -> historyGo(-1));
+        commands.register("nav.forward", "Go Forward", () -> historyGo(1));
+        commands.register("nav.home", "Go to Main Page", this::goHome);
+        commands.register("view.toggleTheme", "Toggle Light/Dark Theme", this::toggleTheme);
+        commands.register("view.zoomIn", "Zoom In", () -> adjustZoom(10));
+        commands.register("view.zoomOut", "Zoom Out", () -> adjustZoom(-10));
+        commands.register("view.zoomReset", "Reset Zoom", () -> setZoom(100));
+        commands.register("view.toggleReopenLast", "Toggle: Reopen Last Archive on Startup", () -> {
+            settings.setReopenLastArchive(!settings.isReopenLastArchive());
+            saveAndApply();
+            status.setText("Reopen last archive on startup: " + (settings.isReopenLastArchive() ? "on" : "off"));
+        });
+        commands.register("app.quit", "Quit", () -> stage.close());
+    }
+
+    private void bindKeys() {
+        keys.bind(
+                "view.commandPalette",
+                new KeyCodeCombination(KeyCode.P, KeyCombination.SHORTCUT_DOWN, KeyCombination.SHIFT_DOWN));
+        keys.bind("file.open", new KeyCodeCombination(KeyCode.O, KeyCombination.SHORTCUT_DOWN));
+        keys.bind("view.settings", new KeyCodeCombination(KeyCode.COMMA, KeyCombination.SHORTCUT_DOWN));
+        keys.bind("search.focus", new KeyCodeCombination(KeyCode.L, KeyCombination.SHORTCUT_DOWN));
+        keys.bind("nav.back", new KeyCodeCombination(KeyCode.LEFT, KeyCombination.ALT_DOWN));
+        keys.bind("nav.forward", new KeyCodeCombination(KeyCode.RIGHT, KeyCombination.ALT_DOWN));
+        keys.bind("view.zoomIn", new KeyCodeCombination(KeyCode.EQUALS, KeyCombination.SHORTCUT_DOWN));
+        keys.bind("view.zoomOut", new KeyCodeCombination(KeyCode.MINUS, KeyCombination.SHORTCUT_DOWN));
+        keys.bind("view.zoomReset", new KeyCodeCombination(KeyCode.DIGIT0, KeyCombination.SHORTCUT_DOWN));
+    }
+
+    void installShortcuts(Scene scene) {
+        keys.install(scene, commands);
+        scene.getStylesheets().add(getClass().getResource("app.css").toExternalForm());
+    }
+
     // ---------------------------------------------------------------- UI
 
     private void buildUi() {
         Button openButton = new Button("Open…");
-        openButton.setOnAction(e -> chooseAndOpen());
-        backButton.setOnAction(e -> historyGo(-1));
-        forwardButton.setOnAction(e -> historyGo(1));
-        homeButton.setOnAction(e -> goHome());
+        openButton.setOnAction(e -> commands.run("file.open"));
+        backButton.setOnAction(e -> commands.run("nav.back"));
+        forwardButton.setOnAction(e -> commands.run("nav.forward"));
+        homeButton.setOnAction(e -> commands.run("nav.home"));
         backButton.setDisable(true);
         forwardButton.setDisable(true);
         homeButton.setDisable(true);
 
-        ToggleButton darkToggle = new ToggleButton("Dark");
-        darkToggle.setOnAction(e -> Application.setUserAgentStylesheet(
-                darkToggle.isSelected()
-                        ? new PrimerDark().getUserAgentStylesheet()
-                        : new PrimerLight().getUserAgentStylesheet()));
+        Button paletteButton = new Button("⌘K");
+        paletteButton.setTooltip(new javafx.scene.control.Tooltip("Command palette"));
+        paletteButton.setOnAction(e -> commands.run("view.commandPalette"));
+        Button settingsButton = new Button("Settings");
+        settingsButton.setOnAction(e -> commands.run("view.settings"));
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        ToolBar toolbar =
-                new ToolBar(openButton, new Separator(), backButton, forwardButton, homeButton, spacer, darkToggle);
+        ToolBar toolbar = new ToolBar(
+                openButton,
+                new Separator(),
+                backButton,
+                forwardButton,
+                homeButton,
+                spacer,
+                paletteButton,
+                settingsButton);
 
         searchField.setPromptText("Search titles (Ctrl+L)");
         searchField.textProperty().addListener((obs, old, text) -> {
@@ -137,11 +228,9 @@ final class ReaderController {
             }
         });
         results.setOnMouseClicked(e -> {
-            if (e.getClickCount() >= 1) {
-                ZimArchive.SearchResult selected = results.getSelectionModel().getSelectedItem();
-                if (selected != null) {
-                    openResult(selected);
-                }
+            ZimArchive.SearchResult selected = results.getSelectionModel().getSelectedItem();
+            if (selected != null) {
+                openResult(selected);
             }
         });
         results.setOnKeyPressed(e -> {
@@ -172,20 +261,52 @@ final class ReaderController {
         HBox statusBar = new HBox(status);
         statusBar.setPadding(new Insets(4, 10, 4, 10));
 
-        root.setTop(toolbar);
-        root.setCenter(split);
-        root.setBottom(statusBar);
+        shell.setTop(toolbar);
+        shell.setCenter(split);
+        shell.setBottom(statusBar);
+        root.getChildren().add(shell);
     }
 
-    void installShortcuts(Scene scene) {
-        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.L, KeyCombination.SHORTCUT_DOWN), () -> {
-            searchField.requestFocus();
-            searchField.selectAll();
-        });
-        scene.getAccelerators()
-                .put(new KeyCodeCombination(KeyCode.O, KeyCombination.SHORTCUT_DOWN), this::chooseAndOpen);
-        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.LEFT, KeyCombination.ALT_DOWN), () -> historyGo(-1));
-        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.RIGHT, KeyCombination.ALT_DOWN), () -> historyGo(1));
+    // ---------------------------------------------------------------- settings
+
+    /** Pushes every preference onto the live UI. Called at startup and after each settings change. */
+    void applySettings() {
+        Application.setUserAgentStylesheet(
+                settings.isDark()
+                        ? new PrimerDark().getUserAgentStylesheet()
+                        : new PrimerLight().getUserAgentStylesheet());
+        webView.setZoom(settings.getZoomPercent() / 100.0);
+        if (settingsDialog != null) {
+            settingsDialog.sync();
+        }
+    }
+
+    private void saveAndApply() {
+        settings.save();
+        applySettings();
+    }
+
+    private void showSettings() {
+        if (settingsDialog == null) {
+            settingsDialog = new SettingsDialog(stage, settings, this::applySettings);
+        }
+        settingsDialog.show();
+    }
+
+    private void toggleTheme() {
+        settings.setTheme(settings.isDark() ? Settings.THEME_LIGHT : Settings.THEME_DARK);
+        saveAndApply();
+        status.setText("Theme: " + settings.getTheme());
+    }
+
+    private void adjustZoom(int deltaPercent) {
+        setZoom(settings.getZoomPercent() + deltaPercent);
+    }
+
+    private void setZoom(int percent) {
+        settings.setZoomPercent(percent);
+        saveAndApply();
+        status.setText("Zoom: " + settings.getZoomPercent() + "%");
     }
 
     // ---------------------------------------------------------------- archive lifecycle
@@ -194,9 +315,24 @@ final class ReaderController {
         FileChooser chooser = new FileChooser();
         chooser.setTitle("Open ZIM archive");
         chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("ZIM archives", "*.zim"));
+        String last = settings.getLastArchive();
+        if (!last.isBlank()) {
+            Path parent = Path.of(last).getParent();
+            if (parent != null && Files.isDirectory(parent)) {
+                chooser.setInitialDirectory(parent.toFile());
+            }
+        }
         java.io.File chosen = chooser.showOpenDialog(stage);
         if (chosen != null) {
             openZim(chosen.toPath());
+        }
+    }
+
+    /** Opens the archive remembered by {@link Settings#getLastArchive()}, if enabled and still present. */
+    void openLastArchiveIfEnabled() {
+        String last = settings.getLastArchive();
+        if (settings.isReopenLastArchive() && !last.isBlank() && Files.isRegularFile(Path.of(last))) {
+            openZim(Path.of(last));
         }
     }
 
@@ -214,6 +350,8 @@ final class ReaderController {
             homeButton.setDisable(false);
             results.getItems().clear();
             searchField.clear();
+            settings.setLastArchive(file.toAbsolutePath().toString());
+            settings.save();
             goHome();
             searchField.requestFocus();
         } catch (IOException e) {
@@ -261,9 +399,10 @@ final class ReaderController {
         }
         long generation = searchGeneration.incrementAndGet();
         ZimArchive current = archive;
+        int limit = settings.getSearchLimit();
         searchExecutor.execute(() -> {
             try {
-                List<ZimArchive.SearchResult> found = current.searchByTitle(query.strip(), SEARCH_LIMIT);
+                List<ZimArchive.SearchResult> found = current.searchByTitle(query.strip(), limit);
                 if (generation == searchGeneration.get()) {
                     Platform.runLater(() -> {
                         if (generation == searchGeneration.get()) {
