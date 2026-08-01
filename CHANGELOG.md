@@ -56,6 +56,9 @@ Everything below is in `main` and unreleased; there has been no tagged version y
 - Project documentation: README, this changelog, and `CLAUDE.md` recording the architecture
   conventions plus the non-obvious ZIM-format and Kiwix-infrastructure facts that are easy to get
   wrong.
+- MIT license, plus a NOTICE recording third-party licenses and the provenance of the committed
+  ZIM test fixtures.
+- GitHub Actions build on Linux, macOS and Windows.
 - Spotless with Palantir Java Format, enforced at `verify`.
 - Test suite of 118 tests: pure unit tests, loopback-server tests covering corrupt, unresponsive
   and range-ignoring mirrors, and headless-FX tests on JavaFX 26's built-in headless platform, so

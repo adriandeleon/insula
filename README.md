@@ -1,5 +1,8 @@
 # Insula
 
+[![build](https://github.com/adriandeleon/insula/actions/workflows/build.yml/badge.svg)](https://github.com/adriandeleon/insula/actions/workflows/build.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A fast, keyboard-first desktop reader for **ZIM** offline content archives — the same archives
 [Kiwix](https://kiwix.org) uses: Wikipedia, Wiktionary, Wikibooks, StackExchange dumps and
 hundreds more. Download them once, read them forever, with no network.
