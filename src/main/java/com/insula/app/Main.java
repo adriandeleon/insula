@@ -30,6 +30,8 @@ public class Main extends Application {
         } else {
             controller.openLastArchiveIfEnabled();
         }
+        // Library is home: with nothing open, land there instead of an empty reader.
+        controller.landOnLibraryIfIdle();
     }
 
     /** {@code $INSULA_CONFIG_DIR}, else {@code ~/.insula}. */

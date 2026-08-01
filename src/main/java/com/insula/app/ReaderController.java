@@ -14,6 +14,7 @@ import javafx.application.HostServices;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Orientation;
+import javafx.geometry.Pos;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
@@ -82,6 +83,8 @@ final class ReaderController {
     private final Button backButton = new Button("←");
     private final Button forwardButton = new Button("→");
     private final Button homeButton = new Button("Home");
+    private final javafx.scene.control.ToggleButton libraryTab = new javafx.scene.control.ToggleButton("Library");
+    private final javafx.scene.control.ToggleButton storeTab = new javafx.scene.control.ToggleButton("Store");
     private final Label status = new Label("Open a .zim archive to start reading");
 
     private final CommandRegistry commands = new CommandRegistry();
@@ -119,7 +122,15 @@ final class ReaderController {
     private String currentPositionKey;
 
     private SplitPane readerSplit;
-    private boolean showingLibrary;
+
+    /** Which surface fills the window: the Reader, the Library (home), or the Store. */
+    enum Surface {
+        READER,
+        LIBRARY,
+        STORE
+    }
+
+    private Surface surface = Surface.READER;
 
     ReaderController(Stage stage, HostServices hostServices, Settings settings, Path dataDir) {
         this.stage = stage;
@@ -149,7 +160,7 @@ final class ReaderController {
                 status::setText,
                 () -> freeDiskBytes(dataDir));
         this.libraryPane =
-                new LibraryPane(storePane.node(), downloads, library, this::openFromLibrary, status::setText);
+                new LibraryPane(downloads, library, this::openFromLibrary, status::setText, () -> diskInfo(dataDir));
         buildUi();
         registerCommands();
         bindKeys();
@@ -188,7 +199,11 @@ final class ReaderController {
     }
 
     boolean libraryShowingForTest() {
-        return showingLibrary;
+        return surface != Surface.READER;
+    }
+
+    Surface surfaceForTest() {
+        return surface;
     }
 
     StorePane storePaneForTest() {
@@ -232,15 +247,17 @@ final class ReaderController {
             saveAndApply();
             status.setText("Remember reading position: " + (settings.isRememberPosition() ? "on" : "off"));
         });
+        commands.register("library.open", "Show the Library", this::showLibrary);
+        commands.register("store.open", "Show the Store", this::showStore);
         commands.register("library.show", "Show Library and Downloads", this::showLibrary);
         commands.register("library.reader", "Back to Reader", this::showReader);
         commands.register("library.toggle", "Toggle Library / Reader", this::toggleLibrary);
         commands.register("library.search", "Search the Online Catalog", () -> {
-            showLibrary();
+            showStore();
             storePane.focusSearch();
         });
         commands.register("catalog.refresh", "Refresh the Catalog", () -> {
-            showLibrary();
+            showStore();
             storePane.refreshCommand();
         });
         commands.register("download.cancelAll", "Cancel All Downloads", () -> {
@@ -269,6 +286,8 @@ final class ReaderController {
         keys.bind("view.zoomOut", new KeyCodeCombination(KeyCode.MINUS, KeyCombination.SHORTCUT_DOWN));
         keys.bind("view.zoomReset", new KeyCodeCombination(KeyCode.DIGIT0, KeyCombination.SHORTCUT_DOWN));
         keys.bind("library.toggle", new KeyCodeCombination(KeyCode.B, KeyCombination.SHORTCUT_DOWN));
+        keys.bind("library.open", new KeyCodeCombination(KeyCode.DIGIT1, KeyCombination.SHORTCUT_DOWN));
+        keys.bind("store.open", new KeyCodeCombination(KeyCode.DIGIT2, KeyCombination.SHORTCUT_DOWN));
         keys.bind("reader.cycleMode", new KeyCodeCombination(KeyCode.R, KeyCombination.SHORTCUT_DOWN));
         keys.bind("catalog.refresh", new KeyCodeCombination(KeyCode.F5));
     }
@@ -290,9 +309,10 @@ final class ReaderController {
         forwardButton.setDisable(true);
         homeButton.setDisable(true);
 
-        Button libraryButton = new Button("Library");
-        libraryButton.setTooltip(new javafx.scene.control.Tooltip("Browse and download archives"));
-        libraryButton.setOnAction(e -> commands.run("library.toggle"));
+        libraryTab.setOnAction(e -> commands.run("library.open"));
+        storeTab.setOnAction(e -> commands.run("store.open"));
+        HBox navTabs = new HBox(2, libraryTab, storeTab);
+        navTabs.setAlignment(Pos.CENTER_LEFT);
         Button paletteButton = new Button("⌘K");
         paletteButton.setTooltip(new javafx.scene.control.Tooltip("Command palette"));
         paletteButton.setOnAction(e -> commands.run("view.commandPalette"));
@@ -303,7 +323,7 @@ final class ReaderController {
         HBox.setHgrow(spacer, Priority.ALWAYS);
         ToolBar toolbar = new ToolBar(
                 openButton,
-                libraryButton,
+                navTabs,
                 new Separator(),
                 backButton,
                 forwardButton,
@@ -385,12 +405,54 @@ final class ReaderController {
     // ---------------------------------------------------------------- library / downloads
 
     private void showLibrary() {
-        if (!showingLibrary) {
+        if (surface != Surface.LIBRARY) {
+            if (surface == Surface.STORE) {
+                // leaving the store costs nothing; its state is plain fields
+            }
             shell.setCenter(libraryPane.node());
             libraryPane.activate();
-            storePane.activate();
-            showingLibrary = true;
+            surface = Surface.LIBRARY;
+            syncNavTabs();
         }
+    }
+
+    private void showStore() {
+        if (surface != Surface.STORE) {
+            libraryPane.deactivate();
+            shell.setCenter(storePane.node());
+            storePane.activate();
+            surface = Surface.STORE;
+            syncNavTabs();
+        }
+    }
+
+    private void showReader() {
+        if (surface != Surface.READER) {
+            libraryPane.deactivate();
+            shell.setCenter(readerSplit);
+            surface = Surface.READER;
+            syncNavTabs();
+        }
+    }
+
+    private void toggleLibrary() {
+        if (surface == Surface.READER) {
+            showLibrary();
+        } else {
+            showReader();
+        }
+    }
+
+    /** Lands on the Library at startup when nothing is being read — the spec's "Library is home". */
+    void landOnLibraryIfIdle() {
+        if (archive == null) {
+            showLibrary();
+        }
+    }
+
+    private void syncNavTabs() {
+        libraryTab.setSelected(surface == Surface.LIBRARY);
+        storeTab.setSelected(surface == Surface.STORE);
     }
 
     /** The verified installed file matching this catalog entry's (name, flavour), or null. */
@@ -412,20 +474,22 @@ final class ReaderController {
         }
     }
 
-    private void showReader() {
-        if (showingLibrary) {
-            libraryPane.deactivate();
-            shell.setCenter(readerSplit);
-            showingLibrary = false;
+    /** Everything the Library's disk gauge shows; free/total zero out on I/O failure rather than throwing. */
+    private LibraryPane.DiskInfo diskInfo(Path dataDir) {
+        long used = library.entries().stream()
+                .mapToLong(com.insula.library.LibraryEntry::sizeBytes)
+                .sum();
+        long free = 0;
+        long total = 0;
+        try {
+            Files.createDirectories(dataDir);
+            var store = Files.getFileStore(dataDir);
+            free = store.getUsableSpace();
+            total = store.getTotalSpace();
+        } catch (IOException ignored) {
+            // gauge shows zeros rather than failing the pane
         }
-    }
-
-    private void toggleLibrary() {
-        if (showingLibrary) {
-            showReader();
-        } else {
-            showLibrary();
-        }
+        return new LibraryPane.DiskInfo(used, library.entries().size(), free, total);
     }
 
     /** Opens a downloaded archive: switches back to the reader and loads it. */

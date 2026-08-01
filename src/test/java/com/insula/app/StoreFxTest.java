@@ -73,7 +73,7 @@ class StoreFxTest {
             Stage stage = new Stage();
             ReaderController c = new ReaderController(stage, null, settings, dir);
             stage.setScene(new Scene(c.root(), 1100, 700));
-            c.commandsForTest().run("library.show");
+            c.commandsForTest().run("store.open");
             return c;
         });
         try {
@@ -95,7 +95,7 @@ class StoreFxTest {
             Stage stage = new Stage();
             ReaderController c = new ReaderController(stage, null, settings, dir);
             stage.setScene(new Scene(c.root(), 1100, 700));
-            c.commandsForTest().run("library.show");
+            c.commandsForTest().run("store.open");
             return c;
         });
         try {
@@ -124,7 +124,7 @@ class StoreFxTest {
             Stage stage = new Stage();
             ReaderController c = new ReaderController(stage, null, settings, dir);
             stage.setScene(new Scene(c.root(), 1100, 700));
-            c.commandsForTest().run("library.show");
+            c.commandsForTest().run("store.open");
             return c;
         });
         try {

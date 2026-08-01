@@ -1,8 +1,12 @@
 package com.insula.app;
 
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 import javafx.animation.Animation;
 import javafx.animation.KeyFrame;
@@ -11,204 +15,222 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
-import javafx.scene.control.ListCell;
-import javafx.scene.control.ListView;
 import javafx.scene.control.ProgressBar;
-import javafx.scene.control.SplitPane;
-import javafx.scene.layout.BorderPane;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
+import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
+import javafx.scene.paint.Color;
+import javafx.scene.shape.Rectangle;
+import javafx.scene.text.Font;
+import javafx.scene.text.Text;
 import javafx.util.Duration;
 
 import com.insula.download.DownloadManager;
-import com.insula.download.DownloadState;
-import com.insula.download.ProgressSnapshot;
 import com.insula.library.Library;
 import com.insula.library.LibraryEntry;
 
 /**
- * Browse the online catalog, download archives, and open the ones already on disk.
+ * Home. Everything on this screen answers one of three questions: what's arriving, what can I
+ * read, what needs attention?
  *
- * <p>Deliberately card-shaped rather than Kiwix's tree-with-checkboxes: each row carries the
- * title, a description, and the facts that decide whether to spend the bandwidth (size, article
- * count, language).
+ * <p>Layout per the design spec: a disk gauge as the header (the number that matters — free
+ * space — written out), a pinned "Arriving" section while downloads run (downloads are not a
+ * place; there is no separate tab to hunt for), and the archive rows.
  *
- * <p><b>Progress is sampled, not pushed.</b> Transports emit progress far faster than a UI can
- * paint, so a {@code Platform.runLater} per event floods the FX queue and the window stutters.
- * A single {@link Timeline} polls every {@value #REFRESH_MILLIS} ms (~4 Hz) and repaints only the
- * rows that changed.
+ * <p>Progress is sampled at 4 Hz into per-job {@link DownloadRow}s updated <b>in place</b>; the
+ * row set itself is rebuilt only when jobs appear or vanish. The timer stops when the pane is
+ * hidden or nothing is in flight.
  */
 final class LibraryPane {
 
-    static final int REFRESH_MILLIS = 250;
-    private static final int CATALOG_PAGE = 40;
+    /** Disk facts for the gauge. */
+    record DiskInfo(long usedByArchives, int archiveCount, long freeBytes, long totalBytes) {}
 
-    private final Region storeNode;
+    static final int REFRESH_MILLIS = 250;
+
     private final DownloadManager downloads;
     private final Library library;
     private final Consumer<Path> onOpenArchive;
     private final Consumer<String> onStatus;
+    private final Supplier<DiskInfo> diskInfo;
 
-    private final BorderPane root = new BorderPane();
-    private final ListView<Object> localList = new ListView<>();
+    private final ScrollPane root;
+    private final VBox content = new VBox(12);
+    private final HBox gauge = new HBox(14);
+    private final ProgressBar gaugeBar = new ProgressBar(0);
+    private final Label gaugeLabel = new Label();
+    private final VBox arrivingSection = new VBox(8);
+    private final VBox arrivingRows = new VBox(8);
+    private final VBox deviceRows = new VBox(8);
 
-    private final Timeline refresh =
-            new Timeline(new KeyFrame(Duration.millis(REFRESH_MILLIS), e -> refreshDownloadRows()));
+    private final Map<DownloadManager.Job, DownloadRow> rows = new LinkedHashMap<>();
+    private final Timeline sampler = new Timeline(new KeyFrame(Duration.millis(REFRESH_MILLIS), e -> tick()));
 
     LibraryPane(
-            Region storeNode,
             DownloadManager downloads,
             Library library,
             Consumer<Path> onOpenArchive,
-            Consumer<String> onStatus) {
-        this.storeNode = storeNode;
+            Consumer<String> onStatus,
+            Supplier<DiskInfo> diskInfo) {
         this.downloads = downloads;
         this.library = library;
         this.onOpenArchive = onOpenArchive;
         this.onStatus = onStatus;
-        build();
-        refresh.setCycleCount(Animation.INDEFINITE);
+        this.diskInfo = diskInfo;
+        sampler.setCycleCount(Animation.INDEFINITE);
+
+        gaugeBar.setPrefWidth(280);
+        Label heading = new Label("Archives");
+        heading.setStyle("-fx-font-weight: bold;");
+        gauge.getChildren().addAll(heading, gaugeBar, gaugeLabel);
+        gauge.setAlignment(Pos.CENTER_LEFT);
+        gauge.setPadding(new Insets(12));
+        gauge.setStyle("-fx-background-color: -color-bg-default; -fx-border-color: -color-border-default;"
+                + " -fx-border-radius: 8; -fx-background-radius: 8;");
+        gaugeLabel.setStyle("-fx-opacity: 0.7;");
+
+        arrivingSection.getChildren().addAll(sectionTitle("Arriving"), arrivingRows);
+
+        content.setPadding(new Insets(14));
+        content.getChildren().addAll(gauge, arrivingSection, sectionTitle("On this device"), deviceRows);
+
+        root = new ScrollPane(content);
+        root.setFitToWidth(true);
     }
 
     Region node() {
         return root;
     }
 
-    /** Starts the 4 Hz sampler. Called when the pane becomes visible. */
     void activate() {
-        refreshLocal();
-        if (refresh.getStatus() != Animation.Status.RUNNING) {
-            refresh.play();
+        rebuildAll();
+        if (sampler.getStatus() != Animation.Status.RUNNING) {
+            sampler.play();
         }
     }
 
-    /** Stops sampling — an invisible pane must not keep waking the FX thread. */
     void deactivate() {
-        refresh.stop();
+        sampler.stop();
     }
 
-    private void build() {
-        localList.setCellFactory(v -> new LocalCell());
-        localList.setPlaceholder(new Label("Nothing downloaded yet"));
-        VBox.setVgrow(localList, Priority.ALWAYS);
-        Label localHeading = new Label("On this computer");
-        localHeading.setPadding(new Insets(10, 10, 6, 10));
-        localHeading.setStyle("-fx-font-weight: bold;");
-        VBox localSide = new VBox(localHeading, localList);
+    // ---------------------------------------------------------------- sampling
 
-        SplitPane split = new SplitPane(storeNode, localSide);
-        split.setDividerPositions(0.62);
-        root.setCenter(split);
-    }
-
-    /** Rebuilds the local list: active downloads first, then archives already on disk. */
-    private void refreshLocal() {
-        List<Object> rows = new java.util.ArrayList<>();
-        rows.addAll(downloads.jobs());
-        library.entries().forEach(entry -> {
-            boolean downloading =
-                    downloads.jobs().stream().anyMatch(j -> j.destination().equals(entry.file()));
-            if (!downloading) {
-                rows.add(entry);
-            }
-        });
-        localList.getItems().setAll(rows);
-    }
-
-    /**
-     * The 4 Hz tick. Only touches cells whose snapshot changed, and stops the timer once every
-     * download is terminal so an idle window does no per-frame work.
-     */
-    private void refreshDownloadRows() {
+    private void tick() {
         List<DownloadManager.Job> jobs = downloads.jobs();
-        if (jobs.isEmpty()) {
-            refresh.stop();
-            return;
+        boolean setChanged = jobs.size() != rows.size() || !rows.keySet().containsAll(jobs);
+        if (setChanged) {
+            rebuildArriving(jobs);
+            rebuildDevice(); // a finished download admits an archive; reflect it promptly
+        } else {
+            rows.values().forEach(DownloadRow::update);
         }
-        boolean anyActive = false;
-        for (DownloadManager.Job job : jobs) {
-            if (!job.snapshot().state().isTerminal()) {
-                anyActive = true;
-                break;
-            }
-        }
-        // Cells re-render from the live snapshot; a refresh() is the cheapest correct nudge here
-        // because the row identity has not changed, only its contents.
-        localList.refresh();
+        boolean anyActive = jobs.stream().anyMatch(j -> !j.snapshot().state().isTerminal());
         if (!anyActive) {
-            refresh.stop();
-            refreshLocal();
+            rows.values().forEach(DownloadRow::update);
+            rebuildDevice();
+            sampler.stop();
         }
     }
 
-    /** A local row: either an in-flight download or an archive on disk. */
-    private final class LocalCell extends ListCell<Object> {
-        @Override
-        protected void updateItem(Object item, boolean empty) {
-            super.updateItem(item, empty);
-            if (empty || item == null) {
-                setGraphic(null);
-                return;
-            }
-            setGraphic(item instanceof DownloadManager.Job job ? downloadRow(job) : archiveRow((LibraryEntry) item));
+    private void rebuildAll() {
+        rebuildArriving(downloads.jobs());
+        rebuildDevice();
+    }
+
+    private void rebuildArriving(List<DownloadManager.Job> jobs) {
+        rows.keySet().retainAll(jobs);
+        for (DownloadManager.Job job : jobs) {
+            rows.computeIfAbsent(job, j -> new DownloadRow(j, j.entry().displayName(), onOpenArchive, onStatus));
         }
+        arrivingRows.getChildren().setAll(rows.values());
+        boolean visible = !jobs.isEmpty();
+        arrivingSection.setVisible(visible);
+        arrivingSection.setManaged(visible);
+    }
 
-        private Region downloadRow(DownloadManager.Job job) {
-            ProgressSnapshot snapshot = job.snapshot();
-            Label title = new Label(job.entry().displayName());
-            title.setStyle("-fx-font-weight: bold;");
-
-            ProgressBar bar = new ProgressBar();
-            double fraction = snapshot.fraction();
-            bar.setProgress(fraction < 0 ? ProgressBar.INDETERMINATE_PROGRESS : fraction);
-            bar.setMaxWidth(Double.MAX_VALUE);
-
-            Label detail = new Label(Formats.progressLine(snapshot));
-            detail.setStyle("-fx-opacity: 0.7;");
-
-            HBox actions = new HBox(8);
-            actions.setAlignment(Pos.CENTER_LEFT);
-            if (snapshot.state() == DownloadState.COMPLETED) {
-                Button open = new Button("Open");
-                open.setOnAction(e -> onOpenArchive.accept(job.destination()));
-                actions.getChildren().add(open);
-            } else if (!snapshot.state().isTerminal()) {
-                Button cancel = new Button("Cancel");
-                cancel.setOnAction(e -> {
-                    job.cancel();
-                    onStatus.accept("Cancelled " + job.entry().displayName());
-                });
-                actions.getChildren().add(cancel);
-            }
-
-            VBox box = new VBox(4, title, bar, detail);
-            if (!actions.getChildren().isEmpty()) {
-                box.getChildren().add(actions);
-            }
-            box.setPadding(new Insets(8, 4, 8, 4));
-            return box;
+    private void rebuildDevice() {
+        deviceRows.getChildren().clear();
+        List<LibraryEntry> entries = library.entries();
+        if (entries.isEmpty()) {
+            Label empty = new Label("Nothing downloaded yet — open the Store to find archives");
+            empty.setStyle("-fx-opacity: 0.6;");
+            deviceRows.getChildren().add(empty);
         }
-
-        private Region archiveRow(LibraryEntry entry) {
-            Label title = new Label(entry.title());
-            title.setStyle("-fx-font-weight: bold;");
-            Label meta = new Label(Formats.bytes(entry.sizeBytes())
-                    + (entry.verified() ? " · verified" : " · not verified")
-                    + " · " + entry.fileName());
-            meta.setStyle("-fx-opacity: 0.6;");
-
-            Button open = new Button("Open");
-            open.setOnAction(e -> onOpenArchive.accept(entry.file()));
-            Region spacer = new Region();
-            HBox.setHgrow(spacer, Priority.ALWAYS);
-            HBox bottom = new HBox(8, meta, spacer, open);
-            bottom.setAlignment(Pos.CENTER_LEFT);
-
-            VBox box = new VBox(4, title, bottom);
-            box.setPadding(new Insets(8, 4, 8, 4));
-            return box;
+        for (LibraryEntry entry : entries) {
+            deviceRows.getChildren().add(archiveRow(entry));
         }
+        updateGauge();
+    }
+
+    private Region archiveRow(LibraryEntry entry) {
+        StackPane icon = monogram(entry.title());
+
+        Label title = new Label(entry.title());
+        title.setStyle("-fx-font-weight: bold;");
+        Label meta = new Label(Formats.bytes(entry.sizeBytes())
+                + (entry.verified() ? " · verified ✓" : " · not verified")
+                + " · " + entry.fileName());
+        meta.setStyle("-fx-opacity: 0.55; -fx-font-size: 0.85em;");
+        VBox main = new VBox(2, title, meta);
+        HBox.setHgrow(main, Priority.ALWAYS);
+
+        Button open = new Button("Open");
+        open.setOnAction(e -> onOpenArchive.accept(entry.file()));
+
+        HBox row = new HBox(12, icon, main, open);
+        row.setAlignment(Pos.CENTER_LEFT);
+        row.setPadding(new Insets(10, 12, 10, 12));
+        row.setStyle("-fx-background-color: -color-bg-default; -fx-border-color: -color-border-default;"
+                + " -fx-border-radius: 8; -fx-background-radius: 8;");
+        return row;
+    }
+
+    private void updateGauge() {
+        DiskInfo info = diskInfo.get();
+        double usedFraction = info.totalBytes() <= 0 ? 0 : (double) info.usedByArchives() / info.totalBytes();
+        gaugeBar.setProgress(Math.min(1, usedFraction));
+        gaugeLabel.setText(Formats.bytes(info.usedByArchives())
+                + " in " + info.archiveCount() + (info.archiveCount() == 1 ? " archive" : " archives")
+                + " · " + Formats.bytes(info.freeBytes()) + " free");
+    }
+
+    private static Label sectionTitle(String text) {
+        Label label = new Label(text.toUpperCase(Locale.ROOT));
+        label.setStyle("-fx-font-size: 0.75em; -fx-opacity: 0.55;");
+        return label;
+    }
+
+    private static StackPane monogram(String title) {
+        String letter =
+                title == null || title.isBlank() ? "?" : title.substring(0, 1).toUpperCase(Locale.ROOT);
+        Rectangle bg = new Rectangle(34, 34);
+        bg.setArcWidth(10);
+        bg.setArcHeight(10);
+        bg.setFill(Color.hsb(Math.floorMod(title == null ? 0 : title.hashCode(), 360), 0.35, 0.55));
+        Text text = new Text(letter);
+        text.setFont(Font.font(15));
+        text.setFill(Color.WHITE);
+        StackPane pane = new StackPane(bg, text);
+        pane.setMinSize(34, 34);
+        pane.setMaxSize(34, 34);
+        return pane;
+    }
+
+    // ------------------------------------------------------- package-visible test seams
+
+    int arrivingRowsForTest() {
+        return arrivingRows.getChildren().size();
+    }
+
+    int deviceRowsForTest() {
+        return (int)
+                deviceRows.getChildren().stream().filter(n -> n instanceof HBox).count();
+    }
+
+    String gaugeTextForTest() {
+        return gaugeLabel.getText();
     }
 }

@@ -82,6 +82,8 @@ class LibraryPaneFxTest {
         withShell(dir, (controller, settings) -> {
             for (String id : new String[] {
                 "library.show",
+                "library.open",
+                "store.open",
                 "library.reader",
                 "library.toggle",
                 "library.search",
@@ -126,6 +128,38 @@ class LibraryPaneFxTest {
     }
 
     @Test
+    void libraryAndStoreAreSeparateSurfaces(@TempDir Path dir) {
+        withShell(dir, (controller, settings) -> {
+            java.util.function.Supplier<Object> center = () -> ((javafx.scene.layout.BorderPane)
+                            ((StackPane) controller.root()).getChildren().getFirst())
+                    .getCenter();
+
+            controller.commandsForTest().run("library.open");
+            assertEquals(ReaderController.Surface.LIBRARY, controller.surfaceForTest());
+            Object libraryCenter = center.get();
+
+            controller.commandsForTest().run("store.open");
+            assertEquals(ReaderController.Surface.STORE, controller.surfaceForTest());
+            assertNotSame(libraryCenter, center.get(), "the store is its own surface, not embedded in the library");
+            assertSame(controller.storePaneForTest().node(), center.get());
+
+            controller.commandsForTest().run("library.reader");
+            assertEquals(ReaderController.Surface.READER, controller.surfaceForTest());
+            return null;
+        });
+    }
+
+    @Test
+    void startupLandsOnTheLibraryWhenNothingOpens(@TempDir Path dir) {
+        withShell(dir, (controller, settings) -> {
+            // Main calls this after openLastArchiveIfEnabled(); with no archive it must land home.
+            controller.landOnLibraryIfIdle();
+            assertEquals(ReaderController.Surface.LIBRARY, controller.surfaceForTest());
+            return null;
+        });
+    }
+
+    @Test
     void refreshIntervalStaysAtFourHertz() {
         // The design brief is explicit: coalesce to ~4 Hz rather than one FX hop per event.
         assertEquals(250, LibraryPane.REFRESH_MILLIS);
@@ -147,6 +181,10 @@ class LibraryPaneFxTest {
         withShell(dir, (controller, settings) -> {
             controller.commandsForTest().run("library.show");
             assertTrue(controller.libraryShowingForTest());
+            LibraryPane pane = controller.libraryPaneForTest();
+            assertEquals(1, pane.deviceRowsForTest(), "the seeded archive shows under On this device");
+            assertEquals(0, pane.arrivingRowsForTest(), "nothing is downloading");
+            assertTrue(pane.gaugeTextForTest().contains("1 archive"), pane.gaugeTextForTest());
             // Opening from the library returns to the reader with the archive loaded.
             controller.openZim(zim);
             assertTrue(controller.hasArchiveForTest());
