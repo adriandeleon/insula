@@ -23,6 +23,8 @@ Working today:
   keybinding shown; nothing is mouse-only.
 - **Settings** with live apply (theme, content zoom, search result count, reopen-last-archive),
   persisted to `~/.offline-wiki/settings.properties`.
+- **Library and downloads** — search the Kiwix OPDS catalog, download over HTTP from several
+  mirrors at once with resume, per-chunk and whole-file verification, and open the result.
 
 ### Keyboard
 
@@ -31,6 +33,7 @@ Working today:
 | `Ctrl+Shift+P` | Command palette |
 | `Ctrl+L` | Focus search |
 | `Ctrl+O` | Open archive |
+| `Ctrl+B` | Library / downloads |
 | `Ctrl+,` | Settings |
 | `Alt+←` / `Alt+→` | Back / forward |
 | `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | Zoom in / out / reset |
@@ -85,22 +88,55 @@ Glass platform, so the whole suite runs with no display.
 com.offlinewiki.zim      pure ZIM format core (no JavaFX): header, dirents, pointer lists,
                          cluster decompression + LRU cache, ZimArchive facade
 com.offlinewiki.server   ZimHttpServer: 127.0.0.1-only, /zim/<token>/<ns>/<path> → blob + MIME
+com.offlinewiki.catalog  ZimEntry + OPDS v2 parser + CatalogClient
+com.offlinewiki.download transport seam, HTTP multi-source transport, Metalink parsing,
+                         chunk plan + resume, SHA-256 verification, quarantine, manager
+com.offlinewiki.library  local archives and their verification state
 com.offlinewiki.command  CommandRegistry + Keybindings + pure PaletteFilter ranking
 com.offlinewiki.config   Settings: properties file, atomic save, clamped/normalized on read
-com.offlinewiki.app      JavaFX shell: toolbar, search sidebar, WebView pane, palette, settings
+com.offlinewiki.app      JavaFX shell: toolbar, search sidebar, WebView pane, palette,
+                         settings, library/downloads
 ```
+
+### How downloads work
+
+The catalog's acquisition link points at a `.meta4` Metalink, from which the `.zim`, `.sha256`,
+`.torrent` and `.magnet` URLs all derive. The Metalink carries a mirror list **and 4 MiB
+piece-level SHA-1 hashes**, so the HTTP transport fetches piece-aligned chunks from several
+mirrors concurrently and verifies each as it lands — the per-chunk integrity usually attributed
+to BitTorrent. A chunk that fails is retried against a different mirror; an interrupted download
+resumes from a bitmap stored beside the partial file.
+
+After the bytes land, the whole file is checked against the published SHA-256 (this catches
+corruption introduced *after* the write). Only then does the archive enter the library as
+verified. A file that fails is **moved aside, not deleted** — discarding tens of GB over one bad
+piece is hostile on the connections this app is for.
+
+**BitTorrent** is designed for but not yet implemented: `TransportSelector` will prefer a torrent
+transport for large archives once one is registered, and always falls back to HTTP, which stays
+the guaranteed path for networks where BitTorrent is blocked. Seeding will be opt-in and off by
+default — silently uploading tens of GB on a metered connection is not an acceptable default.
+
+Two things measured against the live service that are easy to get wrong:
+
+- The OPDS `length` attribute is **rounded up to a whole KiB** (712704 published for a
+  712215-byte archive), so the Metalink `<size>` is the authoritative byte count.
+- A transport reporting "complete" means the bytes arrived, **not** that the archive is usable —
+  the job stays non-terminal until verification passes.
 
 **Adding a feature = adding a command.** Register it in `ReaderController.registerCommands()`
 so it shows up in the palette automatically; add a chord in `bindKeys()` only if it needs one.
 Toolbar buttons dispatch through the registry rather than calling logic directly.
 
-## Roadmap (not in the POC)
+## Roadmap
 
-- Library screen: book cards (title, description, icon, size, article count), not a tree.
+- **BitTorrent transport** behind the existing seam (jlibtorrent; note the Maven Central artifact
+  is stuck at 1.2.0.18 from 2018 and ships no Apple Silicon native — the current 2.0.12.x
+  releases are GitHub-only and must be vendored), plus seeding settings.
 - Full-text search (the Xapian index inside ZIMs needs native code — likely a Lucene re-index
   on first open instead).
+- Richer library screen: thumbnails from the catalog, filters by language and category, paging.
 - Tabs, bookmarks, persistent history; reading themes (dark mode CSS injection, width-capped
   column, per-book zoom).
-- Catalog browsing + downloads from library.kiwix.org.
 - Split archives (`.zimaa` …), service-worker-dependent archives.
 - jpackage installers (DMG/MSI/DEB).

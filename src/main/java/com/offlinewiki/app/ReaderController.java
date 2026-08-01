@@ -43,9 +43,14 @@ import javafx.util.Duration;
 
 import atlantafx.base.theme.PrimerDark;
 import atlantafx.base.theme.PrimerLight;
+import com.offlinewiki.catalog.CatalogClient;
 import com.offlinewiki.command.CommandRegistry;
 import com.offlinewiki.command.Keybindings;
 import com.offlinewiki.config.Settings;
+import com.offlinewiki.download.DownloadManager;
+import com.offlinewiki.download.HttpMultiSourceTransport;
+import com.offlinewiki.download.TransportSelector;
+import com.offlinewiki.library.Library;
 import com.offlinewiki.server.ZimHttpServer;
 import com.offlinewiki.zim.Dirent;
 import com.offlinewiki.zim.ZimArchive;
@@ -93,10 +98,22 @@ final class ReaderController {
     private String token;
     private String bookTitle = "";
 
-    ReaderController(Stage stage, HostServices hostServices, Settings settings) {
+    private final CatalogClient catalog = new CatalogClient();
+    private final Library library;
+    private final TransportSelector transports;
+    private final DownloadManager downloads;
+    private final LibraryPane libraryPane;
+    private SplitPane readerSplit;
+    private boolean showingLibrary;
+
+    ReaderController(Stage stage, HostServices hostServices, Settings settings, Path dataDir) {
         this.stage = stage;
         this.hostServices = hostServices;
         this.settings = settings;
+        this.library = Library.load(dataDir.resolve("library.properties"));
+        this.transports = new TransportSelector(new HttpMultiSourceTransport());
+        this.downloads = new DownloadManager(transports, library, dataDir.resolve("archives"));
+        this.libraryPane = new LibraryPane(catalog, downloads, library, this::openFromLibrary, status::setText);
         buildUi();
         registerCommands();
         bindKeys();
@@ -130,6 +147,14 @@ final class ReaderController {
         return archive != null;
     }
 
+    LibraryPane libraryPaneForTest() {
+        return libraryPane;
+    }
+
+    boolean libraryShowingForTest() {
+        return showingLibrary;
+    }
+
     // ---------------------------------------------------------------- commands
 
     private void registerCommands() {
@@ -152,6 +177,23 @@ final class ReaderController {
             saveAndApply();
             status.setText("Reopen last archive on startup: " + (settings.isReopenLastArchive() ? "on" : "off"));
         });
+        commands.register("library.show", "Show Library and Downloads", this::showLibrary);
+        commands.register("library.reader", "Back to Reader", this::showReader);
+        commands.register("library.toggle", "Toggle Library / Reader", this::toggleLibrary);
+        commands.register("library.search", "Search the Online Catalog", () -> {
+            showLibrary();
+            libraryPane.focusSearch();
+        });
+        commands.register("download.cancelAll", "Cancel All Downloads", () -> {
+            downloads.jobs().forEach(DownloadManager.Job::cancel);
+            status.setText("Cancelled all downloads");
+        });
+        commands.register("view.toggleTorrent", "Toggle: Prefer BitTorrent for Large Archives", () -> {
+            settings.setTorrentEnabled(!settings.isTorrentEnabled());
+            saveAndApply();
+            status.setText("Prefer BitTorrent for large archives: " + (settings.isTorrentEnabled() ? "on" : "off")
+                    + " (no torrent transport installed yet — HTTP is used either way)");
+        });
         commands.register("app.quit", "Quit", () -> stage.close());
     }
 
@@ -167,6 +209,7 @@ final class ReaderController {
         keys.bind("view.zoomIn", new KeyCodeCombination(KeyCode.EQUALS, KeyCombination.SHORTCUT_DOWN));
         keys.bind("view.zoomOut", new KeyCodeCombination(KeyCode.MINUS, KeyCombination.SHORTCUT_DOWN));
         keys.bind("view.zoomReset", new KeyCodeCombination(KeyCode.DIGIT0, KeyCombination.SHORTCUT_DOWN));
+        keys.bind("library.toggle", new KeyCodeCombination(KeyCode.B, KeyCombination.SHORTCUT_DOWN));
     }
 
     void installShortcuts(Scene scene) {
@@ -186,6 +229,9 @@ final class ReaderController {
         forwardButton.setDisable(true);
         homeButton.setDisable(true);
 
+        Button libraryButton = new Button("Library");
+        libraryButton.setTooltip(new javafx.scene.control.Tooltip("Browse and download archives"));
+        libraryButton.setOnAction(e -> commands.run("library.toggle"));
         Button paletteButton = new Button("⌘K");
         paletteButton.setTooltip(new javafx.scene.control.Tooltip("Command palette"));
         paletteButton.setOnAction(e -> commands.run("view.commandPalette"));
@@ -196,6 +242,7 @@ final class ReaderController {
         HBox.setHgrow(spacer, Priority.ALWAYS);
         ToolBar toolbar = new ToolBar(
                 openButton,
+                libraryButton,
                 new Separator(),
                 backButton,
                 forwardButton,
@@ -247,9 +294,9 @@ final class ReaderController {
         sidebar.setMinWidth(220);
         sidebar.setPrefWidth(300);
 
-        SplitPane split = new SplitPane(sidebar, webView);
-        split.setOrientation(Orientation.HORIZONTAL);
-        split.setDividerPositions(0.24);
+        readerSplit = new SplitPane(sidebar, webView);
+        readerSplit.setOrientation(Orientation.HORIZONTAL);
+        readerSplit.setDividerPositions(0.24);
         SplitPane.setResizableWithParent(sidebar, false);
 
         WebEngine engine = webView.getEngine();
@@ -262,9 +309,41 @@ final class ReaderController {
         statusBar.setPadding(new Insets(4, 10, 4, 10));
 
         shell.setTop(toolbar);
-        shell.setCenter(split);
+        shell.setCenter(readerSplit);
         shell.setBottom(statusBar);
         root.getChildren().add(shell);
+    }
+
+    // ---------------------------------------------------------------- library / downloads
+
+    private void showLibrary() {
+        if (!showingLibrary) {
+            shell.setCenter(libraryPane.node());
+            libraryPane.activate();
+            showingLibrary = true;
+        }
+    }
+
+    private void showReader() {
+        if (showingLibrary) {
+            libraryPane.deactivate();
+            shell.setCenter(readerSplit);
+            showingLibrary = false;
+        }
+    }
+
+    private void toggleLibrary() {
+        if (showingLibrary) {
+            showReader();
+        } else {
+            showLibrary();
+        }
+    }
+
+    /** Opens a downloaded archive: switches back to the reader and loads it. */
+    private void openFromLibrary(Path file) {
+        showReader();
+        openZim(file);
     }
 
     // ---------------------------------------------------------------- settings
@@ -276,6 +355,7 @@ final class ReaderController {
                         ? new PrimerDark().getUserAgentStylesheet()
                         : new PrimerLight().getUserAgentStylesheet());
         webView.setZoom(settings.getZoomPercent() / 100.0);
+        transports.setTorrentEnabled(settings.isTorrentEnabled());
         if (settingsDialog != null) {
             settingsDialog.sync();
         }
@@ -461,6 +541,9 @@ final class ReaderController {
 
     void dispose() {
         searchExecutor.shutdownNow();
+        libraryPane.deactivate();
+        downloads.close();
+        catalog.close();
         closeArchive();
         if (server != null) {
             server.close();

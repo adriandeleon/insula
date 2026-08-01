@@ -33,6 +33,19 @@ public final class Settings {
     private String lastArchive = "";
     private int searchLimit = 40;
 
+    /**
+     * Prefer BitTorrent for large archives when a torrent transport is installed. Off by default:
+     * the transport is not implemented yet, and on the restricted networks this app targets
+     * (schools, NGOs) BitTorrent is frequently blocked, so HTTP stays the guaranteed path.
+     */
+    private boolean torrentEnabled = false;
+    /**
+     * Seeding is opt-in and default-off on purpose: a meaningful share of these users are on
+     * metered or expensive connections, and silently uploading tens of GB is how an app earns an
+     * uninstall.
+     */
+    private boolean seedingEnabled = false;
+
     private Settings(Path file) {
         this.file = file;
     }
@@ -56,6 +69,8 @@ public final class Settings {
                     parseInt(props.getProperty("searchLimit"), settings.searchLimit),
                     MIN_SEARCH_LIMIT,
                     MAX_SEARCH_LIMIT);
+            settings.torrentEnabled = Boolean.parseBoolean(props.getProperty("torrentEnabled", "false"));
+            settings.seedingEnabled = Boolean.parseBoolean(props.getProperty("seedingEnabled", "false"));
         }
         return settings;
     }
@@ -67,6 +82,8 @@ public final class Settings {
         props.setProperty("reopenLastArchive", String.valueOf(reopenLastArchive));
         props.setProperty("lastArchive", lastArchive);
         props.setProperty("searchLimit", String.valueOf(searchLimit));
+        props.setProperty("torrentEnabled", String.valueOf(torrentEnabled));
+        props.setProperty("seedingEnabled", String.valueOf(seedingEnabled));
         try {
             Files.createDirectories(file.getParent());
             Path temp = file.resolveSibling(file.getFileName() + ".tmp");
@@ -140,6 +157,22 @@ public final class Settings {
 
     public void setLastArchive(String lastArchive) {
         this.lastArchive = lastArchive == null ? "" : lastArchive;
+    }
+
+    public boolean isTorrentEnabled() {
+        return torrentEnabled;
+    }
+
+    public void setTorrentEnabled(boolean torrentEnabled) {
+        this.torrentEnabled = torrentEnabled;
+    }
+
+    public boolean isSeedingEnabled() {
+        return seedingEnabled;
+    }
+
+    public void setSeedingEnabled(boolean seedingEnabled) {
+        this.seedingEnabled = seedingEnabled;
     }
 
     public int getSearchLimit() {

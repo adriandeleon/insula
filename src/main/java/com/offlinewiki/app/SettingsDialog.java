@@ -39,6 +39,8 @@ final class SettingsDialog {
     private final CheckBox reopenCheck = new CheckBox("Reopen the last archive on startup");
     private final Spinner<Integer> searchLimitSpinner =
             new Spinner<>(Settings.MIN_SEARCH_LIMIT, Settings.MAX_SEARCH_LIMIT, 40, 5);
+    private final CheckBox torrentCheck = new CheckBox("Prefer BitTorrent for large archives");
+    private final CheckBox seedingCheck = new CheckBox("Share downloaded archives with others (seeding)");
 
     /** Guards control listeners while the dialog is being populated from settings. */
     private boolean loading;
@@ -55,6 +57,7 @@ final class SettingsDialog {
         Map<String, Region> pages = new LinkedHashMap<>();
         pages.put("Appearance", appearancePage());
         pages.put("Reader", readerPage());
+        pages.put("Downloads", downloadsPage());
 
         ListView<String> sidebar = new ListView<>();
         sidebar.getItems().setAll(pages.keySet());
@@ -123,6 +126,41 @@ final class SettingsDialog {
         return page("Reader", box);
     }
 
+    private Region downloadsPage() {
+        torrentCheck.selectedProperty().addListener((obs, old, selected) -> {
+            if (!loading) {
+                settings.setTorrentEnabled(selected);
+                applyAndSave();
+            }
+        });
+        seedingCheck.selectedProperty().addListener((obs, old, selected) -> {
+            if (!loading) {
+                settings.setSeedingEnabled(selected);
+                applyAndSave();
+            }
+        });
+
+        Label torrentNote = note("Large archives can be fetched over BitTorrent, which spreads load off the "
+                + "donated mirrors. No torrent transport is installed yet, so downloads use HTTP either way. "
+                + "HTTP always remains available as a fallback — BitTorrent is blocked on many school and "
+                + "office networks.");
+        Label seedingNote = note("Seeding shares what you have downloaded with others. It is off by default "
+                + "because it can consume a lot of upload bandwidth, which is costly on metered connections.");
+        Label verifyNote = note("Every download is checked against the publisher's SHA-256. A file that fails "
+                + "is kept aside rather than deleted, so you can retry without downloading it all again.");
+
+        VBox box = new VBox(10, torrentCheck, torrentNote, seedingCheck, seedingNote, verifyNote);
+        return page("Downloads", box);
+    }
+
+    private static Label note(String text) {
+        Label label = new Label(text);
+        label.setWrapText(true);
+        label.setStyle("-fx-opacity: 0.7;");
+        label.setMaxWidth(360);
+        return label;
+    }
+
     private static GridPane grid() {
         GridPane grid = new GridPane();
         grid.setHgap(12);
@@ -150,6 +188,8 @@ final class SettingsDialog {
             zoomSpinner.getValueFactory().setValue(settings.getZoomPercent());
             reopenCheck.setSelected(settings.isReopenLastArchive());
             searchLimitSpinner.getValueFactory().setValue(settings.getSearchLimit());
+            torrentCheck.setSelected(settings.isTorrentEnabled());
+            seedingCheck.setSelected(settings.isSeedingEnabled());
         } finally {
             loading = false;
         }

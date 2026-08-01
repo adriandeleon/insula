@@ -190,6 +190,66 @@ class DownloadManagerTest {
     }
 
     @Test
+    void aJobIsNeverTerminalBeforeVerificationHasRun(@TempDir Path dir) throws Exception {
+        // Regression: the transport reports COMPLETED the moment the bytes land. If that leaks
+        // through as the job's state, a UI polling isTerminal() shows "Ready" on a file whose
+        // checksum has not been checked — and a shutdown right then cancels verification. Caught
+        // against the live catalog, where it left the library empty after a "completed" download.
+        byte[] data = payload();
+        try (Origin origin = new Origin(data, sha256(data))) {
+            Library library = Library.load(dir.resolve("library.properties"));
+            try (DownloadManager manager = manager(library, dir.resolve("zims"))) {
+                DownloadManager.Job job = manager.enqueue(origin.entry());
+                awaitTerminal(job);
+
+                // The invariant: reaching COMPLETED implies the archive is in the library, verified.
+                assertEquals(DownloadState.COMPLETED, job.snapshot().state());
+                assertTrue(
+                        library.isVerified(job.destination()),
+                        "COMPLETED must mean verified-and-admitted, not merely downloaded");
+            }
+        }
+    }
+
+    @Test
+    void progressTotalUsesTheAuthoritativeSizeNotTheRoundedCatalogFigure(@TempDir Path dir) throws Exception {
+        // Regression: the OPDS acquisition `length` is rounded UP to a whole KiB (measured:
+        // 712704 published for a 712215-byte archive), so using it as the denominator leaves the
+        // progress bar stuck just short of 100% on every real download.
+        byte[] data = payload();
+        long roundedUp = -Math.floorDiv(-data.length, 1024) * 1024 + 512; // deliberately too big
+        try (Origin origin = new Origin(data, sha256(data))) {
+            ZimEntry inflated = new ZimEntry(
+                    "urn:uuid:2",
+                    "T",
+                    "",
+                    "file",
+                    "",
+                    List.of("eng"),
+                    "other",
+                    1,
+                    0,
+                    origin.url() + ".meta4",
+                    roundedUp);
+            Library library = Library.load(dir.resolve("library.properties"));
+            try (DownloadManager manager = manager(library, dir.resolve("zims"))) {
+                DownloadManager.Job job = manager.enqueue(inflated);
+                awaitTerminal(job);
+
+                assertEquals(
+                        DownloadState.COMPLETED,
+                        job.snapshot().state(),
+                        job.snapshot().detail());
+                assertEquals(
+                        data.length,
+                        job.snapshot().bytesTotal(),
+                        "the Metalink <size> is authoritative, not the catalog's rounded length");
+                assertEquals(1.0, job.snapshot().fraction(), 0.0001, "progress must actually reach 100%");
+            }
+        }
+    }
+
+    @Test
     void enqueuingTheSameEntryTwiceReusesTheJob(@TempDir Path dir) throws Exception {
         byte[] data = payload();
         try (Origin origin = new Origin(data, sha256(data))) {

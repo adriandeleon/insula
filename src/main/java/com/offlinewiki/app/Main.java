@@ -15,8 +15,9 @@ public class Main extends Application {
 
     @Override
     public void start(Stage stage) throws Exception {
-        Settings settings = Settings.load(configDir().resolve("settings.properties"));
-        controller = new ReaderController(stage, getHostServices(), settings);
+        Path configDir = configDir();
+        Settings settings = Settings.load(configDir.resolve("settings.properties"));
+        controller = new ReaderController(stage, getHostServices(), settings, configDir);
         Scene scene = new Scene(controller.root(), 1280, 840);
         controller.installShortcuts(scene);
         stage.setTitle("Offline Wiki");

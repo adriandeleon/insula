@@ -27,7 +27,7 @@ class ReaderShellFxTest {
         return FxTestSupport.callOnFx(() -> {
             Settings settings = Settings.load(configDir.resolve("settings.properties"));
             Stage stage = new Stage();
-            ReaderController controller = new ReaderController(stage, null, settings);
+            ReaderController controller = new ReaderController(stage, null, settings, configDir);
             Scene scene = new Scene(controller.root(), 900, 600);
             controller.installShortcuts(scene);
             stage.setScene(scene);

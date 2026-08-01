@@ -148,11 +148,20 @@ public final class HttpMultiSourceTransport implements DownloadTransport {
         private volatile long lastRateSampleBytes;
         private volatile long bytesPerSecond;
 
+        /**
+         * Authoritative byte count. Starts at the catalog's figure, which is only an approximation
+         * — the OPDS acquisition {@code length} is rounded <em>up</em> to a whole KiB (measured:
+         * 712704 published for a 712215-byte archive), so trusting it leaves progress stuck just
+         * short of 100%. Replaced by the Metalink {@code <size>} as soon as the sidecar is read.
+         */
+        private volatile long totalBytes;
+
         Job(ZimEntry entry, Path destination, ProgressListener listener) {
             this.entry = entry;
             this.destination = destination;
             this.partFile = destination.resolveSibling(destination.getFileName() + PART_SUFFIX);
             this.listener = listener;
+            this.totalBytes = entry.sizeBytes();
         }
 
         void begin() {
@@ -172,6 +181,7 @@ public final class HttpMultiSourceTransport implements DownloadTransport {
             Metalink metalink = fetchMetalink(entry);
 
             long size = metalink != null && metalink.size() > 0 ? metalink.size() : entry.sizeBytes();
+            totalBytes = size;
             List<String> mirrors = new ArrayList<>();
             if (metalink != null) {
                 mirrors.addAll(metalink.mirrors());
@@ -413,16 +423,14 @@ public final class HttpMultiSourceTransport implements DownloadTransport {
         }
 
         private void publish(DownloadState state, String detail) {
-            long total = entry.sizeBytes();
             ProgressSnapshot snapshot = new ProgressSnapshot(
-                    state, completedBytes.get(), total, bytesPerSecond, activeSources.get(), detail);
+                    state, completedBytes.get(), totalBytes, bytesPerSecond, activeSources.get(), detail);
             latest.set(snapshot);
             listener.onProgress(snapshot);
         }
 
         private void finish(DownloadResult result) {
-            latest.set(new ProgressSnapshot(
-                    result.state(), completedBytes.get(), entry.sizeBytes(), 0, 0, result.message()));
+            latest.set(new ProgressSnapshot(result.state(), completedBytes.get(), totalBytes, 0, 0, result.message()));
             listener.onProgress(latest.get());
             pool.shutdownNow();
             completion.complete(result);

@@ -163,7 +163,22 @@ public final class DownloadManager implements AutoCloseable {
     }
 
     private DownloadResult download(Job job, DownloadTransport transport) throws Exception {
-        DownloadHandle handle = transport.start(job.entry(), job.destination(), s -> job.snapshot = s);
+        // The transport's COMPLETED means "the bytes landed", not "this archive is usable" — the
+        // checksum still has to pass. Publishing it verbatim would make the job look terminal, so
+        // a UI polling for a terminal state shows "Ready" on an unverified (possibly corrupt)
+        // file, and a shutdown at that moment would cancel verification entirely. Translate it to
+        // VERIFYING and let the pipeline decide the real terminal state.
+        DownloadHandle handle = transport.start(job.entry(), job.destination(), snapshot -> {
+            job.snapshot = snapshot.state() == DownloadState.COMPLETED
+                    ? new ProgressSnapshot(
+                            DownloadState.VERIFYING,
+                            snapshot.bytesCompleted(),
+                            snapshot.bytesTotal(),
+                            0,
+                            0,
+                            "Checking integrity")
+                    : snapshot;
+        });
         job.handle = handle;
         return handle.completion().get();
     }
@@ -174,17 +189,13 @@ public final class DownloadManager implements AutoCloseable {
             // No published digest: admit it, but never claim it was verified.
             LOG.warning(() -> "No .sha256 for " + job.entry().fileName() + "; admitting unverified");
             admit(job, "", false);
+            long size = authoritativeSize(job);
             job.snapshot = new ProgressSnapshot(
-                    DownloadState.COMPLETED,
-                    job.entry().sizeBytes(),
-                    job.entry().sizeBytes(),
-                    0,
-                    0,
-                    "Downloaded (no checksum published)");
+                    DownloadState.COMPLETED, size, size, 0, 0, "Downloaded (no checksum published)");
             return;
         }
         try {
-            long total = Math.max(1, job.entry().sizeBytes());
+            long total = authoritativeSize(job);
             Sha256Verifier.Verification verification = Sha256Verifier.verify(
                     job.destination(),
                     published,
@@ -214,6 +225,24 @@ public final class DownloadManager implements AutoCloseable {
                     0,
                     "Verification failed: " + e.getMessage());
         }
+    }
+
+    /**
+     * The real byte count: what is on disk, else what the transport learned from the Metalink.
+     * Never {@code entry.sizeBytes()} — the catalog rounds that up to a whole KiB, which would
+     * leave the progress bar short of 100% on every download.
+     */
+    private static long authoritativeSize(Job job) {
+        try {
+            long onDisk = Files.size(job.destination());
+            if (onDisk > 0) {
+                return onDisk;
+            }
+        } catch (IOException ignored) {
+            // fall through to what the transport reported
+        }
+        long reported = job.snapshot().bytesTotal();
+        return reported > 0 ? reported : Math.max(1, job.entry().sizeBytes());
     }
 
     private void admit(Job job, String sha256, boolean verified) {
