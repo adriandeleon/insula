@@ -1,39 +1,86 @@
 # Insula
 
-A fast, keyboard-first desktop reader for [ZIM](https://wiki.openzim.org/wiki/ZIM_file_format)
-offline content archives (Wikipedia, Wiktionary, Wikibooks, StackExchange dumps, …) — the same
-archives Kiwix uses, with an explicit goal of a **much better reading UX**: modern, minimal
-chrome, instant search, keyboard everywhere.
+A fast, keyboard-first desktop reader for **ZIM** offline content archives — the same archives
+[Kiwix](https://kiwix.org) uses: Wikipedia, Wiktionary, Wikibooks, StackExchange dumps and
+hundreds more. Download them once, read them forever, with no network.
 
-Built with **JavaFX 26** on **JDK 25**. The ZIM reader is **pure Java** (no libzim, no JNI
-builds): XZ clusters via `org.tukaani:xz`, Zstandard clusters via `zstd-jni`.
+Insula exists because the reading and library experience around these archives deserves better:
+minimal chrome, instant search, everything reachable from the keyboard, and a download that tells
+you the truth about whether your file is intact.
 
-## Status: proof of concept
+Built with **JavaFX 26** on **JDK 25**. The ZIM reader is **pure Java** — no libzim, no JNI build
+step, no platform-specific native toolchain to install.
 
-Working today:
+## Features
 
-- Open any modern `.zim` (both the old `A/I/M` and the new `C/M/W/X` namespace schemes;
-  uncompressed, XZ and Zstandard clusters).
-- Home renders the archive's main page in a WebView — images and CSS intact (entries are served
-  at their real archive paths by a loopback-only HTTP server, so relative links need no rewriting).
-- Search-as-you-type over the title index (uses the `X/listing/titleOrdered/v1` front-article
-  listing when the archive has one), Enter/click to open.
-- Back/forward history, external links open in the system browser.
-- **Command palette** — every action is a registered command, reachable by name with its
-  keybinding shown; nothing is mouse-only.
-- **Settings** with live apply (theme, content zoom, search result count, reopen-last-archive),
-  persisted to `~/.insula/settings.properties`.
-- **Library and downloads** — search the Kiwix OPDS catalog, download over HTTP from several
-  mirrors at once with resume, per-chunk and whole-file verification, and open the result.
+**Reading**
 
-### Keyboard
+- Opens any modern `.zim`: both the legacy `A/I/M` and current `C/M/W/X` namespace schemes, and
+  uncompressed, XZ and Zstandard clusters.
+- Articles render with their images and stylesheets intact — entries are served at their real
+  archive paths, so nothing inside the archived HTML has to be rewritten.
+- Search-as-you-type over the archive's title index, with back/forward history. Links to the live
+  web open in your system browser rather than pretending to work offline.
+
+**Library and downloads**
+
+- Search the Kiwix catalog from inside the app and download without leaving it.
+- Downloads run **from several mirrors at once** using HTTP range requests, and **resume** after
+  an interruption instead of starting over.
+- Every chunk is checked against the publisher's piece hashes as it arrives, and the completed
+  file against its published SHA-256. An archive is only offered for reading once it verifies.
+- A file that fails verification is **kept, not deleted**, so you can retry without re-downloading
+  tens of gigabytes.
+
+**Interface**
+
+- A command palette (`Ctrl+Shift+P`) listing every action with its shortcut — nothing is
+  mouse-only.
+- Live-applying settings: theme, content zoom, result count, download preferences.
+
+## Install and run
+
+Requires **JDK 25** or newer. No separate Maven install — the repository ships a wrapper.
+
+```bash
+git clone <repository-url> insula
+cd insula
+./mvnw javafx:run
+```
+
+Open an archive directly:
+
+```bash
+./mvnw javafx:run -Djavafx.args=/path/to/archive.zim
+```
+
+Native installers (DMG/MSI/DEB) are on the roadmap; for now the wrapper is the supported way to
+run it.
+
+## Getting archives
+
+Use the built-in library (`Ctrl+B`), or download by hand from
+[the Kiwix library](https://library.kiwix.org/). Small English archives that make good first
+tests, from `download.kiwix.org/zim/wikipedia/`:
+
+| Archive | Size | Notes |
+| --- | --- | --- |
+| `wikipedia_en_ray-charles_mini_<date>.zim` | ~0.7 MB | tiny, good for a smoke test |
+| `wikipedia_en_100_mini_<date>.zim` | ~4.5 MB | top-100 articles, text only |
+| `wikipedia_en_100_maxi_<date>.zim` | ~51 MB | top-100 with images |
+
+Every archive on the mirrors has `.sha256`, `.meta4`, `.torrent` and `.magnet` sidecars beside it.
+Insula uses the first two automatically; if you download by hand you can check the file yourself
+with `sha256sum -c` against the published `.sha256`.
+
+## Keyboard
 
 | Shortcut | Action |
 | --- | --- |
 | `Ctrl+Shift+P` | Command palette |
 | `Ctrl+L` | Focus search |
-| `Ctrl+O` | Open archive |
-| `Ctrl+B` | Library / downloads |
+| `Ctrl+B` | Library and downloads |
+| `Ctrl+O` | Open an archive from disk |
 | `Ctrl+,` | Settings |
 | `Alt+←` / `Alt+→` | Back / forward |
 | `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | Zoom in / out / reset |
@@ -42,52 +89,16 @@ From the search field, `↓` moves into the results and `Enter` opens the top hi
 
 ## Configuration
 
-Settings live in `~/.insula/settings.properties` (override the directory with
-`INSULA_CONFIG_DIR`). Every preference is also reachable as a palette command, so the
+Settings, the library index and downloaded archives live in `~/.insula/`. Set
+`INSULA_CONFIG_DIR` to put them elsewhere. Every preference is also a palette command, so the
 Settings window is never the only way to change something.
 
-## Run
-
-```bash
-mvn javafx:run
-```
-
-or with an archive:
-
-```bash
-mvn javafx:run -Djavafx.args=/path/to/some.zim
-```
-
-Get archives from the [Kiwix library](https://library.kiwix.org/). Good small English ones for
-testing (`download.kiwix.org/zim/wikipedia/`):
-
-| File | Size | Notes |
-| --- | --- | --- |
-| `wikipedia_en_100_mini_<date>.zim` | ~4.5 MB | top-100 articles, text only |
-| `wikipedia_en_100_maxi_<date>.zim` | ~51 MB | top-100 **with images** — best manual test |
-| `wikipedia_en_climate-change_mini_<date>.zim` | ~12 MB | a themed subset |
-
-Every ZIM on the mirror has `.sha256`, `.meta4`, `.torrent` and `.magnet` sidecars beside it;
-verify a download with `sha256sum -c` against the published `.sha256`.
-
-## Test
-
-```bash
-mvn test
-```
-
-Format-core tests run against small fixtures from
-[openzim/zim-testing-suite](https://github.com/openzim/zim-testing-suite) committed under
-`src/test/resources/zim/` — between them they cover both namespace schemes and all three
-cluster compressions. UI tests drive a real scene graph on JavaFX 26's built-in **Headless**
-Glass platform, so the whole suite runs with no display.
-
-## Architecture
+## How it works
 
 ```
 com.insula.zim       pure ZIM format core (no JavaFX): header, dirents, pointer lists,
                      cluster decompression + LRU cache, ZimArchive facade
-com.insula.server    ZimHttpServer: 127.0.0.1-only, /zim/<token>/<ns>/<path> → blob + MIME
+com.insula.server    ZimHttpServer: loopback-only, /zim/<token>/<ns>/<path> → blob + MIME
 com.insula.catalog   ZimEntry + OPDS v2 parser + CatalogClient
 com.insula.download  transport seam, HTTP multi-source transport, Metalink parsing,
                      chunk plan + resume, SHA-256 verification, quarantine, manager
@@ -98,45 +109,45 @@ com.insula.app       JavaFX shell: toolbar, search sidebar, WebView pane, palett
                      settings, library/downloads
 ```
 
-### How downloads work
+**Rendering.** Articles are served to an embedded WebView by a loopback-only HTTP server at their
+real archive paths, so relative links, images and CSS resolve untouched.
 
-The catalog's acquisition link points at a `.meta4` Metalink, from which the `.zim`, `.sha256`,
-`.torrent` and `.magnet` URLs all derive. The Metalink carries a mirror list **and 4 MiB
-piece-level SHA-1 hashes**, so the HTTP transport fetches piece-aligned chunks from several
-mirrors concurrently and verifies each as it lands — the per-chunk integrity usually attributed
-to BitTorrent. A chunk that fails is retried against a different mirror; an interrupted download
-resumes from a bitmap stored beside the partial file.
+**Downloading.** The catalog's acquisition link points at a `.meta4` Metalink, which carries the
+mirror list *and* 4 MiB piece-level SHA-1 hashes. Insula fetches piece-aligned chunks from several
+mirrors concurrently, verifies each as it lands, retries a bad chunk elsewhere, and resumes from a
+bitmap stored beside the partial file. The whole-file SHA-256 runs afterwards regardless — it
+catches corruption introduced after the write.
 
-After the bytes land, the whole file is checked against the published SHA-256 (this catches
-corruption introduced *after* the write). Only then does the archive enter the library as
-verified. A file that fails is **moved aside, not deleted** — discarding tens of GB over one bad
-piece is hostile on the connections this app is for.
+**BitTorrent** is designed for but not yet implemented. `TransportSelector` will prefer a torrent
+transport for large archives once one is registered and always falls back to HTTP, which stays the
+guaranteed path for networks where BitTorrent is blocked. Seeding will be opt-in and off by
+default.
 
-**BitTorrent** is designed for but not yet implemented: `TransportSelector` will prefer a torrent
-transport for large archives once one is registered, and always falls back to HTTP, which stays
-the guaranteed path for networks where BitTorrent is blocked. Seeding will be opt-in and off by
-default — silently uploading tens of GB on a metered connection is not an acceptable default.
+## Development
 
-Two things measured against the live service that are easy to get wrong:
+```bash
+./mvnw test              # unit + headless-FX tests, no display required
+./mvnw verify            # tests plus the formatting gate
+./mvnw spotless:apply    # format before committing
+```
 
-- The OPDS `length` attribute is **rounded up to a whole KiB** (712704 published for a
-  712215-byte archive), so the Metalink `<size>` is the authoritative byte count.
-- A transport reporting "complete" means the bytes arrived, **not** that the archive is usable —
-  the job stays non-terminal until verification passes.
+Tests run against ZIM fixtures from
+[openzim/zim-testing-suite](https://github.com/openzim/zim-testing-suite) and against loopback
+HTTP servers that can deliberately misbehave — serving corrupt bytes, ignoring range requests or
+failing outright — so the failure modes that corrupt a file are covered, not just the happy path.
+UI tests drive a real scene graph on JavaFX 26's built-in headless platform.
 
-**Adding a feature = adding a command.** Register it in `ReaderController.registerCommands()`
-so it shows up in the palette automatically; add a chord in `bindKeys()` only if it needs one.
-Toolbar buttons dispatch through the registry rather than calling logic directly.
+See [CLAUDE.md](CLAUDE.md) for architecture conventions and a list of non-obvious facts about the
+ZIM format and the Kiwix mirror infrastructure that are easy to get wrong.
 
 ## Roadmap
 
-- **BitTorrent transport** behind the existing seam (jlibtorrent; note the Maven Central artifact
-  is stuck at 1.2.0.18 from 2018 and ships no Apple Silicon native — the current 2.0.12.x
-  releases are GitHub-only and must be vendored), plus seeding settings.
-- Full-text search (the Xapian index inside ZIMs needs native code — likely a Lucene re-index
-  on first open instead).
-- Richer library screen: thumbnails from the catalog, filters by language and category, paging.
-- Tabs, bookmarks, persistent history; reading themes (dark mode CSS injection, width-capped
-  column, per-book zoom).
-- Split archives (`.zimaa` …), service-worker-dependent archives.
-- jpackage installers (DMG/MSI/DEB).
+See [CHANGELOG.md](CHANGELOG.md) for what has landed. Next up: a BitTorrent transport behind the
+existing seam, full-text search, a richer library screen with thumbnails and filters, tabs and
+bookmarks, reading themes, and native installers.
+
+## Acknowledgements
+
+The ZIM format and the archives themselves are the work of the [openZIM](https://openzim.org) and
+[Kiwix](https://kiwix.org) projects, whose mirror infrastructure Insula downloads from. Insula is
+an independent reader and is not affiliated with either project.

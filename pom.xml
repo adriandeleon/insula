@@ -80,6 +80,8 @@
                         <!-- JavaFX 26's built-in Headless Glass platform: UI tests need no display. -->
                         <glass.platform>Headless</glass.platform>
                         <prism.order>sw</prism.order>
+                        <!-- Quiets stack traces from tests that deliberately drive failure paths. -->
+                        <java.util.logging.config.file>${project.basedir}/src/test/resources/logging.properties</java.util.logging.config.file>
                     </systemPropertyVariables>
                 </configuration>
             </plugin>
