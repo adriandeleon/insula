@@ -1,0 +1,6 @@
+c96316e640397249ecfbbe56c355afef472190b8d47d51a94a03e47eb60c219a  jlibtorrent-2.0.12.9.jar
+1e6996c4677b20fb0b5f0ef3a100a03ac9b72eed5c5bb107fc97c9d727c01e2b  jlibtorrent-linux-arm64-2.0.12.9.jar
+588f70db3f2131f7c9a8133cba7883319c29a5434f2ad092ff4e1fb51dc2f088  jlibtorrent-linux-x86_64-2.0.12.9.jar
+d5d58e81491cae4483aa2a8a2fac2c79d422132a3afa310dff48581fdacca196  jlibtorrent-macosx-arm64-2.0.12.9.jar
+cbe2ff76ca7f5aa56b516a9244c26c6ec40b59d6a78abeea85b78d4a73ed076b  jlibtorrent-macosx-x86_64-2.0.12.9.jar
+65d12b22c6005cec550ac3bb0b22d91cc580abdde1367f76f5f3cba23415246f  jlibtorrent-windows-2.0.12.9.jar

@@ -36,8 +36,14 @@ Everything below is in `main` and unreleased; there has been no tagged version y
   resume state is discarded so a retry starts clean.
 - A persisted library of local archives that records which ones verified; only verified archives
   are opened automatically.
-- Pluggable transport seam (`DownloadTransport`) and `TransportSelector`, so a BitTorrent
-  transport can be added without touching the HTTP path. HTTP is always the registered fallback.
+- Pluggable transport seam (`DownloadTransport`) and `TransportSelector`, so transports can be
+  added without touching each other. HTTP is always the registered fallback.
+- **BitTorrent transport** (optional), backed by a vendored jlibtorrent 2.0.12.9. Used only above
+  a size threshold, only when enabled, and only when its native library loaded; it gives up and
+  lets HTTP take over rather than stalling at 0 B/s. Seeding is off by default.
+- **Metalink web-seed merge**: mirrors listed in the `.meta4` but absent from the `.torrent` are
+  injected into the session as BEP-19 web seeds. Measured on a real archive, that is 5 mirrors the
+  torrent omits out of 9; a test download completed with zero peers purely from them.
 
 **Interface**
 

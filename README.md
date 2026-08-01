@@ -121,10 +121,21 @@ mirrors concurrently, verifies each as it lands, retries a bad chunk elsewhere, 
 bitmap stored beside the partial file. The whole-file SHA-256 runs afterwards regardless — it
 catches corruption introduced after the write.
 
-**BitTorrent** is designed for but not yet implemented. `TransportSelector` will prefer a torrent
-transport for large archives once one is registered and always falls back to HTTP, which stays the
-guaranteed path for networks where BitTorrent is blocked. Seeding will be opt-in and off by
-default.
+**BitTorrent** is available as an option, never as the only route. It is used only for archives
+above a size threshold, only when enabled in Settings, and only when its native library actually
+loaded; HTTP remains the fallback in every other case, because BitTorrent is blocked on many
+school, library and office networks. If a torrent makes no progress it gives up and the download
+continues over HTTP rather than sitting at 0 B/s.
+
+Insula also **merges the Metalink mirrors into the torrent session as web seeds** (BEP 19).
+Kiwix's `.torrent` files advertise only a few, geographically clustered mirrors while the `.meta4`
+for the same file lists more — measured on one real archive, the torrent had 4 web seeds and the
+Metalink 9, so 5 were missing. Since many Kiwix swarms are thin (often zero seeders), those web
+seeds are frequently the only thing moving data: a test download completed with **0 peers**
+entirely from merged mirrors.
+
+Seeding is off by default and opt-in. A large share of these users are on metered or expensive
+connections, and silently uploading tens of gigabytes is not a defensible default.
 
 ## Development
 

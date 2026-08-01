@@ -49,6 +49,7 @@ import com.insula.command.Keybindings;
 import com.insula.config.Settings;
 import com.insula.download.DownloadManager;
 import com.insula.download.HttpMultiSourceTransport;
+import com.insula.download.TorrentTransport;
 import com.insula.download.TransportSelector;
 import com.insula.library.Library;
 import com.insula.server.ZimHttpServer;
@@ -112,6 +113,11 @@ final class ReaderController {
         this.settings = settings;
         this.library = Library.load(dataDir.resolve("library.properties"));
         this.transports = new TransportSelector(new HttpMultiSourceTransport());
+        // BitTorrent is an option, never the only way: it is registered only when its native
+        // library actually loads, and HTTP stays the fallback regardless.
+        if (TorrentTransport.isAvailable()) {
+            transports.register(new TorrentTransport(settings.isSeedingEnabled()));
+        }
         this.downloads = new DownloadManager(transports, library, dataDir.resolve("archives"));
         this.libraryPane = new LibraryPane(catalog, downloads, library, this::openFromLibrary, status::setText);
         buildUi();

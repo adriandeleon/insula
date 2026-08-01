@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Vendored from https://github.com/frostwire/frostwire-jlibtorrent/releases/tag/release/2.0.12.9
+     (jlibtorrent 2.0.12.9 is not published to Maven Central; the newest there is 1.2.0.18 from 2018,
+     whose macOS artifact has no Apple Silicon native). -->
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.frostwire</groupId>
+  <artifactId>jlibtorrent</artifactId>
+  <version>2.0.12.9</version>
+  <packaging>jar</packaging>
+  <licenses>
+    <license><name>MIT License</name><url>https://opensource.org/licenses/MIT</url></license>
+  </licenses>
+</project>

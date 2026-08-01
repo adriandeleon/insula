@@ -11,6 +11,7 @@ repository or in a build, and under what terms.
 | [AtlantaFX](https://github.com/mkpaz/atlantafx) (`atlantafx-base`) | theming | MIT |
 | [XZ for Java](https://tukaani.org/xz/java.html) (`org.tukaani:xz`) | XZ/LZMA2 cluster decompression | 0BSD |
 | [zstd-jni](https://github.com/luben/zstd-jni) | Zstandard cluster decompression | BSD-2-Clause |
+| [jlibtorrent](https://github.com/frostwire/frostwire-jlibtorrent) (vendored, see below) | the optional BitTorrent transport | MIT (wrapping [libtorrent](https://libtorrent.org), BSD-3-Clause) |
 | [JUnit 5](https://junit.org/junit5/) | tests only | EPL-2.0 |
 
 Licenses were read from each artifact's published POM where it declares one (zstd-jni: BSD
@@ -19,6 +20,20 @@ its POM but is MIT upstream).
 
 The OpenJFX Classpath Exception is what allows an application to link against JavaFX without
 itself becoming GPL. It is worth being aware of if the licensing of Insula ever changes.
+
+## Vendored binaries
+
+`m2-repo/` is an in-project Maven repository holding **jlibtorrent 2.0.12.9** — the API jar plus
+the five desktop natives (linux x86_64/arm64, macOS x86_64/arm64, windows x86_64), about 21 MB in
+total. They are vendored because jlibtorrent 2.0.12.x is published **only to GitHub Releases**;
+Maven Central's newest is 1.2.0.18 from 2018, whose macOS artifact contains no Apple Silicon
+native and so cannot run on a modern Mac.
+
+The jars are byte-for-byte as downloaded from
+[release/2.0.12.9](https://github.com/frostwire/frostwire-jlibtorrent/releases/tag/release%2F2.0.12.9);
+their SHA-256 checksums are recorded in `m2-repo/CHECKSUMS.txt` so the provenance can be
+re-verified. A build pulls in only the native matching its own platform, via the `native-*`
+profiles in `pom.xml`.
 
 ## Test fixtures committed to this repository
 

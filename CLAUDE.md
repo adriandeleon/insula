@@ -32,10 +32,11 @@ download layer never import JavaFX**, and `app` is the only package that builds 
 - **`catalog/`** — `ZimEntry` (the model), `OpdsCatalogParser` (Kiwix OPDS v2), `CatalogClient`
   (queries off the FX thread, generation-guarded).
 - **`download/`** — the acquisition pipeline. `DownloadTransport`/`DownloadHandle`/
-  `ProgressSnapshot`/`ProgressListener` are the seam; `HttpMultiSourceTransport` is the
-  implementation; `Metalink`/`MetalinkParser`, `ChunkPlan` (piece-aligned chunking + resume
-  bitmap), `Sha256Verifier`, `Quarantine`, `TransportSelector`, `DownloadManager` (the
-  transport → verify → library pipeline).
+  `ProgressSnapshot`/`ProgressListener` are the seam; `HttpMultiSourceTransport` and the optional
+  `TorrentTransport` are the implementations; `Metalink`/`MetalinkParser`, `ChunkPlan`
+  (piece-aligned chunking + resume bitmap), `WebSeeds` (the Metalink→torrent merge),
+  `Sha256Verifier`, `Quarantine`, `TransportSelector`, `DownloadManager` (the transport → verify →
+  library pipeline).
 - **`library/`** — `Library`/`LibraryEntry`: local archives and, crucially, their **verified**
   flag. Only a verified archive may be opened automatically.
 - **`command/`** — `CommandRegistry`, `Keybindings`, and the pure `PaletteFilter` ranking.
@@ -122,10 +123,20 @@ Config lives in `~/.insula/` (`INSULA_CONFIG_DIR` overrides): `settings.properti
   it must be rejected outright, or never-downloaded ranges get marked present and the archive is
   silently corrupt.
 
-**Tooling**
-- jlibtorrent on Maven Central is **1.2.0.18 from 2018** and its macOS artifact is x86_64-only.
-  The current 2.0.12.x releases (with Apple Silicon natives) are **GitHub-Releases-only** and would
-  need vendoring into an in-project repo.
+**BitTorrent**
+- jlibtorrent on Maven Central is **1.2.0.18 from 2018** with an x86_64-only macOS artifact, so
+  2.0.12.9 is **vendored** in `m2-repo/` (~21 MB, checksums in `m2-repo/CHECKSUMS.txt`). A build
+  pulls only its own platform's native via the `native-*` profiles.
+- `TorrentStatus.totalDone()` counts **verified whole pieces**, so on a torrent with few large
+  pieces it reads 0 for the entire transfer. Judge liveness on `totalPayloadDownload()` (bytes
+  received) — watching `totalDone()` made a healthy single-piece download trip the stall timeout
+  and report failure while data was arriving.
+- The sidecar URLs are built by suffixing the base, so a blank entry still yields a non-blank
+  `".torrent"`. Gate on `zimUrl()`, not on the derived URL.
+- `SessionManager.find(TorrentInfo)` logs noisily about a missing v2 info-hash on Kiwix's v1
+  torrents; it falls back correctly and the messages are harmless.
+- Measured: Kiwix's `.torrent` carried 4 web seeds against the Metalink's 9, and a real download
+  completed with **0 peers** entirely from merged web seeds. Swarms here are genuinely thin.
 
 ## Roadmap
 

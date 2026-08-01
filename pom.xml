@@ -32,7 +32,27 @@
         <junit.version>5.11.4</junit.version>
         <spotless.version>3.6.0</spotless.version>
         <palantir.version>2.92.0</palantir.version>
+        <jlibtorrent.version>2.0.12.9</jlibtorrent.version>
     </properties>
+
+    <repositories>
+        <!--
+          jlibtorrent 2.0.12.x is published only to GitHub Releases. Maven Central's newest is
+          1.2.0.18 from 2018, whose macOS artifact ships no Apple Silicon native, so the jars are
+          vendored here with their checksums recorded in m2-repo/CHECKSUMS.txt.
+        -->
+        <repository>
+            <id>insula-vendored</id>
+            <url>file://${project.basedir}/m2-repo</url>
+            <releases>
+                <enabled>true</enabled>
+                <updatePolicy>never</updatePolicy>
+            </releases>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
+        </repository>
+    </repositories>
 
     <dependencies>
         <dependency>
@@ -61,6 +81,13 @@
             <artifactId>zstd-jni</artifactId>
             <version>${zstd.version}</version>
         </dependency>
+        <!-- BitTorrent (optional transport). The platform-specific native comes from an OS
+             profile below, so a build carries only the native it can actually run. -->
+        <dependency>
+            <groupId>com.frostwire</groupId>
+            <artifactId>jlibtorrent</artifactId>
+            <version>${jlibtorrent.version}</version>
+        </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
@@ -68,6 +95,78 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <profiles>
+        <!--
+          One native per build: bundling all five would add ~20 MB of code the host can never
+          execute. A release build runs once per target anyway (JavaFX itself is per-platform).
+        -->
+        <profile>
+            <id>native-linux-x86_64</id>
+            <activation>
+                <os><family>unix</family><name>linux</name><arch>amd64</arch></os>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>com.frostwire</groupId>
+                    <artifactId>jlibtorrent-linux-x86_64</artifactId>
+                    <version>${jlibtorrent.version}</version>
+                </dependency>
+            </dependencies>
+        </profile>
+        <profile>
+            <id>native-linux-arm64</id>
+            <activation>
+                <os><family>unix</family><name>linux</name><arch>aarch64</arch></os>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>com.frostwire</groupId>
+                    <artifactId>jlibtorrent-linux-arm64</artifactId>
+                    <version>${jlibtorrent.version}</version>
+                </dependency>
+            </dependencies>
+        </profile>
+        <profile>
+            <id>native-macos-x86_64</id>
+            <activation>
+                <os><family>mac</family><arch>x86_64</arch></os>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>com.frostwire</groupId>
+                    <artifactId>jlibtorrent-macosx-x86_64</artifactId>
+                    <version>${jlibtorrent.version}</version>
+                </dependency>
+            </dependencies>
+        </profile>
+        <profile>
+            <id>native-macos-arm64</id>
+            <activation>
+                <os><family>mac</family><arch>aarch64</arch></os>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>com.frostwire</groupId>
+                    <artifactId>jlibtorrent-macosx-arm64</artifactId>
+                    <version>${jlibtorrent.version}</version>
+                </dependency>
+            </dependencies>
+        </profile>
+        <profile>
+            <id>native-windows</id>
+            <activation>
+                <os><family>windows</family></os>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>com.frostwire</groupId>
+                    <artifactId>jlibtorrent-windows</artifactId>
+                    <version>${jlibtorrent.version}</version>
+                </dependency>
+            </dependencies>
+        </profile>
+    </profiles>
 
     <build>
         <plugins>

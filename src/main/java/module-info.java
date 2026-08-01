@@ -8,6 +8,8 @@ module com.insula {
     requires java.xml;
     requires org.tukaani.xz;
     requires com.github.luben.zstd_jni;
+    // Automatic module derived from the jar name; jlibtorrent declares no Automatic-Module-Name.
+    requires jlibtorrent;
 
     exports com.insula.app to
             javafx.graphics;
