@@ -1,0 +1,54 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:ns1="http://purl.org/dc/terms/">
+  <id>b1234567-eec9-9c18-2b8d-cc7e2ac43a4c</id>
+  <title>Filtered Entries (count=-1)</title>
+  <updated>2026-08-01T00:00:00Z</updated>
+  <totalResults>3</totalResults>
+  <startIndex>0</startIndex>
+  <itemsPerPage>3</itemsPerPage>
+  <entry>
+    <id>urn:uuid:aaaa1111-0001-0001-0001-000000000001</id>
+    <title>Wikipedia (Ray Charles)</title>
+    <updated>2026-05-30T00:00:00Z</updated>
+    <summary>Articles about Ray Charles</summary>
+    <language>eng</language>
+    <name>wikipedia_en_ray-charles</name>
+    <flavour>maxi</flavour>
+    <category>wikipedia</category>
+    <articleCount>284</articleCount>
+    <mediaCount>200</mediaCount>
+    <author><name>Wikipedia</name></author>
+    <publisher><name>openZIM</name></publisher>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/wikipedia/wikipedia_en_ray-charles_maxi_2026-05.zim.meta4" length="712704" />
+  </entry>
+  <entry>
+    <id>urn:uuid:aaaa1111-0002-0002-0002-000000000002</id>
+    <title>Wikivoyage</title>
+    <updated>2026-06-15T00:00:00Z</updated>
+    <summary>The free travel guide</summary>
+    <language>eng</language>
+    <name>wikivoyage_en_all</name>
+    <flavour>maxi</flavour>
+    <category>wikivoyage</category>
+    <articleCount>32000</articleCount>
+    <mediaCount>90000</mediaCount>
+    <author><name>Wikivoyage</name></author>
+    <publisher><name>openZIM</name></publisher>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/wikivoyage/wikivoyage_en_all_maxi_2026-06.zim.meta4" length="1234567890" />
+  </entry>
+  <entry>
+    <id>urn:uuid:aaaa1111-0003-0003-0003-000000000003</id>
+    <title>Wikivoyage</title>
+    <updated>2026-06-15T00:00:00Z</updated>
+    <summary>The free travel guide</summary>
+    <language>eng</language>
+    <name>wikivoyage_en_all</name>
+    <flavour>nopic</flavour>
+    <category>wikivoyage</category>
+    <articleCount>32000</articleCount>
+    <mediaCount>0</mediaCount>
+    <author><name>Wikivoyage</name></author>
+    <publisher><name>openZIM</name></publisher>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/wikivoyage/wikivoyage_en_all_nopic_2026-06.zim.meta4" length="234567890" />
+  </entry>
+</feed>

@@ -43,6 +43,7 @@ import javafx.util.Duration;
 import atlantafx.base.theme.PrimerDark;
 import atlantafx.base.theme.PrimerLight;
 import com.insula.catalog.CatalogCache;
+import com.insula.catalog.StarterPicks;
 import com.insula.catalog.StoreFilter;
 import com.insula.catalog.UpdateCheck;
 import com.insula.catalog.ZimEntry;
@@ -135,7 +136,10 @@ final class ReaderController {
 
     private Surface surface = Surface.READER;
 
+    private final Path dataDir;
+
     ReaderController(Stage stage, HostServices hostServices, Settings settings, Path dataDir) {
+        this.dataDir = dataDir;
         this.stage = stage;
         this.hostServices = hostServices;
         this.settings = settings;
@@ -423,9 +427,7 @@ final class ReaderController {
             libraryPane.activate();
             surface = Surface.LIBRARY;
             syncNavTabs();
-            if (!catalogCache.entries().isEmpty()) {
-                applyUpdates(UpdateCheck.findUpdates(installedFileNames(), catalogCache.entries()), false);
-            }
+            checkForUpdates(false); // starters + update pills, off-thread, disk cache only
         }
     }
 
@@ -483,11 +485,17 @@ final class ReaderController {
         return availableUpdates;
     }
 
+    /** The async worker's exact body, run synchronously on the caller: updates + starters. */
     void checkForUpdatesSyncForTest() {
         if (catalogCache.entries().isEmpty()) {
             catalogCache.load();
         }
         applyUpdates(UpdateCheck.findUpdates(installedFileNames(), catalogCache.entries()), false);
+        List<StarterPicks.Resolved> starters = library.entries().isEmpty()
+                ? StarterPicks.resolve(
+                        com.insula.catalog.CatalogGroups.group(catalogCache.entries()), freeDiskBytes(dataDir))
+                : List.of();
+        libraryPane.setStarters(starters, this::downloadUpdate, this::showStore);
     }
 
     private List<String> installedFileNames() {
@@ -505,13 +513,20 @@ final class ReaderController {
             status.setText("Checking for updates…");
         }
         List<String> installed = installedFileNames();
+        long free = freeDiskBytes(dataDir);
         Thread checker = new Thread(
                 () -> {
                     if (catalogCache.entries().isEmpty()) {
                         catalogCache.load();
                     }
                     List<UpdateCheck.Update> updates = UpdateCheck.findUpdates(installed, catalogCache.entries());
-                    Platform.runLater(() -> applyUpdates(updates, announce));
+                    List<StarterPicks.Resolved> starters = installed.isEmpty()
+                            ? StarterPicks.resolve(com.insula.catalog.CatalogGroups.group(catalogCache.entries()), free)
+                            : List.of();
+                    Platform.runLater(() -> {
+                        applyUpdates(updates, announce);
+                        libraryPane.setStarters(starters, this::downloadUpdate, this::showStore);
+                    });
                 },
                 "update-check");
         checker.setDaemon(true);

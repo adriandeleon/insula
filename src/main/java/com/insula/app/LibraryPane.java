@@ -70,6 +70,9 @@ final class LibraryPane {
     private Map<String, com.insula.catalog.ZimEntry> updates = Map.of();
     private Consumer<com.insula.catalog.ZimEntry> onUpdate = e -> {};
     private int updatePillCount;
+    private List<com.insula.catalog.StarterPicks.Resolved> starters = List.of();
+    private Consumer<com.insula.catalog.ZimEntry> onDownloadStarter = e -> {};
+    private Runnable onOpenStore = () -> {};
     private final Timeline sampler = new Timeline(new KeyFrame(Duration.millis(REFRESH_MILLIS), e -> tick()));
 
     LibraryPane(
@@ -129,6 +132,17 @@ final class LibraryPane {
         rebuildDevice();
     }
 
+    /** First-run suggestions shown while the library is empty; resolved names, never links. */
+    void setStarters(
+            List<com.insula.catalog.StarterPicks.Resolved> starters,
+            Consumer<com.insula.catalog.ZimEntry> onDownloadStarter,
+            Runnable onOpenStore) {
+        this.starters = List.copyOf(starters);
+        this.onDownloadStarter = onDownloadStarter;
+        this.onOpenStore = onOpenStore;
+        rebuildDevice();
+    }
+
     // ---------------------------------------------------------------- sampling
 
     private void tick() {
@@ -169,14 +183,56 @@ final class LibraryPane {
         updatePillCount = 0;
         List<LibraryEntry> entries = library.entries();
         if (entries.isEmpty()) {
-            Label empty = new Label("Nothing downloaded yet — open the Store to find archives");
-            empty.setStyle("-fx-opacity: 0.6;");
-            deviceRows.getChildren().add(empty);
+            deviceRows.getChildren().add(emptyState());
         }
         for (LibraryEntry entry : entries) {
             deviceRows.getChildren().add(archiveRow(entry));
         }
         updateGauge();
+    }
+
+    /**
+     * The first-run screen: a sentence, the starter picks (when the cached catalog can resolve
+     * them), and a Store call-to-action either way. Nothing here may block or hit the network.
+     */
+    private Region emptyState() {
+        VBox box = new VBox(10);
+        Label empty = new Label(
+                starters.isEmpty()
+                        ? "Nothing downloaded yet — open the Store to find archives"
+                        : "Nothing downloaded yet. A few good places to start:");
+        empty.setStyle("-fx-opacity: 0.6;");
+        box.getChildren().add(empty);
+        for (com.insula.catalog.StarterPicks.Resolved starter : starters) {
+            box.getChildren().add(starterRow(starter));
+        }
+        Button store = new Button("Browse the Store →");
+        store.setOnAction(e -> onOpenStore.run());
+        box.getChildren().add(store);
+        return box;
+    }
+
+    private Region starterRow(com.insula.catalog.StarterPicks.Resolved starter) {
+        Label title = new Label(starter.group().title());
+        title.setStyle("-fx-font-weight: bold;");
+        Label blurb = new Label(
+                starter.pick().blurb() + " · " + Formats.bytes(starter.entry().sizeBytes()));
+        blurb.setStyle("-fx-opacity: 0.55; -fx-font-size: 0.85em;");
+        VBox main = new VBox(2, title, blurb);
+        HBox.setHgrow(main, Priority.ALWAYS);
+
+        Button get = new Button("Download");
+        get.setOnAction(e -> {
+            get.setDisable(true);
+            onDownloadStarter.accept(starter.entry());
+        });
+
+        HBox row = new HBox(12, monogram(starter.group().title()), main, get);
+        row.setAlignment(Pos.CENTER_LEFT);
+        row.setPadding(new Insets(10, 12, 10, 12));
+        row.setStyle("-fx-background-color: -color-bg-default; -fx-border-color: -color-border-default;"
+                + " -fx-border-radius: 8; -fx-background-radius: 8;");
+        return row;
     }
 
     private Region archiveRow(LibraryEntry entry) {
@@ -271,5 +327,17 @@ final class LibraryPane {
 
     int updatePillsForTest() {
         return updatePillCount;
+    }
+
+    int starterRowsForTest() {
+        VBox box =
+                deviceRows.getChildren().isEmpty() || !(deviceRows.getChildren().getFirst() instanceof VBox v)
+                        ? null
+                        : v;
+        return box == null
+                ? 0
+                : (int) box.getChildren().stream()
+                        .filter(n -> n instanceof HBox)
+                        .count();
     }
 }
