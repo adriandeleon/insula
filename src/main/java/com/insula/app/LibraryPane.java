@@ -67,6 +67,9 @@ final class LibraryPane {
     private final VBox deviceRows = new VBox(8);
 
     private final Map<DownloadManager.Job, DownloadRow> rows = new LinkedHashMap<>();
+    private Map<String, com.insula.catalog.ZimEntry> updates = Map.of();
+    private Consumer<com.insula.catalog.ZimEntry> onUpdate = e -> {};
+    private int updatePillCount;
     private final Timeline sampler = new Timeline(new KeyFrame(Duration.millis(REFRESH_MILLIS), e -> tick()));
 
     LibraryPane(
@@ -116,6 +119,16 @@ final class LibraryPane {
         sampler.stop();
     }
 
+    /**
+     * Newer catalog builds keyed by the installed file name they replace. Rows re-render with an
+     * Update pill; clicking one hands the replacement entry back for download.
+     */
+    void setUpdates(Map<String, com.insula.catalog.ZimEntry> updates, Consumer<com.insula.catalog.ZimEntry> onUpdate) {
+        this.updates = Map.copyOf(updates);
+        this.onUpdate = onUpdate;
+        rebuildDevice();
+    }
+
     // ---------------------------------------------------------------- sampling
 
     private void tick() {
@@ -153,6 +166,7 @@ final class LibraryPane {
 
     private void rebuildDevice() {
         deviceRows.getChildren().clear();
+        updatePillCount = 0;
         List<LibraryEntry> entries = library.entries();
         if (entries.isEmpty()) {
             Label empty = new Label("Nothing downloaded yet — open the Store to find archives");
@@ -180,7 +194,20 @@ final class LibraryPane {
         Button open = new Button("Open");
         open.setOnAction(e -> onOpenArchive.accept(entry.file()));
 
-        HBox row = new HBox(12, icon, main, open);
+        HBox row = new HBox(12, icon, main);
+        com.insula.catalog.ZimEntry replacement = updates.get(entry.fileName());
+        if (replacement != null) {
+            Button pill = new Button("Update to " + UpdateCheckDates.dateOf(replacement.fileName()));
+            pill.setStyle("-fx-background-color: -color-accent-emphasis; -fx-text-fill: white;"
+                    + " -fx-background-radius: 14;");
+            pill.setOnAction(e -> {
+                pill.setDisable(true);
+                onUpdate.accept(replacement);
+            });
+            row.getChildren().add(pill);
+            updatePillCount++;
+        }
+        row.getChildren().add(open);
         row.setAlignment(Pos.CENTER_LEFT);
         row.setPadding(new Insets(10, 12, 10, 12));
         row.setStyle("-fx-background-color: -color-bg-default; -fx-border-color: -color-border-default;"
@@ -219,6 +246,14 @@ final class LibraryPane {
         return pane;
     }
 
+    /** Label helper so the pill says which build it fetches, not just "Update". */
+    private static final class UpdateCheckDates {
+        static String dateOf(String fileName) {
+            String date = com.insula.catalog.UpdateCheck.buildDateOf(fileName);
+            return date.isEmpty() ? "latest" : date;
+        }
+    }
+
     // ------------------------------------------------------- package-visible test seams
 
     int arrivingRowsForTest() {
@@ -232,5 +267,9 @@ final class LibraryPane {
 
     String gaugeTextForTest() {
         return gaugeLabel.getText();
+    }
+
+    int updatePillsForTest() {
+        return updatePillCount;
     }
 }

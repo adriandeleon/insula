@@ -84,6 +84,8 @@ class LibraryPaneFxTest {
                 "library.show",
                 "library.open",
                 "store.open",
+                "library.checkUpdates",
+                "library.updateAll",
                 "library.reader",
                 "library.toggle",
                 "library.search",

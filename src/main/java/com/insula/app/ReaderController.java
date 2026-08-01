@@ -3,6 +3,8 @@ package com.insula.app;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -42,6 +44,7 @@ import atlantafx.base.theme.PrimerDark;
 import atlantafx.base.theme.PrimerLight;
 import com.insula.catalog.CatalogCache;
 import com.insula.catalog.StoreFilter;
+import com.insula.catalog.UpdateCheck;
 import com.insula.catalog.ZimEntry;
 import com.insula.command.CommandRegistry;
 import com.insula.command.Keybindings;
@@ -145,6 +148,7 @@ final class ReaderController {
             transports.register(new TorrentTransport(settings.isSeedingEnabled()));
         }
         this.downloads = new DownloadManager(transports, library, dataDir.resolve("archives"));
+        downloads.setOnAdmitted(job -> Platform.runLater(() -> afterArchiveAdmitted(job)));
         this.catalogCache = new CatalogCache(dataDir.resolve("catalog"));
         this.iconCache = new IconCache(dataDir.resolve("catalog/icons"));
         this.storePane = new StorePane(
@@ -192,6 +196,10 @@ final class ReaderController {
 
     boolean hasArchiveForTest() {
         return archive != null;
+    }
+
+    com.insula.library.Library libraryForTest() {
+        return library;
     }
 
     LibraryPane libraryPaneForTest() {
@@ -252,6 +260,8 @@ final class ReaderController {
         commands.register("library.show", "Show Library and Downloads", this::showLibrary);
         commands.register("library.reader", "Back to Reader", this::showReader);
         commands.register("library.toggle", "Toggle Library / Reader", this::toggleLibrary);
+        commands.register("library.checkUpdates", "Check for Archive Updates", () -> checkForUpdates(true));
+        commands.register("library.updateAll", "Update All Archives", this::updateAllArchives);
         commands.register("library.search", "Search the Online Catalog", () -> {
             showStore();
             storePane.focusSearch();
@@ -413,6 +423,9 @@ final class ReaderController {
             libraryPane.activate();
             surface = Surface.LIBRARY;
             syncNavTabs();
+            if (!catalogCache.entries().isEmpty()) {
+                applyUpdates(UpdateCheck.findUpdates(installedFileNames(), catalogCache.entries()), false);
+            }
         }
     }
 
@@ -453,6 +466,143 @@ final class ReaderController {
     private void syncNavTabs() {
         libraryTab.setSelected(surface == Surface.LIBRARY);
         storeTab.setSelected(surface == Surface.STORE);
+    }
+
+    // ---------------------------------------------------------------- archive updates
+
+    private Map<String, ZimEntry> availableUpdates = Map.of();
+
+    /** Test seam: replaces the modal superseded-file confirm. Args: file names, bytes freed. */
+    private java.util.function.BiPredicate<List<String>, Long> supersededConfirmer = this::confirmSupersededDelete;
+
+    void supersededConfirmerForTest(java.util.function.BiPredicate<List<String>, Long> confirmer) {
+        this.supersededConfirmer = confirmer;
+    }
+
+    Map<String, ZimEntry> availableUpdatesForTest() {
+        return availableUpdates;
+    }
+
+    void checkForUpdatesSyncForTest() {
+        if (catalogCache.entries().isEmpty()) {
+            catalogCache.load();
+        }
+        applyUpdates(UpdateCheck.findUpdates(installedFileNames(), catalogCache.entries()), false);
+    }
+
+    private List<String> installedFileNames() {
+        return library.entries().stream()
+                .map(com.insula.library.LibraryEntry::fileName)
+                .toList();
+    }
+
+    /**
+     * Computes updates off the FX thread — the catalog may need a 4 MB parse from disk first —
+     * and lands the result as pills on the Library rows.
+     */
+    private void checkForUpdates(boolean announce) {
+        if (announce) {
+            status.setText("Checking for updates…");
+        }
+        List<String> installed = installedFileNames();
+        Thread checker = new Thread(
+                () -> {
+                    if (catalogCache.entries().isEmpty()) {
+                        catalogCache.load();
+                    }
+                    List<UpdateCheck.Update> updates = UpdateCheck.findUpdates(installed, catalogCache.entries());
+                    Platform.runLater(() -> applyUpdates(updates, announce));
+                },
+                "update-check");
+        checker.setDaemon(true);
+        checker.start();
+    }
+
+    private void applyUpdates(List<UpdateCheck.Update> updates, boolean announce) {
+        Map<String, ZimEntry> byFile = new java.util.LinkedHashMap<>();
+        for (UpdateCheck.Update update : updates) {
+            byFile.put(update.installedFileName(), update.replacement());
+        }
+        availableUpdates = byFile;
+        libraryPane.setUpdates(byFile, this::downloadUpdate);
+        if (announce) {
+            status.setText(
+                    updates.isEmpty()
+                            ? "Everything is up to date"
+                            : updates.size() + (updates.size() == 1 ? " update available" : " updates available"));
+        }
+    }
+
+    private void downloadUpdate(ZimEntry replacement) {
+        downloads.enqueue(replacement);
+        status.setText("Downloading " + replacement.displayName());
+        if (surface == Surface.LIBRARY) {
+            libraryPane.activate(); // restart the sampler so the Arriving row appears now
+        }
+    }
+
+    private void updateAllArchives() {
+        if (availableUpdates.isEmpty()) {
+            checkForUpdates(true);
+            return;
+        }
+        availableUpdates.values().forEach(downloads::enqueue);
+        status.setText(
+                "Updating " + availableUpdates.size() + (availableUpdates.size() == 1 ? " archive" : " archives"));
+        showLibrary();
+        libraryPane.activate();
+    }
+
+    /**
+     * A verified download just joined the library. If it supersedes older installed builds,
+     * offer — never silently perform — their deletion; the file being read is never touched.
+     */
+    private void afterArchiveAdmitted(DownloadManager.Job job) {
+        afterAdmittedFile(job.destination().getFileName().toString());
+    }
+
+    void afterAdmittedFile(String newName) {
+        List<com.insula.library.LibraryEntry> superseded = library.entries().stream()
+                .filter(e -> UpdateCheck.supersedes(newName, e.fileName()))
+                .filter(e -> currentArchiveFile == null || !e.file().equals(currentArchiveFile))
+                .toList();
+        if (!superseded.isEmpty()) {
+            List<String> names = superseded.stream()
+                    .map(com.insula.library.LibraryEntry::fileName)
+                    .toList();
+            long bytes = superseded.stream()
+                    .mapToLong(com.insula.library.LibraryEntry::sizeBytes)
+                    .sum();
+            if (supersededConfirmer.test(names, bytes)) {
+                for (com.insula.library.LibraryEntry old : superseded) {
+                    try {
+                        Files.deleteIfExists(old.file());
+                        library.remove(old.file());
+                    } catch (IOException e) {
+                        status.setText("Could not delete " + old.fileName() + ": " + e.getMessage());
+                    }
+                }
+                library.save();
+                status.setText("Removed " + names.size() + " superseded " + (names.size() == 1 ? "file" : "files")
+                        + " · freed " + Formats.bytes(bytes));
+            }
+        }
+        // Either way the world changed: refresh pills and rows against the new installed set.
+        applyUpdates(UpdateCheck.findUpdates(installedFileNames(), catalogCache.entries()), false);
+        if (surface == Surface.LIBRARY) {
+            libraryPane.activate();
+        }
+    }
+
+    private boolean confirmSupersededDelete(List<String> names, long bytes) {
+        javafx.scene.control.Alert alert = new javafx.scene.control.Alert(
+                javafx.scene.control.Alert.AlertType.CONFIRMATION,
+                "The update replaces:\n" + String.join("\n", names) + "\n\nDelete "
+                        + (names.size() == 1 ? "it" : "them") + " and free " + Formats.bytes(bytes) + "?",
+                javafx.scene.control.ButtonType.OK,
+                javafx.scene.control.ButtonType.CANCEL);
+        alert.setHeaderText("Delete superseded archive" + (names.size() == 1 ? "" : "s") + "?");
+        return alert.showAndWait().orElse(javafx.scene.control.ButtonType.CANCEL) == javafx.scene.control.ButtonType.OK;
     }
 
     /** The verified installed file matching this catalog entry's (name, flavour), or null. */

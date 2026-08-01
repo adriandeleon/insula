@@ -16,6 +16,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -90,6 +91,9 @@ public final class DownloadManager implements AutoCloseable {
     private final HttpClient http;
     private final Map<String, Job> jobs = new ConcurrentHashMap<>();
 
+    /** Fired after a verified download is admitted to the library, on the pipeline thread. */
+    private volatile Consumer<Job> onAdmitted = job -> {};
+
     private final ExecutorService pipeline = Executors.newFixedThreadPool(2, r -> {
         Thread t = new Thread(r, "download-pipeline");
         t.setDaemon(true);
@@ -104,6 +108,11 @@ public final class DownloadManager implements AutoCloseable {
                 .connectTimeout(Duration.ofSeconds(20))
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
+    }
+
+    /** UI hook for post-admit chores (e.g. offering to delete a superseded older build). */
+    public void setOnAdmitted(Consumer<Job> onAdmitted) {
+        this.onAdmitted = onAdmitted;
     }
 
     /** Currently tracked downloads, newest state included. */
@@ -257,6 +266,9 @@ public final class DownloadManager implements AutoCloseable {
             library.put(new LibraryEntry(
                     job.destination(), job.entry().title(), size, sha256, verified, System.currentTimeMillis()));
             library.save();
+        }
+        if (verified) {
+            onAdmitted.accept(job);
         }
     }
 
