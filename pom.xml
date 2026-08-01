@@ -11,6 +11,15 @@
 
     <name>Insula</name>
     <description>A fast, keyboard-first JavaFX reader for ZIM offline content archives</description>
+    <url>https://github.com/adriandeleon/insula</url>
+
+    <licenses>
+        <license>
+            <name>MIT License</name>
+            <url>https://opensource.org/licenses/MIT</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>

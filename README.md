@@ -146,6 +146,11 @@ See [CHANGELOG.md](CHANGELOG.md) for what has landed. Next up: a BitTorrent tran
 existing seam, full-text search, a richer library screen with thumbnails and filters, tabs and
 bookmarks, reading themes, and native installers.
 
+## License
+
+MIT — see [LICENSE](LICENSE). Third-party components, and the provenance of the ZIM test fixtures
+committed to this repository, are recorded in [NOTICE.md](NOTICE.md).
+
 ## Acknowledgements
 
 The ZIM format and the archives themselves are the work of the [openZIM](https://openzim.org) and
