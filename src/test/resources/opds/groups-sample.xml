@@ -1,0 +1,175 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:ns1="http://purl.org/dc/terms/">
+  <id>a9829aa6-eec9-9c18-2b8d-cc7e2ac43a4c</id>
+
+  <link rel="self" href="/catalog/v2/entries?count=-1" type="application/atom+xml;profile=opds-catalog;kind=acquisition" />
+  <link rel="start" href="/catalog/v2/root.xml" type="application/atom+xml;profile=opds-catalog;kind=navigation" />
+  <link rel="up" href="/catalog/v2/root.xml" type="application/atom+xml;profile=opds-catalog;kind=navigation" />
+
+  <title>Filtered Entries (count=-1)</title>
+  <updated>2026-08-01T22:26:45Z</updated>
+  <totalResults>3611</totalResults>
+  <startIndex>0</startIndex>
+  <itemsPerPage>3611</itemsPerPage>
+  <entry>
+    <id>urn:uuid:0a12b922-4c5e-e600-4b06-fe81c0241191</id>
+    <title>Wikipedia</title>
+    <updated>2026-06-11T00:00:00Z</updated>
+    <summary>The free encyclopedia</summary>
+    <language>eng</language>
+    <name>wikipedia_en_all</name>
+    <flavour>mini</flavour>
+    <category>wikipedia</category>
+    <tags>wikipedia;_category:wikipedia;_pictures:no;_videos:no;_details:no;_ftindex:yes</tags>
+    <articleCount>19183502</articleCount>
+    <mediaCount>33777</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail" href="/catalog/v2/illustration/0a12b922-4c5e-e600-4b06-fe81c0241191/?size=48" type="image/png;width=48;height=48;scale=1" />
+    <link type="text/html" href="https://browse.library.kiwix.org/content/wikipedia_en_all_mini_2026-06" />
+    <author>
+      <name>Wikipedia</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <ns1:issued>2026-06-11T00:00:00Z</ns1:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/wikipedia/wikipedia_en_all_mini_2026-06.zim.meta4" length="12531680256" />
+  </entry>
+  <entry>
+    <id>urn:uuid:1a621587-f987-6e0d-ff77-6531e363cf7a</id>
+    <title>Vikidia</title>
+    <updated>2026-06-10T00:00:00Z</updated>
+    <summary>De Vikidia</summary>
+    <language>spa</language>
+    <name>vikidia_es_all</name>
+    <flavour>nopic</flavour>
+    <category>vikidia</category>
+    <tags>vikidia;_category:vikidia;_pictures:no;_videos:no;_details:yes;_ftindex:yes</tags>
+    <articleCount>9870</articleCount>
+    <mediaCount>21</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail" href="/catalog/v2/illustration/1a621587-f987-6e0d-ff77-6531e363cf7a/?size=48" type="image/png;width=48;height=48;scale=1" />
+    <link type="text/html" href="https://browse.library.kiwix.org/content/vikidia_es_all_nopic_2026-06" />
+    <author>
+      <name>Vikidia</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <ns1:issued>2026-06-10T00:00:00Z</ns1:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/vikidia/vikidia_es_all_nopic_2026-06.zim.meta4" length="13301760" />
+  </entry>
+  <entry>
+    <id>urn:uuid:53a8f711-f7f9-ec23-08fc-38fcf579ba32</id>
+    <title>Wikipedia</title>
+    <updated>2026-02-15T00:00:00Z</updated>
+    <summary>The free encyclopedia</summary>
+    <language>eng</language>
+    <name>wikipedia_en_all</name>
+    <flavour>maxi</flavour>
+    <category>wikipedia</category>
+    <tags>wikipedia;_category:wikipedia;_pictures:yes;_videos:no;_details:yes;_ftindex:yes</tags>
+    <articleCount>18982214</articleCount>
+    <mediaCount>8217604</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail" href="/catalog/v2/illustration/53a8f711-f7f9-ec23-08fc-38fcf579ba32/?size=48" type="image/png;width=48;height=48;scale=1" />
+    <link type="text/html" href="https://browse.library.kiwix.org/content/wikipedia_en_all_maxi_2026-02" />
+    <author>
+      <name>Wikipedia</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <ns1:issued>2026-02-15T00:00:00Z</ns1:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/wikipedia/wikipedia_en_all_maxi_2026-02.zim.meta4" length="123980647424" />
+  </entry>
+  <entry>
+    <id>urn:uuid:66c685f3-7692-b575-91e1-3f3653184b91</id>
+    <title>Wikcionario</title>
+    <updated>2025-03-02T00:00:00Z</updated>
+    <summary>The biggest Wiki Dictionary in Spanish language</summary>
+    <language>spa</language>
+    <name>wiktionary_es_all</name>
+    <flavour />
+    <category>wiktionary</category>
+    <tags>wiktionary;_category:wiktionary;_details:yes;_ftindex:yes;_pictures:yes;_videos:yes</tags>
+    <articleCount>936806</articleCount>
+    <mediaCount>9752</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail" href="/catalog/v2/illustration/66c685f3-7692-b575-91e1-3f3653184b91/?size=48" type="image/png;width=48;height=48;scale=1" />
+    <link type="text/html" href="https://browse.library.kiwix.org/content/wiktionary_es_all_2025-03" />
+    <author>
+      <name>Wiktionary</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <ns1:issued>2025-03-02T00:00:00Z</ns1:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/wiktionary/wiktionary_es_all_2025-03.zim.meta4" length="996695040" />
+  </entry>
+  <entry>
+    <id>urn:uuid:77dd84ab-88a3-5d7f-9d5c-a15b3df6c6c1</id>
+    <title>Vikidia</title>
+    <updated>2026-06-10T00:00:00Z</updated>
+    <summary>De Vikidia</summary>
+    <language>spa</language>
+    <name>vikidia_es_all</name>
+    <flavour>maxi</flavour>
+    <category>vikidia</category>
+    <tags>vikidia;_category:vikidia;_pictures:yes;_videos:no;_details:yes;_ftindex:yes</tags>
+    <articleCount>9869</articleCount>
+    <mediaCount>9199</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail" href="/catalog/v2/illustration/77dd84ab-88a3-5d7f-9d5c-a15b3df6c6c1/?size=48" type="image/png;width=48;height=48;scale=1" />
+    <link type="text/html" href="https://browse.library.kiwix.org/content/vikidia_es_all_maxi_2026-06" />
+    <author>
+      <name>Vikidia</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <ns1:issued>2026-06-10T00:00:00Z</ns1:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/vikidia/vikidia_es_all_maxi_2026-06.zim.meta4" length="118093824" />
+  </entry>
+  <entry>
+    <id>urn:uuid:c22094d0-6ad1-6360-36b7-dab953595143</id>
+    <title>Wikipedia</title>
+    <updated>2026-06-17T00:00:00Z</updated>
+    <summary>The free encyclopedia</summary>
+    <language>eng</language>
+    <name>wikipedia_en_all</name>
+    <flavour>nopic</flavour>
+    <category>wikipedia</category>
+    <tags>wikipedia;_category:wikipedia;_pictures:no;_videos:no;_details:yes;_ftindex:yes</tags>
+    <articleCount>19191219</articleCount>
+    <mediaCount>515775</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail" href="/catalog/v2/illustration/c22094d0-6ad1-6360-36b7-dab953595143/?size=48" type="image/png;width=48;height=48;scale=1" />
+    <link type="text/html" href="https://browse.library.kiwix.org/content/wikipedia_en_all_nopic_2026-06" />
+    <author>
+      <name>Wikipedia</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <ns1:issued>2026-06-17T00:00:00Z</ns1:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/wikipedia/wikipedia_en_all_nopic_2026-06.zim.meta4" length="52690707456" />
+  </entry>
+  <entry>
+    <id>urn:uuid:d9fe7d67-dcc0-14de-f98e-e6165bdb9706</id>
+    <title>Wikcionario</title>
+    <updated>2026-06-22T00:00:00Z</updated>
+    <summary>The biggest Wiki Dictionary in Spanish language</summary>
+    <language>spa</language>
+    <name>wiktionary_es_all</name>
+    <flavour>nopic</flavour>
+    <category>wiktionary</category>
+    <tags>wiktionary;_category:wiktionary;_pictures:no;_videos:no;_details:yes;_ftindex:yes</tags>
+    <articleCount>948486</articleCount>
+    <mediaCount>241</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail" href="/catalog/v2/illustration/d9fe7d67-dcc0-14de-f98e-e6165bdb9706/?size=48" type="image/png;width=48;height=48;scale=1" />
+    <link type="text/html" href="https://browse.library.kiwix.org/content/wiktionary_es_all_nopic_2026-06" />
+    <author>
+      <name>Wiktionary</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <ns1:issued>2026-06-22T00:00:00Z</ns1:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/wiktionary/wiktionary_es_all_nopic_2026-06.zim.meta4" length="565727232" />
+  </entry>
+  </feed>

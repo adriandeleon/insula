@@ -25,6 +25,7 @@ public final class OpdsCatalogParser {
 
     private static final String ATOM = "http://www.w3.org/2005/Atom";
     private static final String ACQUISITION_REL = "http://opds-spec.org/acquisition/open-access";
+    private static final String ILLUSTRATION_REL = "http://opds-spec.org/image/thumbnail";
 
     private OpdsCatalogParser() {}
 
@@ -93,7 +94,21 @@ public final class OpdsCatalogParser {
                 parseLong(child(entry, "articleCount"), 0),
                 parseLong(child(entry, "mediaCount"), 0),
                 href,
-                parseLong(acquisition.getAttribute("length"), 0));
+                parseLong(acquisition.getAttribute("length"), 0),
+                child(entry, "updated"),
+                linkHref(entry, ILLUSTRATION_REL));
+    }
+
+    /** The href of the first link with the given rel, or {@code ""}. */
+    private static String linkHref(Element entry, String rel) {
+        NodeList links = entry.getElementsByTagNameNS(ATOM, "link");
+        for (int i = 0; i < links.getLength(); i++) {
+            Element link = (Element) links.item(i);
+            if (rel.equals(link.getAttribute("rel"))) {
+                return link.getAttribute("href");
+            }
+        }
+        return "";
     }
 
     private static Element acquisitionLink(Element entry) {

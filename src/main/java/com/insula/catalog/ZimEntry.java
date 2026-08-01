@@ -17,6 +17,9 @@ import java.util.List;
  * @param languages ISO-639-3 codes, in catalog order (an archive may carry many)
  * @param metalinkUrl the acquisition link exactly as published
  * @param sizeBytes the acquisition link's {@code length}
+ * @param updated the entry's {@code <updated>} timestamp as published (ISO-8601), or {@code ""}
+ * @param illustrationHref the 48px illustration link href as published (usually relative to the
+ *     catalog host), or {@code ""} when the entry has none
  */
 public record ZimEntry(
         String id,
@@ -29,12 +32,53 @@ public record ZimEntry(
         long articleCount,
         long mediaCount,
         String metalinkUrl,
-        long sizeBytes) {
+        long sizeBytes,
+        String updated,
+        String illustrationHref) {
 
     private static final String METALINK_SUFFIX = ".meta4";
 
     public ZimEntry {
         languages = languages == null ? List.of() : List.copyOf(languages);
+        updated = updated == null ? "" : updated;
+        illustrationHref = illustrationHref == null ? "" : illustrationHref;
+    }
+
+    /** Convenience for callers (mostly tests) that do not care about date or illustration. */
+    public ZimEntry(
+            String id,
+            String title,
+            String summary,
+            String name,
+            String flavour,
+            List<String> languages,
+            String category,
+            long articleCount,
+            long mediaCount,
+            String metalinkUrl,
+            long sizeBytes) {
+        this(
+                id,
+                title,
+                summary,
+                name,
+                flavour,
+                languages,
+                category,
+                articleCount,
+                mediaCount,
+                metalinkUrl,
+                sizeBytes,
+                "",
+                "");
+    }
+
+    /**
+     * The comparable date portion of {@link #updated()} ({@code yyyy-MM-dd}), or {@code ""}.
+     * ISO-8601 dates compare correctly as strings, which is all update detection needs.
+     */
+    public String updatedDate() {
+        return updated.length() >= 10 ? updated.substring(0, 10) : updated;
     }
 
     /** The archive itself — the metalink URL minus its {@code .meta4} suffix. */
