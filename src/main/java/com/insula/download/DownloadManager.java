@@ -489,9 +489,24 @@ public final class DownloadManager implements AutoCloseable {
         }
     }
 
+    /**
+     * Stops everything, and <em>waits</em> for it.
+     *
+     * <p>The wait is the point. The pipeline threads are daemons, so without it the JVM can exit
+     * while one of them is still inside libtorrent — tearing down native threads mid-call, which
+     * ends in a SIGSEGV on the way out rather than a clean quit. Bounded, because a shutdown that
+     * can hang is worse than one that gives up.
+     */
     @Override
     public void close() {
         jobs.values().forEach(Job::cancel);
         pipeline.shutdownNow();
+        try {
+            pipeline.awaitTermination(SHUTDOWN_GRACE.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
+
+    private static final Duration SHUTDOWN_GRACE = Duration.ofSeconds(3);
 }

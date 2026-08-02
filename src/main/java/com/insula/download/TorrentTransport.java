@@ -48,6 +48,11 @@ public final class TorrentTransport implements DownloadTransport {
 
     public static final String ID = "torrent";
 
+    /** How long to wait for libtorrent to finish adding a torrent before giving up on it. */
+    private static final Duration HANDLE_TIMEOUT = Duration.ofSeconds(20);
+
+    private static final Duration HANDLE_POLL = Duration.ofMillis(50);
+
     /** How often the session is sampled for progress. */
     private static final Duration POLL = Duration.ofMillis(500);
 
@@ -197,10 +202,7 @@ public final class TorrentTransport implements DownloadTransport {
                 manager.start();
 
                 manager.download(info, workDir.toFile());
-                TorrentHandle handle = manager.find(info);
-                if (handle == null) {
-                    throw new IOException("libtorrent did not accept the torrent");
-                }
+                TorrentHandle handle = awaitHandle(manager, info);
 
                 int added = mergeWebSeeds(handle, info);
                 publish(
@@ -234,6 +236,40 @@ public final class TorrentTransport implements DownloadTransport {
             }
         }
 
+        /**
+         * Waits for the torrent to actually be in the session before anything touches its handle.
+         *
+         * <p>{@code SessionManager.download} is <b>asynchronous</b> — libtorrent adds the torrent
+         * on its own thread and publishes an alert — so the handle {@code find} returns
+         * immediately afterwards may not be backed by a live torrent yet. Every call on such a
+         * handle ({@code addUrlSeed}, {@code status}) reaches straight into native code, where an
+         * invalid handle is undefined behaviour rather than an exception: the process dies with a
+         * SIGSEGV that no Java catch block can see, taking the window and every other download
+         * with it.
+         *
+         * <p>It is a race, so it usually wins — which is exactly what makes it worth a guard
+         * rather than a comment. A busy launch (session restore, an article rendering, the catalog
+         * parsing) is when the add is slowest relative to the find, and that is when a download
+         * is most likely to be starting.
+         */
+        private TorrentHandle awaitHandle(SessionManager manager, TorrentInfo info)
+                throws IOException, InterruptedException {
+            long deadline = System.nanoTime() + HANDLE_TIMEOUT.toNanos();
+            while (System.nanoTime() < deadline) {
+                if (cancelled.get()) {
+                    throw new InterruptedException("cancelled while adding the torrent");
+                }
+                TorrentHandle handle = manager.find(info);
+                // Both checks: isValid says the handle points at something, inSession says that
+                // something is attached to this session and safe to drive.
+                if (handle != null && handle.isValid() && handle.inSession()) {
+                    return handle;
+                }
+                Thread.sleep(HANDLE_POLL.toMillis());
+            }
+            throw new IOException("libtorrent did not accept the torrent");
+        }
+
         /** Adds the Metalink mirrors the torrent does not already advertise. */
         private int mergeWebSeeds(TorrentHandle handle, TorrentInfo info) {
             List<String> existing = new ArrayList<>();
@@ -260,6 +296,12 @@ public final class TorrentTransport implements DownloadTransport {
             long lastReceived = 0;
 
             while (!cancelled.get()) {
+                // Re-checked every poll, not just once: the handle stops being valid the moment
+                // the torrent leaves the session, and status() on a dead one is the same reach
+                // into freed native memory that awaitHandle exists to avoid.
+                if (!handle.isValid() || !handle.inSession()) {
+                    throw new IllegalStateException("the torrent left the session");
+                }
                 TorrentStatus status = handle.status();
                 long verified = status.totalDone();
                 // Liveness must be judged on bytes *received*, not bytes *verified*: totalDone()
