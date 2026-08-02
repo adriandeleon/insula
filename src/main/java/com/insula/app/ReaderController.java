@@ -223,6 +223,7 @@ final class ReaderController {
                 ref -> openRef(ref, false),
                 () -> commands.run("view.commandPalette"),
                 this::showLibrary);
+        homePane.setEmptyDevice(() -> library.entries().isEmpty());
         wireLibraryOrganization();
         wireLanRow();
         buildUi();
@@ -1403,7 +1404,16 @@ final class ReaderController {
                 ? StarterPicks.resolve(
                         com.insula.catalog.CatalogGroups.group(catalogCache.entries()), freeDiskBytes(dataDir))
                 : List.of();
+        applyStarters(starters);
+    }
+
+    /** Both first-run surfaces show the same picks, so they are pushed together. */
+    private void applyStarters(List<StarterPicks.Resolved> starters) {
         libraryPane.setStarters(starters, this::downloadUpdate, this::showCatalog);
+        homePane.setStarters(starters, this::downloadUpdate, this::showCatalog);
+        if (surface == Surface.HOME) {
+            homePane.activate();
+        }
     }
 
     private List<String> installedFileNames() {
@@ -1433,7 +1443,7 @@ final class ReaderController {
                             : List.of();
                     Platform.runLater(() -> {
                         applyUpdates(updates, announce);
-                        libraryPane.setStarters(starters, this::downloadUpdate, this::showCatalog);
+                        applyStarters(starters);
                     });
                 },
                 "update-check");

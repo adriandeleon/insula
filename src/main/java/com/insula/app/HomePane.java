@@ -46,6 +46,15 @@ final class HomePane {
 
     private final ScrollPane root;
     private final VBox content = new VBox(16);
+    private List<com.insula.catalog.StarterPicks.Resolved> starters = List.of();
+    private Consumer<com.insula.catalog.ZimEntry> onDownloadStarter = e -> {};
+    private Runnable onOpenCatalog = () -> {};
+    private Supplier<Boolean> emptyDevice = () -> false;
+
+    /** Whether the device has no archives at all — the difference between "get some" and "read some". */
+    void setEmptyDevice(Supplier<Boolean> emptyDevice) {
+        this.emptyDevice = emptyDevice;
+    }
 
     HomePane(
             ArticleStore bookmarks,
@@ -105,10 +114,74 @@ final class HomePane {
         arrivingStrip().ifPresent(strip -> content.getChildren().add(strip));
 
         if (resume == null && recents.isEmpty() && saved.isEmpty()) {
-            Label empty = new Label("Nothing read yet — search above, or open the Catalog to add an archive.");
-            empty.getStyleClass().add("card-sub");
-            content.getChildren().add(empty);
+            content.getChildren().add(firstRun());
         }
+    }
+
+    /**
+     * First run is the same frame with starters where the history would be — not a separate
+     * welcome screen. The distinction that matters is <em>why</em> there is nothing to show: an
+     * empty device needs archives, whereas a stocked one just has not been read yet, and offering
+     * downloads to someone who already has a library is nagging.
+     */
+    private Region firstRun() {
+        VBox box = new VBox(10);
+        box.getStyleClass().add("first-run");
+        if (!emptyDevice.get()) {
+            Label read = new Label("Nothing read yet — search above to find something.");
+            read.getStyleClass().add("card-sub");
+            box.getChildren().add(read);
+            return box;
+        }
+
+        Label tagline = new Label("The library that works when nothing else does.");
+        tagline.getStyleClass().add("card-title");
+        Label sub = new Label(
+                starters.isEmpty()
+                        ? "Nothing downloaded yet — open the Catalog to find archives."
+                        : "Nothing downloaded yet. A few good places to start:");
+        sub.getStyleClass().add("card-sub");
+        box.getChildren().addAll(tagline, sub);
+        starters.forEach(starter -> box.getChildren().add(starterRow(starter)));
+
+        Button catalog = new Button("Browse the Catalog →");
+        catalog.setOnAction(e -> onOpenCatalog.run());
+        box.getChildren().add(catalog);
+        return box;
+    }
+
+    private Region starterRow(com.insula.catalog.StarterPicks.Resolved starter) {
+        Label title = new Label(starter.group().title());
+        title.getStyleClass().add("card-title");
+        Label blurb = new Label(
+                starter.pick().blurb() + " · " + Formats.bytes(starter.entry().sizeBytes()));
+        blurb.getStyleClass().add("card-sub");
+        VBox main = new VBox(2, title, blurb);
+        HBox.setHgrow(main, Priority.ALWAYS);
+
+        Button get = new Button("Download");
+        get.setOnAction(e -> {
+            get.setDisable(true);
+            onDownloadStarter.accept(starter.entry());
+        });
+
+        HBox row = new HBox(12, monogram(starter.group().title()), main, get);
+        row.setAlignment(Pos.CENTER_LEFT);
+        row.getStyleClass().add("rowcard");
+        return row;
+    }
+
+    /**
+     * The starter picks, and how to act on them. Resolved by the controller against the cached
+     * catalog, so this never blocks or touches the network.
+     */
+    void setStarters(
+            List<com.insula.catalog.StarterPicks.Resolved> starters,
+            Consumer<com.insula.catalog.ZimEntry> onDownloadStarter,
+            Runnable onOpenCatalog) {
+        this.starters = List.copyOf(starters);
+        this.onDownloadStarter = onDownloadStarter;
+        this.onOpenCatalog = onOpenCatalog;
     }
 
     /** The hero: cross-archive search is the app's strongest feature, so it leads the surface. */
@@ -236,6 +309,25 @@ final class HomePane {
                         && box.getStyleClass().contains("rowcard")
                         && box.getChildren().stream()
                                 .anyMatch(c -> c instanceof Button b && "Resume".equals(b.getText())));
+    }
+
+    /** Only the first-run block's rows: the search hero is also an HBox.rowcard inside a VBox. */
+    private java.util.stream.Stream<javafx.scene.Node> firstRunChildren() {
+        return content.getChildren().stream()
+                .filter(n -> n.getStyleClass().contains("first-run"))
+                .flatMap(n -> ((VBox) n).getChildren().stream());
+    }
+
+    int starterRowsForTest() {
+        return (int) firstRunChildren()
+                .filter(n -> n instanceof HBox && n.getStyleClass().contains("rowcard"))
+                .count();
+    }
+
+    boolean showsTaglineForTest() {
+        return firstRunChildren()
+                .anyMatch(n -> n instanceof Label label
+                        && "The library that works when nothing else does.".equals(label.getText()));
     }
 
     boolean showsArrivingStripForTest() {
