@@ -286,15 +286,24 @@
 /* ============ reader ============ */
 
 /*
- * The position-restore notice. The kit is explicit that this is announced "once, quietly, in the
- * article header — never a toast over the text", so it is a hairline-ruled meta strip in muted
- * type rather than a card: it explains why you are mid-article and then gets out of the way.
+ * The per-tab navigation row: back/forward, and the restore notice when there is one. One thin
+ * hairline-ruled strip between the tab strip and the article, so navigation costs no horizontal
+ * space beside the tabs and the notice needs no row of its own.
  */
-.restored-notice {
+.tab-nav-row {
     -fx-background-color: -insula-surface;
     -fx-border-color: transparent transparent -insula-line transparent;
     -fx-border-width: 0 0 1 0;
-    -fx-padding: 5 14 5 14;
+    -fx-padding: 3 12 3 8;
+}
+
+/*
+ * The position-restore notice. The kit is explicit that this is announced "once, quietly, in the
+ * article header — never a toast over the text", so it is muted type inside that row rather than
+ * a card: it explains why you are mid-article and then gets out of the way.
+ */
+.restored-notice {
+    -fx-padding: 0;
 }
 .restored-text { -fx-font-size: 12px; -fx-text-fill: -insula-faint; }
 .restored-notice .hyperlink {

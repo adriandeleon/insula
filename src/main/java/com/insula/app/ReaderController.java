@@ -133,6 +133,7 @@ final class ReaderController {
     private final ReaderTabs tabs = new ReaderTabs();
     private javafx.scene.control.MenuBar menuBar;
     private Region readerPane;
+    private VBox tabContent;
     private final javafx.scene.control.TabPane tabBar = new javafx.scene.control.TabPane();
     private final HBox restoredBar = new HBox(10);
     private final Label restoredLabel = new Label();
@@ -658,14 +659,24 @@ final class ReaderController {
         for (Button nav : List.of(backButton, forwardButton)) {
             nav.getStyleClass().add("tab-nav");
         }
+        // Below the tab strip rather than beside it. Beside, they sat in a gap before the first
+        // tab and pushed every tab right by their full width for the whole session; below, they
+        // cost one thin row and share it with the restore notice, which is the other per-article
+        // thing that belongs between the strip and the page. It is also where a browser puts
+        // them — tabs on top, navigation under.
         HBox tabNav = new HBox(2, backButton, forwardButton);
-        tabNav.setAlignment(Pos.TOP_LEFT);
-        tabNav.setPadding(new Insets(6, 4, 0, 6));
-        HBox tabRow = new HBox(tabNav, tabBar);
-        HBox.setHgrow(tabBar, Priority.ALWAYS);
+        tabNav.setAlignment(Pos.CENTER_LEFT);
+        HBox.setHgrow(restoredBar, Priority.ALWAYS);
+        HBox navRow = new HBox(8, tabNav, restoredBar);
+        navRow.setAlignment(Pos.CENTER_LEFT);
+        navRow.getStyleClass().add("tab-nav-row");
 
-        javafx.scene.layout.BorderPane readerSide = new javafx.scene.layout.BorderPane(tabRow);
-        readerSide.setTop(restoredBar);
+        // The row rides *inside* the showing tab, above the article. A TabPane draws its header
+        // and content as one unit, so the only way under the strip is to be part of the content —
+        // which is also the honest place for it, since this is the tab's own navigation.
+        VBox.setVgrow(renderer.node(), Priority.ALWAYS);
+        tabContent = new VBox(navRow, renderer.node());
+        javafx.scene.layout.BorderPane readerSide = new javafx.scene.layout.BorderPane(tabBar);
         readerPane = readerSide;
         readerSplit = new SplitPane();
         readerSplit.setOrientation(Orientation.HORIZONTAL);
@@ -1195,7 +1206,7 @@ final class ReaderController {
             }
             if (tabs.activeIndex() >= 0 && tabs.activeIndex() < tabBar.getTabs().size()) {
                 javafx.scene.control.Tab selected = tabBar.getTabs().get(tabs.activeIndex());
-                selected.setContent(renderer.node());
+                selected.setContent(tabContent);
                 tabBar.getSelectionModel().select(selected);
             }
         } finally {
@@ -1237,11 +1248,11 @@ final class ReaderController {
     /** All tabs share one engine, so the renderer node moves to whichever tab is showing. */
     private void moveRendererInto(javafx.scene.control.Tab uiTab) {
         for (javafx.scene.control.Tab other : tabBar.getTabs()) {
-            if (other != uiTab && other.getContent() == renderer.node()) {
+            if (other != uiTab && other.getContent() == tabContent) {
                 other.setContent(null);
             }
         }
-        uiTab.setContent(renderer.node());
+        uiTab.setContent(tabContent);
     }
 
     /** Loads the tab's article and restores the scroll it recorded. */
@@ -1983,15 +1994,26 @@ final class ReaderController {
      * describing the same archive differently.
      */
     private CatalogPane.CardState catalogCardState(ZimEntry entry) {
+        CatalogPane.Installed installed = installedStateFor(entry);
         DownloadManager.Job job = downloads.job(entry);
         if (job != null) {
-            return new CatalogPane.CardState(
-                    installedFileFor(entry) != null ? CatalogPane.Installed.YES : CatalogPane.Installed.NO,
-                    job.snapshot(),
-                    job::pause);
+            return new CatalogPane.CardState(installed, job.snapshot(), job::pause);
         }
-        return CatalogPane.CardState.of(
-                installedFileFor(entry) != null ? CatalogPane.Installed.YES : CatalogPane.Installed.NO);
+        return CatalogPane.CardState.of(installed);
+    }
+
+    /**
+     * Whether the entry is on disk — and if so, whether this catalog build is newer than what is
+     * there. Uses the same name-based supersede test as the Library's update pills, so the two
+     * surfaces cannot disagree about whether an archive is current.
+     */
+    private CatalogPane.Installed installedStateFor(ZimEntry entry) {
+        if (installedFileFor(entry) != null) {
+            return CatalogPane.Installed.YES;
+        }
+        boolean supersedesSomething =
+                library.entries().stream().anyMatch(e -> UpdateCheck.supersedes(entry.fileName(), e.fileName()));
+        return supersedesSomething ? CatalogPane.Installed.OUTDATED : CatalogPane.Installed.NO;
     }
 
     /** The verified installed file matching this catalog entry's (name, flavour), or null. */

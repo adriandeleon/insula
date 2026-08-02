@@ -36,6 +36,7 @@ import javafx.scene.text.Text;
 import com.insula.catalog.CatalogCache;
 import com.insula.catalog.CatalogFilter;
 import com.insula.catalog.CatalogGroups;
+import com.insula.catalog.Paging;
 import com.insula.catalog.ZimEntry;
 import com.insula.download.ProgressSnapshot;
 
@@ -80,7 +81,16 @@ final class CatalogPane {
 
     enum Installed {
         NO,
-        YES
+        YES,
+        /**
+         * On disk, but this catalog entry is a newer build of it.
+         *
+         * <p>Its own state rather than a flag on YES, because it changes what the card's one
+         * button does — "Open" becomes "Update" — and a green "In library" tick beside an archive
+         * a year out of date is the catalog and the library telling different stories about the
+         * same file, which is the thing the shared state vocabulary exists to prevent.
+         */
+        OUTDATED
     }
 
     private final CatalogCache cache;
@@ -106,6 +116,10 @@ final class CatalogPane {
     private final VBox facetRail = new VBox(2);
     private final FlowPane cards = new FlowPane(12, 12);
     private final Label resultLine = new Label();
+    private final Button prevPage = new Button("← Previous");
+    private final Button nextPage = new Button("Next →");
+    private final HBox pager = new HBox(8);
+    private int page;
 
     private List<CatalogGroups.TitleGroup> allGroups = List.of();
     private final Set<String> selectedLanguages = new LinkedHashSet<>();
@@ -135,6 +149,30 @@ final class CatalogPane {
     /** The rendered card nodes. A test must not walk the scene: a ScrollPane's content is not
      * reachable through its children until it has been skinned, which silently turns an
      * absence-assertion into a vacuous pass. */
+    void goToPageForTest(int target) {
+        goToPage(target);
+    }
+
+    int pageForTest() {
+        return page;
+    }
+
+    /** Every label rendered across the visible cards, for asserting what a card actually says. */
+    String cardTextForTest() {
+        StringBuilder sb = new StringBuilder();
+        collectText(cards, sb);
+        return sb.toString();
+    }
+
+    private static void collectText(javafx.scene.Node node, StringBuilder sb) {
+        if (node instanceof javafx.scene.control.Labeled labeled && labeled.getText() != null) {
+            sb.append(labeled.getText()).append('\n');
+        }
+        if (node instanceof javafx.scene.Parent parent) {
+            parent.getChildrenUnmodifiable().forEach(child -> collectText(child, sb));
+        }
+    }
+
     java.util.List<javafx.scene.Node> cardNodesForTest() {
         return java.util.List.copyOf(cards.getChildren());
     }
@@ -186,7 +224,7 @@ final class CatalogPane {
     void setLanguagesForTest(Set<String> languages) {
         selectedLanguages.clear();
         selectedLanguages.addAll(languages);
-        render();
+        renderFromFirstPage();
     }
 
     String freshnessTextForTest() {
@@ -197,7 +235,7 @@ final class CatalogPane {
 
     private void build() {
         search.setPromptText("Search the catalog — title, name or description");
-        search.textProperty().addListener((obs, old, text) -> render());
+        search.textProperty().addListener((obs, old, text) -> renderFromFirstPage());
 
         refreshButton.setOnAction(e -> refresh(false));
         HBox bar = new HBox(12, search, freshness, refreshButton);
@@ -213,8 +251,12 @@ final class CatalogPane {
 
         cards.setPadding(new Insets(12));
         cards.setPrefWrapLength(700);
-        VBox center = new VBox(cards, resultLine);
-        resultLine.setPadding(new Insets(0, 14, 10, 14));
+        prevPage.setOnAction(e -> goToPage(page - 1));
+        nextPage.setOnAction(e -> goToPage(page + 1));
+        pager.setAlignment(Pos.CENTER_LEFT);
+        pager.setPadding(new Insets(0, 14, 12, 14));
+        pager.getChildren().addAll(prevPage, nextPage, resultLine);
+        VBox center = new VBox(cards, pager);
         resultLine.getStyleClass().add("card-sub");
         ScrollPane cardScroll = new ScrollPane(center);
         cardScroll.setFitToWidth(true);
@@ -280,6 +322,12 @@ final class CatalogPane {
 
     // ---------------------------------------------------------------- render
 
+    /** Any change to what is being filtered starts over at page one. */
+    private void renderFromFirstPage() {
+        page = 0;
+        render();
+    }
+
     private void render() {
         CatalogFilter.Result result =
                 CatalogFilter.apply(allGroups, search.getText(), selectedLanguages, selectedCategory);
@@ -307,7 +355,8 @@ final class CatalogPane {
         facetRail.getChildren().clear();
         facetRail.getChildren().add(facetTitle("Language"));
         result.languages().stream().limit(PRESEED_LANGUAGES).forEach(facet -> {
-            CheckBox box = new CheckBox(facet.value() + "  (" + facet.count() + ")");
+            CheckBox box =
+                    new CheckBox(com.insula.catalog.LanguageNames.one(facet.value()) + "  (" + facet.count() + ")");
             box.setSelected(selectedLanguages.contains(facet.value()));
             box.setDisable(facet.count() == 0);
             box.selectedProperty().addListener((obs, old, on) -> {
@@ -316,7 +365,7 @@ final class CatalogPane {
                 } else {
                     selectedLanguages.remove(facet.value());
                 }
-                render();
+                renderFromFirstPage();
             });
             facetRail.getChildren().add(box);
         });
@@ -337,7 +386,7 @@ final class CatalogPane {
         button.setSelected(value.equals(selectedCategory));
         button.setOnAction(e -> {
             selectedCategory = button.isSelected() ? value : "";
-            render();
+            renderFromFirstPage();
         });
         facetRail.getChildren().add(button);
     }
@@ -349,16 +398,45 @@ final class CatalogPane {
         return label;
     }
 
+    /**
+     * Jumps to a page. Clamped, so the Next button on the last page is inert rather than blanking
+     * the grid.
+     */
+    private void goToPage(int target) {
+        int total = CatalogFilter.apply(allGroups, search.getText(), selectedLanguages, selectedCategory)
+                .groups()
+                .size();
+        int clamped = Paging.clamp(target, total, Paging.PAGE_SIZE);
+        if (clamped != page) {
+            page = clamped;
+            render();
+            cards.requestFocus();
+        }
+    }
+
     private void renderCards(List<CatalogGroups.TitleGroup> groups) {
         liveCards.clear();
         cards.getChildren().clear();
-        groups.stream().limit(MAX_CARDS).forEach(group -> cards.getChildren().add(card(group)));
+        // Clamped here as well as on the buttons: a filter can shrink the result under a page
+        // the user is already on, and an empty grid over a non-empty result reads as
+        // "nothing matches" when plenty does.
+        page = Paging.clamp(page, groups.size(), Paging.PAGE_SIZE);
+        Paging.slice(groups, page, Paging.PAGE_SIZE)
+                .forEach(group -> cards.getChildren().add(card(group)));
         startSampler();
+
+        int pages = Paging.pageCount(groups.size(), Paging.PAGE_SIZE);
+        boolean many = pages > 1;
+        prevPage.setVisible(many);
+        prevPage.setManaged(many);
+        nextPage.setVisible(many);
+        nextPage.setManaged(many);
+        prevPage.setDisable(page == 0);
+        nextPage.setDisable(page >= pages - 1);
         resultLine.setText(
-                groups.size() > MAX_CARDS
-                        ? "Showing " + MAX_CARDS + " of " + groups.size()
-                                + " — narrow the search or facets to see the rest"
-                        : groups.isEmpty() && !allGroups.isEmpty() ? "Nothing matches" : "");
+                groups.isEmpty() && !allGroups.isEmpty()
+                        ? "Nothing matches"
+                        : Paging.label(page, groups.size(), Paging.PAGE_SIZE));
     }
 
     private Region card(CatalogGroups.TitleGroup group) {
@@ -373,7 +451,7 @@ final class CatalogPane {
 
         Label title = new Label(group.title());
         title.getStyleClass().add("card-title");
-        Label sub = new Label(group.language());
+        Label sub = new Label(com.insula.catalog.LanguageNames.display(group.language()));
         sub.getStyleClass().add("card-faint");
         VBox heading = new VBox(1, title, sub);
         HBox head = new HBox(10, icon, heading);
@@ -468,6 +546,12 @@ final class CatalogPane {
                 pause.setOnAction(e -> state.onPause().run());
                 controls.actions().getChildren().add(pause);
             }
+        } else if (state.installed() == Installed.OUTDATED) {
+            controls.actions()
+                    .getChildren()
+                    .add(Pills.update(
+                            buildOf(controls.entry()),
+                            Formats.bytes(controls.entry().sizeBytes())));
         } else if (state.installed() == Installed.YES) {
             controls.actions().getChildren().add(Pills.verified());
         }
@@ -487,9 +571,18 @@ final class CatalogPane {
         action.setDisable(busy);
         if (state.installed() == Installed.YES) {
             action.setText("Open");
+        } else if (state.installed() == Installed.OUTDATED) {
+            // The size stays on the button: an update is a whole new archive, not a patch.
+            action.setText("Update · " + Formats.bytes(entry.sizeBytes()));
         } else {
             action.setText("Download · " + Formats.bytes(entry.sizeBytes()));
         }
+    }
+
+    /** The build stamp a card's Update pill names, e.g. {@code 2026-08}. */
+    private static String buildOf(ZimEntry entry) {
+        String date = com.insula.catalog.UpdateCheck.buildDateOf(entry.fileName());
+        return date.isBlank() ? "newer" : date;
     }
 
     private static String metaLine(CatalogGroups.TitleGroup group) {
