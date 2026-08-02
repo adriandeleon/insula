@@ -19,7 +19,8 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
 /**
- * Loopback-only HTTP server that serves ZIM entries at their real archive paths:
+ * Loopback-only HTTP server that serves ZIM entries at their real archive paths, transcoding
+ * WebP images on the way out because WebView cannot display them (see {@link WebpTranscoder}):
  * {@code http://127.0.0.1:<port>/zim/<token>/<ns>/<path>}. Serving at real paths means the
  * relative links, images and stylesheets inside the archived HTML resolve with no rewriting.
  * ZIM redirect entries answer with HTTP 302 to the target's canonical path so the browser's
@@ -30,6 +31,7 @@ public final class ZimHttpServer implements AutoCloseable {
     private final HttpServer server;
     private final Map<String, ZimArchive> archives = new ConcurrentHashMap<>();
     private final AtomicInteger tokenCounter = new AtomicInteger();
+    private final WebpTranscoder transcoder = new WebpTranscoder();
 
     public ZimHttpServer() throws IOException {
         server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
@@ -100,6 +102,12 @@ public final class ZimHttpServer implements AutoCloseable {
             }
             byte[] body = archive.content(d);
             String mime = archive.mimeType(d);
+            if (WebpTranscoder.isWebp(mime)) {
+                // WebView cannot decode WebP, and every modern ZIM stores its images that way.
+                WebpTranscoder.Transcoded converted = transcoder.transcode(path, body, mime);
+                body = converted.bytes();
+                mime = converted.mimeType();
+            }
             if (mime.startsWith("text/")) {
                 mime = mime + "; charset=UTF-8";
             }

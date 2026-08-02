@@ -239,6 +239,35 @@ openZIM conversation, not a client feature. The table above is a concrete thing 
 - Measured: Kiwix's `.torrent` carried 4 web seeds against the Metalink's 9, and a real download
   completed with **0 peers** entirely from merged web seeds. Swarms here are genuinely thin.
 
+### WebP: modern ZIMs store images in a format JavaFX cannot read
+
+Kiwix's mwoffliner recompresses every image to **WebP** and keeps the original file name, so the
+archive holds `Walt_Disney_1946.JPG` whose bytes begin `RIFF....WEBP`, served under
+`image/webp`. Measured on a 2021 Bitcoin archive: **502 WebP against 1 PNG**.
+
+JavaFX's WebView **cannot decode WebP** (verified directly: `naturalWidth == 0` with
+`complete == true`, against a control PNG at 10 px in the same document). The failure is silent
+and easy to misdiagnose — the image reports success, paints as an empty box rather than a
+broken-image icon, and logs nothing. Do not go looking in the ZIM lookup or the HTTP server: both
+were correct the whole time. `libjfxwebkit.so` contains the string `image/webp` but no libwebp
+decoder symbols, so that string is not evidence of support.
+
+`server/WebpTranscoder` decodes with TwelveMonkeys' pure-Java reader and re-encodes: **alpha →
+PNG** (a signature or logo must keep its transparency), **no alpha → JPEG q0.85**. That split is
+measured, not taste — over six real photos, PNG was 8.0× the original WebP bytes and JPEG 1.8×.
+Decode+encode runs 35–100 ms per image, so results are cached in a byte-bounded LRU. A failed
+decode serves the original bytes: no worse than before, never an error.
+
+Two things to keep in mind when touching this. The TwelveMonkeys jars are **automatic modules**
+found through the ImageIO `ServiceLoader`, so `module-info` must `requires` one of them
+explicitly — an automatic module nothing requires is never resolved, and the reader silently
+disappears on the module path while tests on the classpath still pass. And ImageIO drags in
+`java.desktop`, so `Main.main` sets `java.awt.headless=true` as its **first** statement (the
+macOS AppKit/JavaFX contention).
+
+`LanServer` deliberately does *not* transcode — its clients are real browsers, which have read
+WebP for years and are better served the smaller original.
+
 ## Roadmap
 
 Full-text search (the Xapian index inside ZIMs needs native code — a Lucene re-index on first

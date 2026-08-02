@@ -51,6 +51,11 @@ public class Main extends Application {
     }
 
     public static void main(String[] args) {
+        // Must be the first statement, before any AWT class loads. Decoding WebP images (see
+        // server/WebpTranscoder) goes through ImageIO, i.e. java.desktop; on macOS the AWT/Java2D
+        // native pipeline contends with JavaFX for the single AppKit run loop and can hang the
+        // app. Headless Java2D decodes purely in software, so the images still render.
+        System.setProperty("java.awt.headless", "true");
         launch(args);
     }
 }

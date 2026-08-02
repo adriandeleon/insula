@@ -119,6 +119,16 @@ Everything below is in `main` and unreleased; there has been no tagged version y
 
 ### Fixed
 
+- **Images in modern archives now display.** Every current Kiwix ZIM stores its images as WebP —
+  mwoffliner recompresses them but keeps the original `.jpg`/`.png` file name, so an archive says
+  `Walt_Disney_1946.JPG` while the bytes are WebP (measured on a 2021 Bitcoin archive: 502 WebP
+  against 1 PNG). JavaFX's WebView cannot decode WebP and reports such an image as *loaded* with
+  `naturalWidth == 0`, which paints as an empty box — no broken-image icon, nothing in any log.
+  The reader's loopback server now transcodes WebP on the way out (pure-Java decode, no native
+  library): an image with alpha becomes PNG so transparency survives, anything else becomes JPEG,
+  which measured 1.8× the original bytes against PNG's 8.0×. Results are held in a byte-bounded
+  cache, and an image that cannot be decoded is served unchanged rather than failing. LAN sharing
+  deliberately keeps serving the original WebP, since real browsers prefer it.
 - The Downloads settings page claimed "no torrent transport is installed yet, so downloads use
   HTTP either way" — stale since the BitTorrent transport landed. It now states what actually
   governs the choice (only archives above the 5 GB threshold, only when the native library

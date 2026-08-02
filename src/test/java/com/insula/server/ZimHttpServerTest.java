@@ -1,6 +1,8 @@
 package com.insula.server;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -13,6 +15,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -81,5 +84,26 @@ class ZimHttpServerTest {
         assertEquals(404, get(server.urlFor(token, "A/definitely_missing.html")).statusCode());
         assertEquals(404, get(server.baseUrl() + "/nope").statusCode());
         assertEquals(404, get(server.baseUrl() + "/zim/zzz/A/x").statusCode());
+    }
+
+    @Test
+    void aNonWebpImageIsServedByteForByteUntouched() throws Exception {
+        // Only WebP is converted. A PNG that came back re-encoded would mean the transcoder is
+        // running on everything, quietly inflating every asset the archive already had right.
+        try (ZimArchive archive = ZimArchive.open(Path.of("src/test/resources/zim/nons-wikibooks.zim"));
+                ZimHttpServer server = new ZimHttpServer()) {
+            String token = server.register(archive);
+            byte[] expected = archive.content(
+                    archive.resolve(archive.entryByUrl("C/s/bullet-icon.png").orElseThrow()));
+
+            HttpURLConnection connection = (HttpURLConnection) URI.create(server.urlFor(token, "C/s/bullet-icon.png"))
+                    .toURL()
+                    .openConnection();
+            assertEquals(200, connection.getResponseCode());
+            assertEquals("image/png", connection.getContentType());
+            try (InputStream in = connection.getInputStream()) {
+                assertArrayEquals(expected, in.readAllBytes());
+            }
+        }
     }
 }

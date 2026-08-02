@@ -89,6 +89,13 @@
             <version>${jlibtorrent.version}</version>
         </dependency>
         <dependency>
+            <!-- Pure-Java WebP reader (BSD-3-Clause). Every modern ZIM stores images as WebP,
+                 which JavaFX's WebView cannot decode; see server/WebpTranscoder. -->
+            <groupId>com.twelvemonkeys.imageio</groupId>
+            <artifactId>imageio-webp</artifactId>
+            <version>3.12.0</version>
+        </dependency>
+        <dependency>
             <!-- QR code generation for LAN sharing (MIT, a real JPMS module, zero deps). -->
             <groupId>io.nayuki</groupId>
             <artifactId>qrcodegen</artifactId>

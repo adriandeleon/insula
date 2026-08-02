@@ -2,8 +2,11 @@ module com.insula {
     requires javafx.controls;
     requires javafx.web;
     requires atlantafx.base;
+    requires java.desktop;
     requires jdk.httpserver;
     requires io.nayuki.qrcodegen;
+    // Pure-Java WebP reader; found via the ImageIO service loader, so it must be resolved.
+    requires com.twelvemonkeys.imageio.webp;
     requires java.logging;
     requires java.net.http;
     requires java.xml;
