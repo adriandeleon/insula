@@ -56,9 +56,8 @@ import com.insula.download.TorrentTransport;
 import com.insula.download.TransportSelector;
 import com.insula.library.Library;
 import com.insula.library.LibraryEntry;
-import com.insula.media.MediaCache;
+import com.insula.media.HlsSession;
 import com.insula.media.TranscodeService;
-import com.insula.media.Transcoder;
 import com.insula.reader.ArticleLocation;
 import com.insula.reader.ArticleRef;
 import com.insula.reader.ArticleStore;
@@ -188,7 +187,7 @@ final class ReaderController {
         }
         this.downloads = new DownloadManager(transports, library, dataDir.resolve("archives"));
         downloads.setOnAdmitted(job -> Platform.runLater(() -> afterArchiveAdmitted(job)));
-        this.transcodes = new TranscodeService(new MediaCache(dataDir.resolve("media-cache")));
+        this.transcodes = new TranscodeService();
         this.catalogCache = new CatalogCache(dataDir.resolve("catalog"));
         this.iconCache = new IconCache(dataDir.resolve("catalog/icons"));
         this.storePane = new StorePane(
@@ -1680,39 +1679,94 @@ final class ReaderController {
     }
 
     /**
-     * Transcodes a video the engine cannot decode and plays it in place.
+     * Plays a video the engine cannot decode, starting almost immediately.
      *
-     * <p>ffmpeg reads the source straight from the loopback server, so the original WebM is never
-     * copied to disk; the result is cached, which makes a rewatch instant.
+     * <p>Rather than transcoding the whole file first (21 s for a 25-minute talk), the playlist is
+     * written up front from a duration probe and segments are encoded as the player asks for them
+     * — ~165 ms each, anywhere in the file, so a seek costs the same as a start and only what is
+     * watched is ever encoded. ffmpeg reads the source straight off the loopback server, so the
+     * original is never copied.
      */
     private void playInApp(String boxId, String sourceUrl) {
-        String cacheName = Transcoder.cacheName(
-                currentArchiveFile == null ? "" : currentArchiveFile.toString(), sourceUrl, archiveSizeForCache());
-        renderer.runScript(MediaFallback.progressScript(boxId, 0, "Preparing video…"));
-        status.setText("Preparing video…");
-        transcodes.transcode(
+        if (server == null) {
+            return;
+        }
+        renderer.runScript(MediaFallback.progressScript(boxId, 0, "Starting video…"));
+        transcodes.openSession(
                 sourceUrl,
-                cacheName,
-                percent -> renderer.runScript(
-                        MediaFallback.progressScript(boxId, percent, "Preparing video… " + percent + "%")),
-                result -> {
-                    if (result.ok() && server != null) {
-                        String token = server.registerFile(result.file());
-                        renderer.runScript(MediaFallback.playScript(boxId, server.fileUrl(token)));
-                        status.setText("Playing");
-                    } else {
-                        renderer.runScript(MediaFallback.progressScript(boxId, 0, "Could not prepare this video"));
-                        status.setText("Could not prepare the video: " + result.message());
-                    }
+                dataDir.resolve("media-work"),
+                session -> {
+                    disposeMediaSession();
+                    mediaSession = session;
+                    mediaStreamToken = server.registerStream(new ZimHttpServer.MediaStream() {
+                        @Override
+                        public String playlist(String segmentUriFormat) {
+                            return session.playlist(segmentUriFormat);
+                        }
+
+                        @Override
+                        public byte[] segment(int index) throws IOException {
+                            return session.segment(index);
+                        }
+                    });
+                    showVideoOverlay(server.streamUrl(mediaStreamToken), videoTitleFor(sourceUrl));
+                    renderer.runScript(MediaFallback.progressScript(boxId, 100, "Playing above"));
+                    status.setText("Playing");
+                },
+                message -> {
+                    renderer.runScript(MediaFallback.progressScript(boxId, 0, "Could not play this video"));
+                    status.setText(message);
                 });
     }
 
-    private long archiveSizeForCache() {
-        try {
-            return currentArchiveFile == null ? 0 : java.nio.file.Files.size(currentArchiveFile);
-        } catch (IOException e) {
-            return 0;
+    private HlsSession mediaSession;
+    private String mediaStreamToken;
+    private VideoPlayerPane videoOverlay;
+
+    /**
+     * Shows the player above the article rather than inside it. Inline playback of the on-demand
+     * stream crashed WebKit's paint pulse about half the time (see {@link VideoPlayerPane}), and
+     * WebView being single-process makes that fatal to the app.
+     */
+    private void showVideoOverlay(String streamUrl, String title) {
+        closeVideoOverlay();
+        videoOverlay = new VideoPlayerPane(streamUrl, title, this::closeVideoOverlay);
+        root.getChildren().add(videoOverlay.node());
+    }
+
+    private void closeVideoOverlay() {
+        if (videoOverlay != null) {
+            root.getChildren().remove(videoOverlay.node());
+            videoOverlay.dispose();
+            videoOverlay = null;
         }
+        disposeMediaSession();
+    }
+
+    boolean videoOverlayShowingForTest() {
+        return videoOverlay != null;
+    }
+
+    /** The article's title reads better over a player than the URL of a blob inside an archive. */
+    private String videoTitleFor(String sourceUrl) {
+        ArticleRef ref = currentRef();
+        return ref != null ? ref.title() : sourceUrl;
+    }
+
+    /** One video at a time: a session holds encoded segments, so an abandoned one must let go. */
+    private void disposeMediaSession() {
+        if (mediaSession != null) {
+            mediaSession.dispose();
+            mediaSession = null;
+        }
+        if (mediaStreamToken != null && server != null) {
+            server.unregisterStream(mediaStreamToken);
+            mediaStreamToken = null;
+        }
+    }
+
+    HlsSession mediaSessionForTest() {
+        return mediaSession;
     }
 
     // ---------------------------------------------------------------- Reader View
@@ -1773,6 +1827,7 @@ final class ReaderController {
 
     /** A navigation happened: whatever reader state existed belongs to the previous document. */
     private void resetReaderViewForNavigation() {
+        closeVideoOverlay();
         if (readerView.isActive()) {
             readerView.pageChanged();
             setReaderViewChrome(false);
@@ -1978,6 +2033,7 @@ final class ReaderController {
         if (lanServer != null) {
             stopLanSharing();
         }
+        closeVideoOverlay();
         transcodes.shutdown();
         try {
             rememberScrollForActiveTab();

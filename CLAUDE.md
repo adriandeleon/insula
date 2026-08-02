@@ -325,6 +325,21 @@ anchor and query spelling. Note the FX test for this must wait for **loadWorker 
 for the location: the location changes when navigation *starts*, and scripting a not-yet-parsed
 document silently does nothing (which is exactly how the first version of that test failed).
 
+**Video plays in a JavaFX overlay, not in the page — and that is forced.** Feeding the on-demand
+HLS stream to an inline `<video>` inside a *real* archive page crashed the process in about half
+of runs: SIGSEGV in `libjfxwebkit`, in the paint pulse (`WebPage.twkUpdateContent`), not in any
+script. The same page with a plain MP4 survived 3/3 and a minimal page with HLS survived too, so
+the fault is HLS compositing inside WebKit specifically. WebView is single-process, so it is fatal
+to the app. `app/VideoPlayerPane` therefore uses `javafx.scene.media`, which plays the identical
+stream with no WebKit involvement (3/3 clean). Do not "simplify" this back to an inline element.
+
+**Instant start is a complete playlist over segments made on demand.** `media/HlsPlaylist` writes
+the whole playlist up front from an ffprobe duration, ending in `EXT-X-ENDLIST` so the timeline is
+seekable, and `media/HlsSession` encodes each 6-second segment when the player asks (~165 ms
+anywhere in the file, because `-ss` **before** `-i` is a keyframe seek rather than a decode from
+the start; `-output_ts_offset` stamps absolute timestamps so segments stitch). First frame ~0.6 s
+after the click, versus 21 s for the whole-file encode this replaced.
+
 **In-app playback is a transcode, and the streaming shapes were measured before choosing.** With
 ffmpeg present (optional, self-gating like the torrent transport), `media/Transcoder` +
 `TranscodeService` convert the video to H.264/AAC and the placeholder becomes a real inline

@@ -90,15 +90,6 @@ class MediaFallbackTest {
     }
 
     @Test
-    void thePlayerSwapUsesTheServedUrlAndEscapesIt() {
-        String script = MediaFallback.playScript("insula-media-0", "http://127.0.0.1:9/file/f1");
-        assertTrue(script.contains("createElement('video')"));
-        assertTrue(script.contains("controls"));
-        assertTrue(script.contains("http://127.0.0.1:9/file/f1"));
-        assertFalse(script.contains("innerHTML = a.content"));
-    }
-
-    @Test
     void bridgeIgnoresIncompleteInAppRequests() {
         java.util.List<String> boxes = new java.util.ArrayList<>();
         MediaBridge bridge = new MediaBridge(u -> {}, (box, url) -> boxes.add(box + " " + url));

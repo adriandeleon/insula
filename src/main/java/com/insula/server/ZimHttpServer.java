@@ -6,11 +6,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.nio.ByteBuffer;
-import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -36,7 +32,7 @@ public final class ZimHttpServer implements AutoCloseable {
     private final Map<String, ZimArchive> archives = new ConcurrentHashMap<>();
     private final AtomicInteger tokenCounter = new AtomicInteger();
     private final WebpTranscoder transcoder = new WebpTranscoder();
-    private final Map<String, Path> files = new ConcurrentHashMap<>();
+    private final Map<String, MediaStream> streams = new ConcurrentHashMap<>();
 
     public ZimHttpServer() throws IOException {
         server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
@@ -60,19 +56,33 @@ public final class ZimHttpServer implements AutoCloseable {
         archives.remove(token);
     }
 
+    /** A playable stream: a complete HLS playlist over segments produced on demand. */
+    public interface MediaStream {
+
+        /** The playlist text; {@code segmentUriFormat} takes the segment index. */
+        String playlist(String segmentUriFormat);
+
+        /** One segment's bytes, encoding it if needed. Null when the index is out of range. */
+        byte[] segment(int index) throws IOException;
+    }
+
     /**
-     * Publishes a local file (a transcoded video) at {@code /file/<token>}. The page is served
-     * over http, so a {@code file:} URL in the same document would be a cross-origin subresource;
-     * serving it from here keeps the video same-origin and gets Range handling for free.
+     * Publishes a stream at {@code /hls/<token>/index.m3u8}. The article page is served over http,
+     * so serving the video from here keeps it same-origin — and the player asks for segments by
+     * URL, which is what lets them be produced only when actually needed.
      */
-    public String registerFile(Path file) {
-        String token = "f" + tokenCounter.incrementAndGet();
-        files.put(token, file);
+    public String registerStream(MediaStream stream) {
+        String token = "s" + tokenCounter.incrementAndGet();
+        streams.put(token, stream);
         return token;
     }
 
-    public String fileUrl(String token) {
-        return baseUrl() + "/file/" + token;
+    public void unregisterStream(String token) {
+        streams.remove(token);
+    }
+
+    public String streamUrl(String token) {
+        return baseUrl() + "/hls/" + token + "/index.m3u8";
     }
 
     public String baseUrl() {
@@ -92,8 +102,8 @@ public final class ZimHttpServer implements AutoCloseable {
     private void handle(HttpExchange exchange) throws IOException {
         try (exchange) {
             String path = exchange.getRequestURI().getPath(); // already percent-decoded
-            if (path.startsWith("/file/")) {
-                sendLocalFile(exchange, files.get(path.substring(6)));
+            if (path.startsWith("/hls/")) {
+                sendStream(exchange, path);
                 return;
             }
             if (!path.startsWith("/zim/")) {
@@ -172,52 +182,48 @@ public final class ZimHttpServer implements AutoCloseable {
         writeBody(exchange, archive.content(d));
     }
 
-    /** Serves a cached transcode with the same Range handling archive entries get. */
-    private static void sendLocalFile(HttpExchange exchange, Path file) throws IOException {
-        if (file == null || !Files.isRegularFile(file)) {
-            sendText(exchange, 404, "No such file");
+    /**
+     * Serves {@code /hls/<token>/index.m3u8} and {@code /hls/<token>/<n>.ts}.
+     *
+     * <p>A segment request blocks while ffmpeg produces it (~165 ms measured), which is why the
+     * server runs a pool rather than a single thread — one video buffering must not stall the
+     * article that contains it.
+     */
+    private void sendStream(HttpExchange exchange, String path) throws IOException {
+        String rest = path.substring(5);
+        int slash = rest.indexOf('/');
+        if (slash < 0) {
+            sendText(exchange, 404, "Not found");
             return;
         }
-        long total = Files.size(file);
-        exchange.getResponseHeaders().set("Content-Type", "video/mp4");
-        exchange.getResponseHeaders().set("Accept-Ranges", "bytes");
-
-        ByteRanges.Request request =
-                ByteRanges.parse(exchange.getRequestHeaders().getFirst("Range"), total);
-        if (request instanceof ByteRanges.Request.Unsatisfiable) {
-            exchange.getResponseHeaders().set("Content-Range", ByteRanges.unsatisfiedRange(total));
-            exchange.sendResponseHeaders(416, -1);
+        MediaStream stream = streams.get(rest.substring(0, slash));
+        String resource = rest.substring(slash + 1);
+        if (stream == null) {
+            sendText(exchange, 404, "No such stream");
             return;
         }
-        long start = 0;
-        long length = total;
-        if (request instanceof ByteRanges.Request.Partial partial) {
-            start = partial.start();
-            length = partial.length();
-            exchange.getResponseHeaders().set("Content-Range", ByteRanges.contentRange(partial, total));
-            exchange.sendResponseHeaders(206, length);
-        } else {
-            exchange.sendResponseHeaders(200, total == 0 ? -1 : total);
-        }
-        if (length <= 0) {
+        if (resource.equals("index.m3u8")) {
+            byte[] body = stream.playlist("%d.ts").getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/vnd.apple.mpegurl");
+            exchange.sendResponseHeaders(200, body.length);
+            writeBody(exchange, body);
             return;
         }
-        // Streamed rather than read whole: a transcoded talk is tens of megabytes.
-        try (FileChannel channel = FileChannel.open(file);
-                OutputStream out = exchange.getResponseBody()) {
-            channel.position(start);
-            byte[] buffer = new byte[64 * 1024];
-            ByteBuffer wrapper = ByteBuffer.wrap(buffer);
-            long remaining = length;
-            while (remaining > 0) {
-                wrapper.clear().limit((int) Math.min(buffer.length, remaining));
-                int read = channel.read(wrapper);
-                if (read <= 0) {
-                    break;
-                }
-                out.write(buffer, 0, read);
-                remaining -= read;
+        if (!resource.endsWith(".ts")) {
+            sendText(exchange, 404, "Not found");
+            return;
+        }
+        try {
+            byte[] body = stream.segment(Integer.parseInt(resource.substring(0, resource.length() - 3)));
+            if (body == null) {
+                sendText(exchange, 404, "No such segment");
+                return;
             }
+            exchange.getResponseHeaders().set("Content-Type", "video/mp2t");
+            exchange.sendResponseHeaders(200, body.length);
+            writeBody(exchange, body);
+        } catch (NumberFormatException e) {
+            sendText(exchange, 404, "Not found");
         }
     }
 

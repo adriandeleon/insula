@@ -159,6 +159,15 @@ Everything below is in `main` and unreleased; there has been no tagged version y
   showed up in the status bar. Article identity is now the path with the fragment and query
   removed (`reader/ArticleLocation`).
 
+- **Video starts almost immediately.** Instead of converting the whole file before anything plays
+  (21 seconds for a 25-minute talk), Insula writes the HLS playlist up front from a duration probe
+  and converts each 6-second segment only when the player asks for it — measured at ~165 ms per
+  segment anywhere in the file. First frame now lands **~0.6 s after the click**, seeking to
+  20:00 in a 25-minute talk is just as quick, and only what is watched is ever converted.
+  Playback moved out of the article page into a player above it: an inline `<video>` fed the
+  on-demand stream crashed WebKit's paint pulse in roughly half of runs (SIGSEGV in
+  `libjfxwebkit`), and since WebView is single-process that takes the whole app down. JavaFX's own
+  media stack plays the identical stream with no WebKit involvement and survived every run.
 - **Videos can now play inside the app.** With ffmpeg installed, the placeholder offers
   **Play here**: the video is converted once to H.264/AAC — read straight off the loopback server,
   so the original is never copied to disk — and then plays inline in the article with working

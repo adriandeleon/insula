@@ -61,6 +61,13 @@
             <version>${javafx.version}</version>
         </dependency>
         <dependency>
+            <!-- JavaFX's own media stack: plays the on-demand HLS stream without WebKit, which
+                 crashes on it (see VideoPlayerPane). -->
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-media</artifactId>
+            <version>${javafx.version}</version>
+        </dependency>
+        <dependency>
             <groupId>org.openjfx</groupId>
             <artifactId>javafx-web</artifactId>
             <version>${javafx.version}</version>

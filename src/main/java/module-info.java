@@ -1,5 +1,6 @@
 module com.insula {
     requires javafx.controls;
+    requires javafx.media;
     requires javafx.web;
     requires atlantafx.base;
     requires java.desktop;

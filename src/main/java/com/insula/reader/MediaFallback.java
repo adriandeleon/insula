@@ -165,25 +165,6 @@ public final class MediaFallback {
                 WebViewRenderer.quote(boxId), WebViewRenderer.quote(caption), Math.max(0, Math.min(100, percent)));
     }
 
-    /** Swaps a finished placeholder for a real player. The URL is same-origin, so seeking works. */
-    public static String playScript(String boxId, String videoUrl) {
-        return """
-                (function() {
-                  var box = document.getElementById(%s);
-                  if (!box) { return false; }
-                  var video = document.createElement('video');
-                  video.setAttribute('controls', '');
-                  video.setAttribute('autoplay', '');
-                  video.setAttribute('style', 'display:block;width:100%%;height:auto;background:#000;');
-                  video.src = %s;
-                  box.innerHTML = '';
-                  box.setAttribute('style', 'display:block;max-width:100%%;');
-                  box.appendChild(video);
-                  return true;
-                })();
-                """.formatted(WebViewRenderer.quote(boxId), WebViewRenderer.quote(videoUrl));
-    }
-
     /**
      * The standing message. It says "outside Insula" rather than naming a player because the URL
      * goes to the desktop's handler for {@code http}, which is usually the browser rather than

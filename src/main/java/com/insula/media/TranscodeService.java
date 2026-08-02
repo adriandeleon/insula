@@ -1,39 +1,25 @@
 package com.insula.media;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.OptionalDouble;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import javafx.application.Platform;
 
 /**
- * Runs ffmpeg off the FX thread and reports progress back onto it.
+ * Finds ffmpeg and opens playback sessions, off the FX thread.
  *
  * <p>Mirrors the shape the rest of the app uses for external tools (a single daemon executor,
  * results marshalled with {@link Platform#runLater}, a cached availability probe): ffmpeg is
  * <b>optional</b> and self-gating — absent, the media placeholder simply keeps offering external
  * playback.
- *
- * <p>Encoding writes to a {@code .part} file and moves it into place only on success, so an
- * interrupted run can never leave a truncated video in the cache to be served as if complete.
  */
 public final class TranscodeService {
-
-    private static final Logger LOG = Logger.getLogger(TranscodeService.class.getName());
-
-    /** Progress is coalesced to this cadence, matching the download UI rather than every line. */
-    private static final long PROGRESS_INTERVAL_MS = 250;
 
     private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "transcode");
@@ -41,16 +27,11 @@ public final class TranscodeService {
         return t;
     });
 
-    private final MediaCache cache;
     private volatile String ffmpeg = "ffmpeg";
     private volatile String ffprobe = "ffprobe";
     private volatile Boolean available;
-    private volatile Process current;
-    private final AtomicBoolean cancelled = new AtomicBoolean();
 
-    public TranscodeService(MediaCache cache) {
-        this.cache = cache;
-    }
+    public TranscodeService() {}
 
     /** Blank falls back to the PATH name, so an unset preference just means "find it". */
     public void configure(String ffmpegPath, String ffprobePath) {
@@ -61,10 +42,6 @@ public final class TranscodeService {
             ffprobe = newFfprobe;
             available = null; // a changed path must be re-probed, not assumed
         }
-    }
-
-    public MediaCache cache() {
-        return cache;
     }
 
     /** Cached: the answer only changes when the configured path does. */
@@ -85,113 +62,29 @@ public final class TranscodeService {
         return Boolean.TRUE.equals(available);
     }
 
-    /** How a transcode ended. {@code file} is null unless it succeeded. */
-    public record Result(boolean ok, Path file, String message) {}
-
     /**
-     * Transcodes {@code sourceUrl} (read directly over HTTP — no copy of the original is made)
-     * into the cache under {@code cacheName}, or returns the cached file immediately.
+     * Opens a session for a video: probes its duration, then serves segments on demand. The probe
+     * is the only thing standing between a click and playback (measured well under a second), so
+     * there is no progress UI — by the time one could be drawn, the video is playing.
      */
-    public void transcode(String sourceUrl, String cacheName, Consumer<Integer> onProgress, Consumer<Result> onDone) {
-        cancelled.set(false);
+    public void openSession(String sourceUrl, Path workDir, Consumer<HlsSession> onReady, Consumer<String> onError) {
         worker.execute(() -> {
-            try {
-                cache.prepare();
-                Path finished = cache.lookup(cacheName);
-                if (finished != null) {
-                    Platform.runLater(() -> onDone.accept(new Result(true, finished, "Ready")));
-                    return;
-                }
-                Path target = cache.fileFor(cacheName);
-                Path part = target.resolveSibling(target.getFileName() + ".part");
-                double total = duration(sourceUrl).orElse(0);
-                Result result = run(sourceUrl, part, total, onProgress);
-                if (result.ok()) {
-                    Files.move(part, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                    cache.evictToBudget();
-                    Platform.runLater(() -> onDone.accept(new Result(true, target, "Ready")));
-                } else {
-                    Files.deleteIfExists(part);
-                    Platform.runLater(() -> onDone.accept(result));
-                }
-            } catch (IOException | RuntimeException e) {
-                LOG.log(Level.FINE, "Transcode failed for " + sourceUrl, e);
-                Platform.runLater(() -> onDone.accept(new Result(false, null, String.valueOf(e.getMessage()))));
+            OptionalDouble seconds = duration(sourceUrl);
+            if (seconds.isEmpty()) {
+                Platform.runLater(() -> onError.accept("Could not read this video's duration"));
+                return;
             }
+            HlsSession session = new HlsSession(
+                    sourceUrl,
+                    seconds.getAsDouble(),
+                    HlsPlaylist.SEGMENT_SECONDS,
+                    HlsSession.ffmpegEncoder(ffmpeg, workDir));
+            Platform.runLater(() -> onReady.accept(session));
         });
     }
 
-    /** Stops the encode in flight, if any. The partial file is cleaned up by the worker. */
-    public void cancel() {
-        cancelled.set(true);
-        Process process = current;
-        if (process != null) {
-            process.destroy();
-        }
-    }
-
     public void shutdown() {
-        cancel();
         worker.shutdownNow();
-    }
-
-    private Result run(String sourceUrl, Path part, double total, Consumer<Integer> onProgress) {
-        try {
-            ProcessBuilder builder = new ProcessBuilder(Transcoder.transcodeArgv(ffmpeg, sourceUrl, part));
-            builder.redirectErrorStream(false);
-            Process process = builder.start();
-            current = process;
-            long lastReport = 0;
-            int lastPercent = -1;
-            try (BufferedReader reader =
-                    new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    OptionalDouble seconds = Transcoder.parseProgressSeconds(line);
-                    if (seconds.isEmpty()) {
-                        continue;
-                    }
-                    int percent = Transcoder.percent(seconds.getAsDouble(), total);
-                    long now = System.currentTimeMillis();
-                    if (percent != lastPercent && now - lastReport >= PROGRESS_INTERVAL_MS) {
-                        lastPercent = percent;
-                        lastReport = now;
-                        int report = percent;
-                        Platform.runLater(() -> onProgress.accept(report));
-                    }
-                }
-            }
-            int exit = process.waitFor();
-            current = null;
-            if (cancelled.get()) {
-                return new Result(false, null, "Cancelled");
-            }
-            if (exit != 0) {
-                return new Result(false, null, "ffmpeg exited with " + exit + ": " + stderr(process));
-            }
-            return new Result(true, part, "Ready");
-        } catch (IOException e) {
-            current = null;
-            return new Result(false, null, "Could not run ffmpeg: " + e.getMessage());
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            current = null;
-            return new Result(false, null, "Interrupted");
-        }
-    }
-
-    private static String stderr(Process process) {
-        try (BufferedReader reader =
-                new BufferedReader(new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8))) {
-            StringBuilder text = new StringBuilder();
-            String line;
-            while ((line = reader.readLine()) != null && text.length() < 400) {
-                text.append(line).append(' ');
-            }
-            return text.toString().strip();
-        } catch (IOException e) {
-            return "";
-        }
     }
 
     private OptionalDouble duration(String sourceUrl) {

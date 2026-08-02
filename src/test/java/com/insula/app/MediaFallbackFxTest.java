@@ -155,14 +155,6 @@ class MediaFallbackFxTest {
         Object caption = FxTestSupport.callOnFx(() ->
                 renderer.runScript("document.querySelector('#insula-media-0 .insula-media-bar span').textContent"));
         assertEquals("Preparing…", caption);
-
-        // Then the finished encode swaps in a real player.
-        Object played = FxTestSupport.callOnFx(
-                () -> renderer.runScript(MediaFallback.playScript("insula-media-0", "http://127.0.0.1:1/file/f1")));
-        assertEquals(Boolean.TRUE, played);
-        Object video = FxTestSupport.callOnFx(
-                () -> renderer.runScript("document.querySelectorAll('#insula-media-0 video').length"));
-        assertEquals(1, ((Number) video).intValue(), "the placeholder became a player");
     }
 
     @Test
@@ -189,8 +181,5 @@ class MediaFallbackFxTest {
         assertEquals(
                 Boolean.FALSE,
                 FxTestSupport.callOnFx(() -> renderer.runScript(MediaFallback.progressScript("gone", 10, "x"))));
-        assertEquals(
-                Boolean.FALSE,
-                FxTestSupport.callOnFx(() -> renderer.runScript(MediaFallback.playScript("gone", "http://h/v.mp4"))));
     }
 }
