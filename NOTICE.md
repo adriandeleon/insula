@@ -23,6 +23,12 @@ its POM but is MIT upstream).
 The OpenJFX Classpath Exception is what allows an application to link against JavaFX without
 itself becoming GPL. It is worth being aware of if the licensing of Insula ever changes.
 
+## Bundled fonts
+
+| Component | Used for | License |
+| --- | --- | --- |
+| [Inter](https://github.com/rsms/inter) 4.1 (Regular, Medium, SemiBold, Bold, Italic) | the UI typeface, per the design kit | SIL Open Font License 1.1 |
+
 ## Vendored source
 
 | Component | Where | License |

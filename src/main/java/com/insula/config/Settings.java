@@ -19,6 +19,7 @@ public final class Settings {
 
     public static final String THEME_LIGHT = "light";
     public static final String THEME_DARK = "dark";
+    public static final String THEME_SYSTEM = "system";
 
     public static final int MIN_ZOOM = 50;
     public static final int MAX_ZOOM = 300;
@@ -152,7 +153,10 @@ public final class Settings {
     }
 
     private static String normalizeTheme(String value) {
-        return THEME_DARK.equalsIgnoreCase(value) ? THEME_DARK : THEME_LIGHT;
+        if (THEME_DARK.equalsIgnoreCase(value)) {
+            return THEME_DARK;
+        }
+        return THEME_SYSTEM.equalsIgnoreCase(value) ? THEME_SYSTEM : THEME_LIGHT;
     }
 
     private static int parseInt(String value, int fallback) {
@@ -193,8 +197,13 @@ public final class Settings {
         this.theme = normalizeTheme(theme);
     }
 
+    /** True only for an explicit dark choice; "system" resolves where the OS is reachable. */
     public boolean isDark() {
         return THEME_DARK.equals(theme);
+    }
+
+    public boolean isSystemTheme() {
+        return THEME_SYSTEM.equals(theme);
     }
 
     public int getZoomPercent() {

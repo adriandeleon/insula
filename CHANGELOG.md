@@ -11,6 +11,22 @@ Everything below is in `main` and unreleased; there has been no tagged version y
 
 ### Added
 
+**Design system — "Lagoon & Shore"**
+
+- The UI now runs on the design kit's tokens: one Lagoon teal accent (`#0E7C6B` light, `#3FC9AC`
+  dark), warm-grey Shore grounds, and three semantic colors with fixed meanings — amber is
+  "being checked", coral is "needs repair", green is "verified". They are mapped onto AtlantaFX's
+  looked-up colors, so stock controls and existing components re-theme without being touched, and
+  dark mode is one style class on the root.
+- **Inter is bundled** (OFL-1.1) so the interface looks the same on every OS instead of falling
+  back to whatever the platform calls its default.
+- **Theme can follow the system.** Alongside Light and Dark there is now System, which tracks the
+  OS colour scheme live — an OS-scheduled sunset switch reaches Insula without a restart.
+- A shared state vocabulary (`Pills`) replaces per-screen styling, so a Catalog card, a Library
+  row and the Home strip can no longer tell different stories about the same archive. Two rules
+  it enforces: verifying is never folded into downloading, and a quarantined file advertises the
+  cost of the *repair* ("Repair · 12 MB"), not the size of the loss.
+
 **ZIM reading**
 
 - Pure-Java ZIM reader supporting both the legacy `A/I/M` and current `C/M/W/X` namespace schemes,

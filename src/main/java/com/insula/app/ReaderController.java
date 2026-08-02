@@ -372,7 +372,11 @@ final class ReaderController {
 
     void installShortcuts(Scene scene) {
         keys.install(scene, commands);
+        Fonts.load();
+        scene.getStylesheets().add(getClass().getResource("insula.css").toExternalForm());
         scene.getStylesheets().add(getClass().getResource("app.css").toExternalForm());
+        watchSystemTheme();
+        applySettings(); // the scene exists now, so the theme class can actually land
     }
 
     // ---------------------------------------------------------------- UI
@@ -1352,16 +1356,59 @@ final class ReaderController {
 
     /** Pushes every preference onto the live UI. Called at startup and after each settings change. */
     void applySettings() {
+        boolean dark = resolveDark();
         Application.setUserAgentStylesheet(
-                settings.isDark()
-                        ? new PrimerDark().getUserAgentStylesheet()
-                        : new PrimerLight().getUserAgentStylesheet());
+                dark ? new PrimerDark().getUserAgentStylesheet() : new PrimerLight().getUserAgentStylesheet());
+        // Lagoon & Shore rides on the style class: looked-up colors resolve per node, so flipping
+        // one class on the root recolors everything reading the tokens.
+        if (root.getScene() != null) {
+            var classes = root.getScene().getRoot().getStyleClass();
+            if (dark && !classes.contains("insula-dark")) {
+                classes.add("insula-dark");
+            } else if (!dark) {
+                classes.remove("insula-dark");
+            }
+        }
         renderer.setZoom(settings.getZoomPercent() / 100.0);
         applyReaderTheme();
         transports.setTorrentEnabled(settings.isTorrentEnabled());
         applyTranscodeSupport();
         if (settingsDialog != null) {
             settingsDialog.sync();
+        }
+    }
+
+    /**
+     * The effective brightness. "System" follows the OS through JavaFX's platform preferences,
+     * and a listener re-applies on the fly, so an OS-scheduled sunset switch reaches Insula
+     * without a restart.
+     */
+    private boolean resolveDark() {
+        if (!settings.isSystemTheme()) {
+            return settings.isDark();
+        }
+        try {
+            return Platform.getPreferences().getColorScheme() == javafx.application.ColorScheme.DARK;
+        } catch (RuntimeException e) {
+            return false; // a platform without the preference reads as light
+        }
+    }
+
+    private boolean systemThemeListenerInstalled;
+
+    private void watchSystemTheme() {
+        if (systemThemeListenerInstalled) {
+            return;
+        }
+        systemThemeListenerInstalled = true;
+        try {
+            Platform.getPreferences().colorSchemeProperty().addListener((obs, old, now) -> {
+                if (settings.isSystemTheme()) {
+                    applySettings();
+                }
+            });
+        } catch (RuntimeException e) {
+            // no preference support on this platform; "system" simply behaves as light
         }
     }
 

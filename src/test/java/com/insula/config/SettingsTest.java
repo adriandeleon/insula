@@ -115,4 +115,26 @@ class SettingsTest {
         assertEquals(1.8, reloaded.getReaderViewLineHeight());
         assertEquals("sepia", reloaded.getReaderViewTheme());
     }
+
+    @Test
+    void themeAcceptsSystemAsAFirstClassChoice(@TempDir Path dir) {
+        Path file = dir.resolve("settings.properties");
+        Settings settings = Settings.load(file);
+        assertEquals(Settings.THEME_LIGHT, settings.getTheme(), "light is the default");
+        assertFalse(settings.isSystemTheme());
+
+        settings.setTheme("system");
+        assertTrue(settings.isSystemTheme());
+        // "System" is not "dark": the brightness is resolved where the OS preference is reachable,
+        // so isDark() must report only an explicit choice.
+        assertFalse(settings.isDark());
+        settings.save();
+        assertEquals(Settings.THEME_SYSTEM, Settings.load(file).getTheme());
+
+        // Anything unrecognised still falls back to light rather than throwing.
+        settings.setTheme("chartreuse");
+        assertEquals(Settings.THEME_LIGHT, settings.getTheme());
+        settings.setTheme(null);
+        assertEquals(Settings.THEME_LIGHT, settings.getTheme());
+    }
 }

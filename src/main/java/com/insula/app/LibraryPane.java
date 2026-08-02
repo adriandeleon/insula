@@ -95,13 +95,12 @@ final class LibraryPane {
 
         gaugeBar.setPrefWidth(280);
         Label heading = new Label("Archives");
-        heading.setStyle("-fx-font-weight: bold;");
+        heading.getStyleClass().add("card-title");
         gauge.getChildren().addAll(heading, gaugeBar, gaugeLabel);
         gauge.setAlignment(Pos.CENTER_LEFT);
         gauge.setPadding(new Insets(12));
-        gauge.setStyle("-fx-background-color: -color-bg-default; -fx-border-color: -color-border-default;"
-                + " -fx-border-radius: 8; -fx-background-radius: 8;");
-        gaugeLabel.setStyle("-fx-opacity: 0.7;");
+        gauge.getStyleClass().add("rowcard");
+        gaugeLabel.getStyleClass().add("card-sub");
 
         arrivingSection.getChildren().addAll(sectionTitle("Arriving"), arrivingRows);
         attentionSection.getChildren().addAll(sectionTitle("Needs attention"), attentionRows);
@@ -196,9 +195,9 @@ final class LibraryPane {
     /** A quarantined file: what it is, why it's here, and the two ways out. */
     private Region attentionRow(Path file) {
         Label title = new Label(file.getFileName().toString());
-        title.setStyle("-fx-font-weight: bold;");
+        title.getStyleClass().add("card-title");
         Label meta = new Label("Failed checksum verification — repair re-downloads only the damaged parts");
-        meta.setStyle("-fx-opacity: 0.55; -fx-font-size: 0.85em;");
+        meta.getStyleClass().add("card-sub");
         VBox main = new VBox(2, title, meta);
         HBox.setHgrow(main, Priority.ALWAYS);
 
@@ -213,8 +212,7 @@ final class LibraryPane {
         HBox row = new HBox(12, main, repair, delete);
         row.setAlignment(Pos.CENTER_LEFT);
         row.setPadding(new Insets(10, 12, 10, 12));
-        row.setStyle("-fx-background-color: -color-bg-default; -fx-border-color: #a16207;"
-                + " -fx-border-radius: 8; -fx-background-radius: 8;");
+        row.getStyleClass().addAll("rowcard", "rowcard-attention");
         return row;
     }
 
@@ -252,7 +250,7 @@ final class LibraryPane {
                 starters.isEmpty()
                         ? "Nothing downloaded yet — open the Store to find archives"
                         : "Nothing downloaded yet. A few good places to start:");
-        empty.setStyle("-fx-opacity: 0.6;");
+        empty.getStyleClass().add("card-sub");
         box.getChildren().add(empty);
         for (com.insula.catalog.StarterPicks.Resolved starter : starters) {
             box.getChildren().add(starterRow(starter));
@@ -265,10 +263,10 @@ final class LibraryPane {
 
     private Region starterRow(com.insula.catalog.StarterPicks.Resolved starter) {
         Label title = new Label(starter.group().title());
-        title.setStyle("-fx-font-weight: bold;");
+        title.getStyleClass().add("card-title");
         Label blurb = new Label(
                 starter.pick().blurb() + " · " + Formats.bytes(starter.entry().sizeBytes()));
-        blurb.setStyle("-fx-opacity: 0.55; -fx-font-size: 0.85em;");
+        blurb.getStyleClass().add("card-sub");
         VBox main = new VBox(2, title, blurb);
         HBox.setHgrow(main, Priority.ALWAYS);
 
@@ -281,8 +279,7 @@ final class LibraryPane {
         HBox row = new HBox(12, monogram(starter.group().title()), main, get);
         row.setAlignment(Pos.CENTER_LEFT);
         row.setPadding(new Insets(10, 12, 10, 12));
-        row.setStyle("-fx-background-color: -color-bg-default; -fx-border-color: -color-border-default;"
-                + " -fx-border-radius: 8; -fx-background-radius: 8;");
+        row.getStyleClass().add("rowcard");
         return row;
     }
 
@@ -290,11 +287,11 @@ final class LibraryPane {
         StackPane icon = monogram(entry.title());
 
         Label title = new Label(entry.title());
-        title.setStyle("-fx-font-weight: bold;");
+        title.getStyleClass().add("card-title");
         Label meta = new Label(Formats.bytes(entry.sizeBytes())
                 + (entry.verified() ? " · verified ✓" : " · not verified")
                 + " · " + entry.fileName());
-        meta.setStyle("-fx-opacity: 0.55; -fx-font-size: 0.85em;");
+        meta.getStyleClass().add("card-sub");
         VBox main = new VBox(2, title, meta);
         HBox.setHgrow(main, Priority.ALWAYS);
 
@@ -305,8 +302,7 @@ final class LibraryPane {
         com.insula.catalog.ZimEntry replacement = updates.get(entry.fileName());
         if (replacement != null) {
             Button pill = new Button("Update to " + UpdateCheckDates.dateOf(replacement.fileName()));
-            pill.setStyle("-fx-background-color: -color-accent-emphasis; -fx-text-fill: white;"
-                    + " -fx-background-radius: 14;");
+            pill.getStyleClass().addAll("pill", "pill-accent");
             pill.setOnAction(e -> {
                 pill.setDisable(true);
                 onUpdate.accept(replacement);
@@ -317,8 +313,7 @@ final class LibraryPane {
         row.getChildren().add(open);
         row.setAlignment(Pos.CENTER_LEFT);
         row.setPadding(new Insets(10, 12, 10, 12));
-        row.setStyle("-fx-background-color: -color-bg-default; -fx-border-color: -color-border-default;"
-                + " -fx-border-radius: 8; -fx-background-radius: 8;");
+        row.getStyleClass().add("rowcard");
         return row;
     }
 
@@ -333,7 +328,7 @@ final class LibraryPane {
 
     private static Label sectionTitle(String text) {
         Label label = new Label(text.toUpperCase(Locale.ROOT));
-        label.setStyle("-fx-font-size: 0.75em; -fx-opacity: 0.55;");
+        label.getStyleClass().add("hsec-title");
         return label;
     }
 

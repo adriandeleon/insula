@@ -45,9 +45,9 @@ final class DownloadRow extends VBox {
         this.onOpen = onOpen;
 
         title.setText(displayTitle);
-        title.setStyle("-fx-font-weight: bold;");
+        title.getStyleClass().add("card-title");
         bar.setMaxWidth(Double.MAX_VALUE);
-        facts.setStyle("-fx-opacity: 0.7; -fx-font-size: 0.9em;");
+        facts.getStyleClass().add("card-sub");
 
         pauseResume.setOnAction(e -> {
             if (paused) {
@@ -71,8 +71,7 @@ final class DownloadRow extends VBox {
         top.setAlignment(Pos.CENTER_LEFT);
 
         setPadding(new Insets(10, 12, 10, 12));
-        setStyle("-fx-background-color: -color-bg-default; -fx-border-color: -color-border-default;"
-                + " -fx-border-radius: 8; -fx-background-radius: 8;");
+        getStyleClass().add("rowcard");
         getChildren().addAll(top, bar, facts);
         update();
     }
@@ -99,7 +98,12 @@ final class DownloadRow extends VBox {
         open.setManaged(s.state() == DownloadState.COMPLETED);
 
         // Verifying is amber and unskippable: a user who saw the bytes finish must not read the
-        // hash pass as a hang.
-        bar.setStyle(verifying ? "-fx-accent: #a16207;" : "");
+        // hash pass as a hang. The colour is the kit's token, not a literal.
+        bar.getStyleClass().remove("bar-amber");
+        if (verifying) {
+            bar.getStyleClass().add("bar-amber");
+        }
+        getStyleClass().removeAll("rowcard-arriving", "rowcard-verify");
+        getStyleClass().add(verifying ? "rowcard-verify" : "rowcard-arriving");
     }
 }

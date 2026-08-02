@@ -165,7 +165,7 @@ final class StorePane {
         cards.setPrefWrapLength(700);
         VBox center = new VBox(cards, resultLine);
         resultLine.setPadding(new Insets(0, 14, 10, 14));
-        resultLine.setStyle("-fx-opacity: 0.65;");
+        resultLine.getStyleClass().add("card-sub");
         ScrollPane cardScroll = new ScrollPane(center);
         cardScroll.setFitToWidth(true);
 
@@ -247,7 +247,9 @@ final class StorePane {
         String age = days == 0 ? "today" : days == 1 ? "yesterday" : days + " days ago";
         boolean stale = cache.isOlderThan(CatalogCache.STALE_AGE, System.currentTimeMillis());
         freshness.setText("Catalog updated " + age);
-        freshness.setStyle(stale ? "-fx-text-fill: #a16207;" : "-fx-opacity: 0.7;");
+        // Stale is the kit's amber, and only past the two-week mark.
+        freshness.getStyleClass().removeAll("pill-amber", "pill-neutral", "pill");
+        freshness.getStyleClass().addAll("pill", stale ? "pill-amber" : "pill-neutral");
     }
 
     private void renderFacets(StoreFilter.Result result) {
@@ -291,7 +293,7 @@ final class StorePane {
 
     private static Label facetTitle(String text) {
         Label label = new Label(text.toUpperCase(Locale.ROOT));
-        label.setStyle("-fx-font-size: 0.75em; -fx-opacity: 0.6;");
+        label.getStyleClass().add("hsec-title");
         label.setPadding(new Insets(10, 0, 2, 2));
         return label;
     }
@@ -317,9 +319,9 @@ final class StorePane {
         });
 
         Label title = new Label(group.title());
-        title.setStyle("-fx-font-weight: bold;");
+        title.getStyleClass().add("card-title");
         Label sub = new Label(group.language());
-        sub.setStyle("-fx-opacity: 0.6; -fx-font-size: 0.85em;");
+        sub.getStyleClass().add("card-faint");
         VBox heading = new VBox(1, title, sub);
         HBox head = new HBox(10, icon, heading);
         head.setAlignment(Pos.CENTER_LEFT);
@@ -327,10 +329,10 @@ final class StorePane {
         Label description = new Label(group.summary());
         description.setWrapText(true);
         description.setMaxHeight(38);
-        description.setStyle("-fx-opacity: 0.75; -fx-font-size: 0.9em;");
+        description.getStyleClass().add("card-sub");
 
         Label meta = new Label(metaLine(group));
-        meta.setStyle("-fx-opacity: 0.55; -fx-font-size: 0.8em;");
+        meta.getStyleClass().add("card-faint");
 
         // Flavour choice, sizes as labels; pre-select the largest that fits the disk.
         CatalogGroups.Variant preselected = group.defaultVariant(freeDiskBytes.getAsLong());
@@ -373,8 +375,7 @@ final class StorePane {
         VBox card = new VBox(7, head, description, meta, seg, actions);
         card.setPadding(new Insets(12));
         card.setPrefWidth(330);
-        card.setStyle("-fx-background-color: -color-bg-default; -fx-border-color: -color-border-default;"
-                + " -fx-border-radius: 8; -fx-background-radius: 8;");
+        card.getStyleClass().add("rowcard");
         return card;
     }
 
