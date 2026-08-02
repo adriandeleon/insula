@@ -84,6 +84,19 @@ Every archive on the mirrors has `.sha256`, `.meta4`, `.torrent` and `.magnet` s
 Insula uses the first two automatically; if you download by hand you can check the file yourself
 with `sha256sum -c` against the published `.sha256`.
 
+## Installers
+
+`./mvnw -Pdist package` builds a native installer for the machine you run it on — a `.deb` on
+Linux, `.dmg` on macOS, `.msi` on Windows — into `target/dist/`. jpackage cannot cross-build (both
+the installer format and the linked runtime are the host's), so CI builds one per OS on a tag.
+Add `-Djpackage.type=app-image` for an unpackaged bundle you can run in place.
+
+The bundled runtime is linked with jlink and carries only the modules Insula reaches, so no JDK is
+needed to run it. **BitTorrent is not included in packaged builds**: its native library ships in a
+separate jar whose name is not a legal Java module name, and it cannot be linked into the image.
+It is opt-in and off by default, HTTP multi-source is the guaranteed path, and Settings reports it
+as unavailable rather than pretending otherwise. Running from source still has it.
+
 ## Keyboard
 
 | Shortcut | Action |

@@ -104,6 +104,21 @@ Everything below is in `main` and unreleased; there has been no tagged version y
   recovery sidecar written beside every download also lets a quit-during-verification resume at
   the next launch instead of stranding the file.
 
+**Packaging**
+
+- `./mvnw -Pdist package` now produces a **native installer** — `.deb`, `.dmg` or `.msi` for
+  whichever machine builds it — with a jlink'd runtime carrying only the modules Insula reaches,
+  so no JDK is needed to run it. Several dependencies are automatic modules that jlink refuses
+  (the WebP stack), so moditect gives them real descriptors first; the WebP reader's
+  `ImageReaderSpi` provider was checked to survive linking, since ImageIO finds it by service
+  loader and a dropped provider would break images only in packaged builds. A tagged push builds
+  all three on CI. Verified on Linux: the `.deb` installs to `/opt/insula` with a desktop entry,
+  and the packaged binary runs.
+- **BitTorrent is excluded from packaged builds.** Its native library ships in a separate jar whose
+  name is not a legal module name, so it cannot be linked into the image. The transport is opt-in
+  and off by default, HTTP multi-source is the guaranteed path, and Settings already reports it as
+  unavailable; running from source is unaffected.
+
 **Tabs, bookmarks and history**
 
 - **Tabs.** Several articles open at once, with a tab strip over the reader: `Ctrl+T` opens the

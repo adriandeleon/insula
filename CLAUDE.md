@@ -374,11 +374,32 @@ taking one string, with `opens com.insula.reader to javafx.web` because `JSObjec
 dispatches reflectively, and `requires jdk.jsobject`. The binding belongs to the document, so it
 is re-installed on every load.
 
+## Packaging
+
+`-Pdist` runs moditect → `maven-dependency-plugin` → `scripts/package.sh` (jpackage). Things that
+bit, in order:
+
+- **jlink cannot link automatic modules**, and the TwelveMonkeys WebP stack is six of them;
+  moditect generates descriptors into `target/modules`, which the staging step then prefers over
+  the originals. The generated `imageio-webp` descriptor **does** carry
+  `provides javax.imageio.spi.ImageReaderSpi` — worth re-checking after any bump, because ImageIO
+  finds the reader by service loader and a dropped provider breaks WebP *only* in packaged builds.
+- **jlibtorrent cannot be packaged at all**: its natives live in a separate jar whose derived name
+  (`jlibtorrent.linux.x86.64`) is not a legal module name, and JPMS resource encapsulation would
+  hide the `.so` from the API module anyway. It is `requires static`, and the call site catches
+  `Throwable` because merely touching `TorrentTransport` throws `NoClassDefFoundError` when the
+  classes are absent — before any guard inside it can run.
+- The classifier-less `javafx-*.jar` artifacts are empty aggregators; the real modules are the
+  `-linux`/`-mac`/`-win` classifier jars. Staging both puts two modules of the same name on the
+  path.
+- Installer-only flags (`--linux-shortcut`) make jpackage **fail** for `--type app-image`, so the
+  script adds them only for real installer types. And jpackage rejects a version with a qualifier,
+  hence stripping `-SNAPSHOT`.
+
 ## Roadmap
 
 Full-text search (the Xapian index inside ZIMs needs native code — a Lucene re-index on first
-open is the likelier path); tabs, bookmarks and history; split archives (`.zimaa`…); jpackage
-installers; store polish (pagination past MAX_CARDS, locale-aware starter picks); LAN sharing
+open is the likelier path); tabs, bookmarks and history; split archives (`.zimaa`…); store polish (pagination past MAX_CARDS, locale-aware starter picks); LAN sharing
 extras (mDNS discovery, choosing which archives to share); in-app video playback (see below). Done since the original roadmap:
 BitTorrent transport, the card Store with facets, Library-as-home, update pills, starters,
 piece-level Repair, LAN serving + QR.

@@ -182,7 +182,7 @@ final class ReaderController {
         this.transports = new TransportSelector(new HttpMultiSourceTransport());
         // BitTorrent is an option, never the only way: it is registered only when its native
         // library actually loads, and HTTP stays the fallback regardless.
-        if (TorrentTransport.isAvailable()) {
+        if (torrentTransportPresent()) {
             transports.register(new TorrentTransport(settings.isSeedingEnabled()));
         }
         this.downloads = new DownloadManager(transports, library, dataDir.resolve("archives"));
@@ -1650,6 +1650,22 @@ final class ReaderController {
      * Detects ffmpeg off-thread and re-renders any placeholder already on screen, so enabling the
      * feature (or installing ffmpeg) takes effect without reopening the article.
      */
+    /**
+     * Whether the BitTorrent transport can be used at all.
+     *
+     * <p>The {@code catch} is load-bearing rather than defensive: jlibtorrent is
+     * {@code requires static}, so in a packaged build its classes are simply absent and merely
+     * <em>touching</em> {@link TorrentTransport} throws {@link NoClassDefFoundError} before any
+     * code inside it can run. HTTP is the guaranteed path either way.
+     */
+    private static boolean torrentTransportPresent() {
+        try {
+            return TorrentTransport.isAvailable();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     private void applyTranscodeSupport() {
         transcodes.configure(settings.getFfmpegPath(), settings.getFfprobePath());
         if (!settings.isVideoTranscode()) {

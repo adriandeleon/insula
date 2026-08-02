@@ -33,6 +33,9 @@
         <spotless.version>3.6.0</spotless.version>
         <palantir.version>2.92.0</palantir.version>
         <jlibtorrent.version>2.0.12.9</jlibtorrent.version>
+        <twelvemonkeys.version>3.12.0</twelvemonkeys.version>
+        <!-- Overridden per OS below; -Djpackage.type=app-image gives an unpackaged bundle. -->
+        <jpackage.type>app-image</jpackage.type>
     </properties>
 
     <repositories>
@@ -100,7 +103,7 @@
                  which JavaFX's WebView cannot decode; see server/WebpTranscoder. -->
             <groupId>com.twelvemonkeys.imageio</groupId>
             <artifactId>imageio-webp</artifactId>
-            <version>3.12.0</version>
+            <version>${twelvemonkeys.version}</version>
         </dependency>
         <dependency>
             <!-- QR code generation for LAN sharing (MIT, a real JPMS module, zero deps). -->
@@ -185,6 +188,166 @@
                     <version>${jlibtorrent.version}</version>
                 </dependency>
             </dependencies>
+        </profile>
+        <!--
+            Native installers. jlink cannot link automatic modules, and several dependencies are
+            exactly that (the TwelveMonkeys WebP stack, jlibtorrent), so moditect gives each a real
+            module descriptor first. jpackage then jlinks a runtime containing only what is
+            reachable and wraps it in the host OS's installer format — there is no cross-building,
+            so each OS builds its own.
+        -->
+        <profile>
+            <id>dist</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.moditect</groupId>
+                        <artifactId>moditect-maven-plugin</artifactId>
+                        <version>1.2.2.Final</version>
+                        <executions>
+                            <execution>
+                                <id>add-module-infos</id>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>add-module-info</goal>
+                                </goals>
+                                <configuration>
+                                    <outputDirectory>${project.build.directory}/modules</outputDirectory>
+                                    <overwriteExistingFiles>true</overwriteExistingFiles>
+                                    <modules>
+                                        <module>
+                                            <artifact>
+                                                <groupId>com.twelvemonkeys.common</groupId>
+                                                <artifactId>common-lang</artifactId>
+                                                <version>${twelvemonkeys.version}</version>
+                                            </artifact>
+                                            <moduleInfo>
+                                                <name>com.twelvemonkeys.common.lang</name>
+                                            </moduleInfo>
+                                        </module>
+                                        <module>
+                                            <artifact>
+                                                <groupId>com.twelvemonkeys.common</groupId>
+                                                <artifactId>common-io</artifactId>
+                                                <version>${twelvemonkeys.version}</version>
+                                            </artifact>
+                                            <moduleInfo>
+                                                <name>com.twelvemonkeys.common.io</name>
+                                            </moduleInfo>
+                                        </module>
+                                        <module>
+                                            <artifact>
+                                                <groupId>com.twelvemonkeys.common</groupId>
+                                                <artifactId>common-image</artifactId>
+                                                <version>${twelvemonkeys.version}</version>
+                                            </artifact>
+                                            <moduleInfo>
+                                                <name>com.twelvemonkeys.common.image</name>
+                                            </moduleInfo>
+                                        </module>
+                                        <module>
+                                            <artifact>
+                                                <groupId>com.twelvemonkeys.imageio</groupId>
+                                                <artifactId>imageio-core</artifactId>
+                                                <version>${twelvemonkeys.version}</version>
+                                            </artifact>
+                                            <moduleInfo>
+                                                <name>com.twelvemonkeys.imageio.core</name>
+                                            </moduleInfo>
+                                        </module>
+                                        <module>
+                                            <artifact>
+                                                <groupId>com.twelvemonkeys.imageio</groupId>
+                                                <artifactId>imageio-metadata</artifactId>
+                                                <version>${twelvemonkeys.version}</version>
+                                            </artifact>
+                                            <moduleInfo>
+                                                <name>com.twelvemonkeys.imageio.metadata</name>
+                                            </moduleInfo>
+                                        </module>
+                                        <module>
+                                            <artifact>
+                                                <groupId>com.twelvemonkeys.imageio</groupId>
+                                                <artifactId>imageio-webp</artifactId>
+                                                <version>${twelvemonkeys.version}</version>
+                                            </artifact>
+                                            <moduleInfo>
+                                                <name>com.twelvemonkeys.imageio.webp</name>
+                                                <!-- The reader is found through ImageIO's service
+                                                     loader, so the provides clause is what makes
+                                                     WebP work at all in a linked image. -->
+                                                <addServiceUses>true</addServiceUses>
+                                            </moduleInfo>
+                                        </module>
+                                    </modules>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <!-- Stages exactly the modular jars the image needs. The classifier-less
+                             javafx jars are empty aggregators and the jlibtorrent pair cannot be
+                             linked (see module-info), so both are excluded. -->
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-dependency-plugin</artifactId>
+                        <version>3.8.1</version>
+                        <executions>
+                            <execution>
+                                <id>stage-modules</id>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>copy-dependencies</goal>
+                                </goals>
+                                <configuration>
+                                    <outputDirectory>${project.build.directory}/dist-modules</outputDirectory>
+                                    <includeScope>runtime</includeScope>
+                                    <excludeArtifactIds>jlibtorrent,jlibtorrent-linux-x86_64,jlibtorrent-macosx-x86_64,jlibtorrent-macosx-arm64,jlibtorrent-windows-x86_64,common-lang,common-io,common-image,imageio-core,imageio-metadata,imageio-webp</excludeArtifactIds>
+                                    <excludeClassifiers></excludeClassifiers>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>exec-maven-plugin</artifactId>
+                        <version>3.5.0</version>
+                        <executions>
+                            <execution>
+                                <id>package-native</id>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>exec</goal>
+                                </goals>
+                                <configuration>
+                                    <executable>${project.basedir}/scripts/package.sh</executable>
+                                    <arguments>
+                                        <argument>${project.build.directory}</argument>
+                                        <argument>${project.version}</argument>
+                                        <argument>${jpackage.type}</argument>
+                                    </arguments>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <!-- The installer format is the host's; jpackage cannot cross-build, so each OS makes
+             its own. Override with -Djpackage.type=app-image for an unpackaged bundle. -->
+        <profile>
+            <id>os-linux</id>
+            <activation><os><family>unix</family><name>linux</name></os></activation>
+            <properties><jpackage.type>deb</jpackage.type></properties>
+        </profile>
+        <profile>
+            <id>os-mac</id>
+            <activation><os><family>mac</family></os></activation>
+            <properties><jpackage.type>dmg</jpackage.type></properties>
+        </profile>
+        <profile>
+            <id>os-windows</id>
+            <activation><os><family>windows</family></os></activation>
+            <properties><jpackage.type>msi</jpackage.type></properties>
         </profile>
     </profiles>
 

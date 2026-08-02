@@ -14,8 +14,12 @@ module com.insula {
     requires java.xml;
     requires org.tukaani.xz;
     requires com.github.luben.zstd_jni;
-    // Automatic module derived from the jar name; jlibtorrent declares no Automatic-Module-Name.
-    requires jlibtorrent;
+    // Optional, and static on purpose. jlibtorrent is an automatic module whose native library
+    // lives in a *separate* jar with a name that is not a legal module name, so a linked image
+    // cannot carry it — and JPMS resource encapsulation would hide the .so from it anyway.
+    // BitTorrent is opt-in and off by default, HTTP is the guaranteed path, and TorrentTransport
+    // already reports itself unavailable when the classes are missing.
+    requires static jlibtorrent;
 
     exports com.insula.app to
             javafx.graphics;

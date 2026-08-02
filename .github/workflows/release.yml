@@ -1,0 +1,52 @@
+name: installers
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+# jpackage cannot cross-build: the installer format and the linked runtime are both the host's,
+# so each OS builds its own and uploads it.
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: linux
+          - os: macos-latest
+            artifact: macos
+          - os: windows-latest
+            artifact: windows
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      # WiX is what jpackage shells out to for an .msi; it is not present by default.
+      - name: Install WiX (Windows)
+        if: runner.os == 'Windows'
+        run: dotnet tool install --global wix
+
+      - name: Build the installer
+        shell: bash
+        run: ./mvnw --batch-mode --no-transfer-progress -Pdist package -DskipTests
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: insula-${{ matrix.artifact }}
+          path: |
+            target/dist/*.deb
+            target/dist/*.dmg
+            target/dist/*.msi
+          if-no-files-found: error
+          retention-days: 14
