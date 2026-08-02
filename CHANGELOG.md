@@ -131,6 +131,16 @@ Everything below is in `main` and unreleased; there has been no tagged version y
 
 ### Fixed
 
+- **Video in archives no longer dead-ends.** WebKit's "No compatible source was found for this
+  media" is what an archive's WebM looks like in JavaFX: WebView plays only what JavaFX Media
+  plays (in practice MP4/H.264), and every video in TED's archive is VP9 + Vorbis. Kiwix
+  anticipates this and bundles the ogv.js WASM decoders as a fallback — but that escape hatch is
+  closed too, because JavaFX's WebKit has no WebAssembly at all (`typeof WebAssembly` is
+  `undefined`). Insula now replaces the dead player with the video's own poster frame, an
+  explanation, and a Play button that hands the file to whatever the desktop uses for it —
+  streaming straight from the loopback server, with no temp copy and no transcode. Media the
+  engine *can* play is left completely alone; the engine itself decides, so an archive shipping
+  MP4 keeps its real player.
 - **Images in modern archives now display.** Every current Kiwix ZIM stores its images as WebP —
   mwoffliner recompresses them but keeps the original `.jpg`/`.png` file name, so an archive says
   `Walt_Disney_1946.JPG` while the bytes are WebP (measured on a 2021 Bitcoin archive: 502 WebP

@@ -133,6 +133,21 @@ public final class WebViewRenderer implements ArticleRenderer {
     }
 
     /**
+     * Publishes the media bridge on the current document's {@code window}. Must be re-run after
+     * every load: the binding belongs to the document, not the engine.
+     */
+    public void installBridge(String name, Object bridge) {
+        try {
+            Object window = webView.getEngine().executeScript("window");
+            if (window instanceof netscape.javascript.JSObject js) {
+                js.setMember(name, bridge);
+            }
+        } catch (RuntimeException e) {
+            // A page that refuses the binding simply keeps the engine's own error message.
+        }
+    }
+
+    /**
      * Runs a script against the current page, null on any failure. Public for the reader-view
      * session, which is engine-bound by nature; everything else should stay on the interface.
      */

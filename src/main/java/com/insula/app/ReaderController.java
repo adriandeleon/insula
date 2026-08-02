@@ -56,6 +56,8 @@ import com.insula.download.TorrentTransport;
 import com.insula.download.TransportSelector;
 import com.insula.library.Library;
 import com.insula.library.LibraryEntry;
+import com.insula.reader.MediaBridge;
+import com.insula.reader.MediaFallback;
 import com.insula.reader.ReaderTheme;
 import com.insula.reader.ReaderView;
 import com.insula.reader.ReaderViewSession;
@@ -438,10 +440,11 @@ final class ReaderController {
             onLocationChanged(location);
             updateNavButtons();
         });
-        // The readerable probe needs a parsed document; locationProperty fires before that.
+        // Both of these need a parsed document; locationProperty fires before that exists.
         renderer.engine().getLoadWorker().stateProperty().addListener((obs, old, state) -> {
             if (state == javafx.concurrent.Worker.State.SUCCEEDED) {
                 probeReaderable();
+                installMediaFallback();
             }
         });
 
@@ -1131,6 +1134,45 @@ final class ReaderController {
         saveAndApply();
         status.setText(
                 width >= ReaderTheme.MAX_WIDTH ? "Reader column: unconstrained" : "Reader column: " + width + " px");
+    }
+
+    // ---------------------------------------------------------------- unplayable media
+
+    /**
+     * Replaces media WebView cannot decode with a placeholder offering external playback.
+     *
+     * <p>Runs per document because the bridge binding and the DOM edit both belong to the page.
+     * The engine decides what is unplayable, so an archive that ships MP4 is left untouched and
+     * this costs one {@code querySelectorAll} on a page with no media at all.
+     */
+    private void installMediaFallback() {
+        renderer.installBridge(MediaFallback.BRIDGE, new MediaBridge(this::playExternally));
+        Object replaced =
+                renderer.runScript(MediaFallback.installScript(MediaFallback.defaultLabel(), "▶  Play video"));
+        if (replaced instanceof Number n && n.intValue() > 0) {
+            lastUnplayableCount = n.intValue();
+        } else {
+            lastUnplayableCount = 0;
+        }
+    }
+
+    private int lastUnplayableCount;
+
+    int unplayableMediaCountForTest() {
+        return lastUnplayableCount;
+    }
+
+    /**
+     * Hands a media URL to the system's own player. The loopback server is already serving those
+     * bytes, so VLC/mpv/a browser opens the URL directly — no temp copy and no transcode.
+     */
+    private void playExternally(String url) {
+        if (hostServices == null) {
+            status.setText("No external player available");
+            return;
+        }
+        status.setText("Opening the video outside Insula…");
+        hostServices.showDocument(url);
     }
 
     // ---------------------------------------------------------------- Reader View

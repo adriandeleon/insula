@@ -4,6 +4,7 @@ module com.insula {
     requires atlantafx.base;
     requires java.desktop;
     requires jdk.httpserver;
+    requires jdk.jsobject; // netscape.javascript.JSObject, for the media bridge
     requires io.nayuki.qrcodegen;
     // Pure-Java WebP reader; found via the ImageIO service loader, so it must be resolved.
     requires com.twelvemonkeys.imageio.webp;
@@ -17,4 +18,8 @@ module com.insula {
 
     exports com.insula.app to
             javafx.graphics;
+
+    // JSObject.setMember dispatches reflectively into MediaBridge, the one JS->Java surface.
+    opens com.insula.reader to
+            javafx.web;
 }

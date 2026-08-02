@@ -281,11 +281,40 @@ macOS AppKit/JavaFX contention).
 `LanServer` deliberately does *not* transcode — its clients are real browsers, which have read
 WebP for years and are better served the smaller original.
 
+### Video: WebM, and the WASM fallback that cannot save it
+
+Archives ship **WebM**; JavaFX's WebView plays only what JavaFX Media plays. Measured on TED's
+archive: all nine videos are **VP9 + Vorbis**, and the engine answers
+`canPlayType('video/webm')` with `""` — WebKit then paints its own dead end, "No compatible
+source was found for this media".
+
+Kiwix anticipates the problem and bundles the **ogv.js WASM decoders** (vp8/vp9/av1/theora/opus/
+vorbis, ~2 MB, under `C/assets/ogvjs/`) as a video.js fallback tech. Do not spend time trying to
+make that path work: JavaFX's WebKit reports **`typeof WebAssembly === "undefined"`** (also no
+`MediaSource`, no `SharedArrayBuffer`), so those decoders can never run. There is no in-page way
+to play these files, and transcoding VP9 in-process is not a serious option.
+
+So `reader/MediaFallback` replaces unplayable `<video>`/`<audio>` with a poster + Play button
+that hands the **loopback URL** to the desktop (`HostServices.showDocument`) — verified with
+ffprobe that a real player streams that URL directly, so there is no temp copy. Three points that
+matter: the **engine decides** what is unplayable (`canPlayType` per source, never a format list
+of ours, or an archive shipping MP4 would lose its working player); sources resolve against
+`document.baseURI` **inside a try/catch**, because an `about:blank` document has no base and
+`new URL()` throws there (which is also why the FX test serves its pages over real HTTP rather
+than using `loadContent`); and the script is **idempotent per document** via a window flag, since
+the load-succeeded event can fire more than once.
+
+The click comes back through `reader/MediaBridge`, the app's only JS→Java surface — one method
+taking one string, with `opens com.insula.reader to javafx.web` because `JSObject.setMember`
+dispatches reflectively, and `requires jdk.jsobject`. The binding belongs to the document, so it
+is re-installed on every load.
+
 ## Roadmap
 
 Full-text search (the Xapian index inside ZIMs needs native code — a Lucene re-index on first
 open is the likelier path); tabs, bookmarks and history; split archives (`.zimaa`…); jpackage
 installers; store polish (pagination past MAX_CARDS, locale-aware starter picks); LAN sharing
-extras (mDNS discovery, choosing which archives to share). Done since the original roadmap:
+extras (mDNS discovery, choosing which archives to share); HTTP Range support in the loopback
+server, so external video playback can seek rather than fetching from the start. Done since the original roadmap:
 BitTorrent transport, the card Store with facets, Library-as-home, update pills, starters,
 piece-level Repair, LAN serving + QR.
