@@ -304,6 +304,15 @@ of ours, or an archive shipping MP4 would lose its working player); sources reso
 than using `loadContent`); and the script is **idempotent per document** via a window flag, since
 the load-succeeded event can fire more than once.
 
+**A fragment navigation is not a new article.** The engine fires its location listener for
+`#anchor` exactly as for a real navigation (measured), and archive scripts append query strings of
+their own — TED's produce `?lang=undefined`. Article identity therefore comes from
+`reader/ArticleLocation`, which strips both; treating the raw location as the identity exited
+Reader View on every table-of-contents click and split one article's reading position across each
+anchor and query spelling. Note the FX test for this must wait for **loadWorker SUCCEEDED**, not
+for the location: the location changes when navigation *starts*, and scripting a not-yet-parsed
+document silently does nothing (which is exactly how the first version of that test failed).
+
 **In-app playback is a transcode, and the streaming shapes were measured before choosing.** With
 ffmpeg present (optional, self-gating like the torrent transport), `media/Transcoder` +
 `TranscodeService` convert the video to H.264/AAC and the placeholder becomes a real inline

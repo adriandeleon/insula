@@ -59,6 +59,7 @@ import com.insula.library.LibraryEntry;
 import com.insula.media.MediaCache;
 import com.insula.media.TranscodeService;
 import com.insula.media.Transcoder;
+import com.insula.reader.ArticleLocation;
 import com.insula.reader.MediaBridge;
 import com.insula.reader.MediaFallback;
 import com.insula.reader.ReaderTheme;
@@ -118,6 +119,7 @@ final class ReaderController {
     private ZimHttpServer server;
     private ZimArchive archive;
     private Path currentArchiveFile;
+    private String lastArticlePath;
     private String token;
     private String bookTitle = "";
 
@@ -988,6 +990,7 @@ final class ReaderController {
             results.getItems().clear();
             searchField.clear();
             currentArchiveFile = file.toAbsolutePath();
+            lastArticlePath = null;
             settings.setLastArchive(currentArchiveFile.toString());
             settings.save();
             // The archive being read participates in search alongside the rest of the library.
@@ -1115,10 +1118,20 @@ final class ReaderController {
                 hostServices.showDocument(location);
             });
         } else if (location.startsWith(server.baseUrl())) {
-            resetReaderViewForNavigation();
-            String decoded = java.net.URLDecoder.decode(
-                    location.substring(location.indexOf("/zim/") + 5), java.nio.charset.StandardCharsets.UTF_8);
+            String decoded = ArticleLocation.articlePath(location, server.baseUrl());
+            if (decoded == null) {
+                return;
+            }
             status.setText(bookTitle + " · " + decoded);
+            // A table-of-contents click is a fragment navigation: the engine reports it exactly
+            // like a real one, but the document has not changed. Doing article-changed work here
+            // would exit Reader View on a heading click and restore a stored scroll position over
+            // the anchor the reader just asked for.
+            if (decoded.equals(lastArticlePath)) {
+                return;
+            }
+            lastArticlePath = decoded;
+            resetReaderViewForNavigation();
             onArticleShown(decoded);
         }
     }
@@ -1207,6 +1220,10 @@ final class ReaderController {
                 installMediaFallback();
             }
         });
+    }
+
+    String currentArticlePathForTest() {
+        return lastArticlePath;
     }
 
     boolean transcodeAvailableForTest() {

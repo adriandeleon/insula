@@ -131,6 +131,15 @@ Everything below is in `main` and unreleased; there has been no tagged version y
 
 ### Fixed
 
+- **A table-of-contents click no longer exits Reader View or fights the anchor.** The engine
+  reports a `#heading` navigation exactly like a real one, so every anchor was treated as a new
+  article: Reader View closed, the reading position was stored per-anchor rather than per-article,
+  and a position saved under the anchored spelling could be restored over the heading the reader
+  had just clicked. Query strings had the same effect — TED's own script navigates to
+  `?lang=undefined`, which scattered one article's saved position across several spellings and
+  showed up in the status bar. Article identity is now the path with the fragment and query
+  removed (`reader/ArticleLocation`).
+
 - **Videos can now play inside the app.** With ffmpeg installed, the placeholder offers
   **Play here**: the video is converted once to H.264/AAC — read straight off the loopback server,
   so the original is never copied to disk — and then plays inline in the article with working
