@@ -12,7 +12,7 @@ import java.util.regex.Pattern;
  * Finds newer catalog builds for installed archives.
  *
  * <p>Identity is the file-name base — name plus flavour with the {@code _YYYY-MM} build date
- * stripped ({@link StoreFilter#installedBaseOf}) — because that is the only key present on both
+ * stripped ({@link CatalogFilter#installedBaseOf}) — because that is the only key present on both
  * sides: the library knows only what file it has, and the catalog always carries exactly one
  * (the newest) build per base. Freshness compares the {@code YYYY-MM} stamps lexically, which is
  * chronological by construction. A file without a parseable date is never flagged: guessing
@@ -46,7 +46,7 @@ public final class UpdateCheck {
                 continue;
             }
             newestByBase.merge(
-                    StoreFilter.installedBaseOf(entry.fileName()),
+                    CatalogFilter.installedBaseOf(entry.fileName()),
                     entry,
                     (a, b) -> buildDateOf(a.fileName()).compareTo(buildDateOf(b.fileName())) >= 0 ? a : b);
         }
@@ -57,7 +57,7 @@ public final class UpdateCheck {
             if (installedDate.isEmpty()) {
                 continue;
             }
-            ZimEntry newest = newestByBase.get(StoreFilter.installedBaseOf(installed));
+            ZimEntry newest = newestByBase.get(CatalogFilter.installedBaseOf(installed));
             if (newest != null && buildDateOf(newest.fileName()).compareTo(installedDate) > 0) {
                 updates.add(new Update(installed, newest));
             }
@@ -78,7 +78,7 @@ public final class UpdateCheck {
         String oldDate = buildDateOf(oldFileName);
         return !newDate.isEmpty()
                 && !oldDate.isEmpty()
-                && StoreFilter.installedBaseOf(newFileName).equals(StoreFilter.installedBaseOf(oldFileName))
+                && CatalogFilter.installedBaseOf(newFileName).equals(CatalogFilter.installedBaseOf(oldFileName))
                 && oldDate.compareTo(newDate) < 0;
     }
 }

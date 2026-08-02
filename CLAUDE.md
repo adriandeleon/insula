@@ -374,6 +374,23 @@ taking one string, with `opens com.insula.reader to javafx.web` because `JSObjec
 dispatches reflectively, and `requires jdk.jsobject`. The binding belongs to the document, so it
 is re-installed on every load.
 
+## UI kit (v2.1)
+
+The design kit is the source of truth for the interface. `app/insula.css` holds the Lagoon &
+Shore tokens and maps them onto AtlantaFX's `-color-*` looked-up colors, so stock controls and
+anything already reading those variables re-theme for free; **dark mode is the `insula-dark`
+style class on the scene root**, not a second stylesheet. `app/Pills` owns the state vocabulary —
+add a state there, not at a call site, or the Catalog and Library start describing the same
+archive differently. Two rules from the kit that are easy to lose: verifying is never folded into
+downloading, and a quarantined file advertises the cost of the **repair**, not the size of the
+loss.
+
+**Testing UI structure:** do not walk the scene graph from a pane's root. A `ScrollPane`'s content
+is not reachable through `getChildrenUnmodifiable()` until it has been skinned, so an
+absence-assertion ("no Downloading pill is shown") passes vacuously against an empty walk. Panes
+expose the real nodes instead (`CatalogPane.cardNodesForTest()`), and a test that asserts an
+absence should also assert the collection it walked was non-empty.
+
 ## Packaging
 
 `-Pdist` runs moditect → `maven-dependency-plugin` → `scripts/package.sh` (jpackage). Things that

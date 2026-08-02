@@ -248,14 +248,14 @@ final class LibraryPane {
         VBox box = new VBox(10);
         Label empty = new Label(
                 starters.isEmpty()
-                        ? "Nothing downloaded yet — open the Store to find archives"
+                        ? "Nothing downloaded yet — open the Catalog to find archives"
                         : "Nothing downloaded yet. A few good places to start:");
         empty.getStyleClass().add("card-sub");
         box.getChildren().add(empty);
         for (com.insula.catalog.StarterPicks.Resolved starter : starters) {
             box.getChildren().add(starterRow(starter));
         }
-        Button store = new Button("Browse the Store →");
+        Button store = new Button("Browse the Catalog →");
         store.setOnAction(e -> onOpenStore.run());
         box.getChildren().add(store);
         return box;

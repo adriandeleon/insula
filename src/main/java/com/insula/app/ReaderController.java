@@ -43,8 +43,8 @@ import javafx.util.Duration;
 import atlantafx.base.theme.PrimerDark;
 import atlantafx.base.theme.PrimerLight;
 import com.insula.catalog.CatalogCache;
+import com.insula.catalog.CatalogFilter;
 import com.insula.catalog.StarterPicks;
-import com.insula.catalog.StoreFilter;
 import com.insula.catalog.UpdateCheck;
 import com.insula.catalog.ZimEntry;
 import com.insula.command.CommandRegistry;
@@ -102,7 +102,7 @@ final class ReaderController {
     private javafx.stage.Popup typePanel;
     private ReaderViewSession readerView;
     private final javafx.scene.control.ToggleButton libraryTab = new javafx.scene.control.ToggleButton("Library");
-    private final javafx.scene.control.ToggleButton storeTab = new javafx.scene.control.ToggleButton("Store");
+    private final javafx.scene.control.ToggleButton catalogTab = new javafx.scene.control.ToggleButton("Catalog");
     private final Label status = new Label("Open a .zim archive to start reading");
 
     private final CommandRegistry commands = new CommandRegistry();
@@ -142,7 +142,7 @@ final class ReaderController {
     private final TranscodeService transcodes;
     private boolean transcodeAvailable;
     private final IconCache iconCache;
-    private final StorePane storePane;
+    private final CatalogPane catalogPane;
     private final Library library;
     private final TransportSelector transports;
     private final DownloadManager downloads;
@@ -159,11 +159,11 @@ final class ReaderController {
     private VBox[] sidebarPanes;
     private VBox sidebarHost;
 
-    /** Which surface fills the window: the Reader, the Library (home), or the Store. */
+    /** Which surface fills the window: the Reader, the Library (home), or the Catalog. */
     enum Surface {
         READER,
         LIBRARY,
-        STORE
+        CATALOG
     }
 
     private Surface surface = Surface.READER;
@@ -190,14 +190,14 @@ final class ReaderController {
         this.transcodes = new TranscodeService();
         this.catalogCache = new CatalogCache(dataDir.resolve("catalog"));
         this.iconCache = new IconCache(dataDir.resolve("catalog/icons"));
-        this.storePane = new StorePane(
+        this.catalogPane = new CatalogPane(
                 catalogCache,
                 iconCache,
                 (entry, title) -> {
                     downloads.enqueue(entry);
                     status.setText("Downloading " + title);
                 },
-                entry -> installedFileFor(entry) != null ? StorePane.Installed.YES : StorePane.Installed.NO,
+                this::catalogCardState,
                 this::installedFileFor,
                 this::openFromLibrary,
                 status::setText,
@@ -261,8 +261,8 @@ final class ReaderController {
         return surface;
     }
 
-    StorePane storePaneForTest() {
-        return storePane;
+    CatalogPane catalogPaneForTest() {
+        return catalogPane;
     }
 
     // ---------------------------------------------------------------- commands
@@ -319,7 +319,7 @@ final class ReaderController {
             status.setText("Remember reading position: " + (settings.isRememberPosition() ? "on" : "off"));
         });
         commands.register("library.open", "Show the Library", this::showLibrary);
-        commands.register("store.open", "Show the Store", this::showStore);
+        commands.register("catalog.open", "Show the Catalog", this::showCatalog);
         commands.register("library.show", "Show Library and Downloads", this::showLibrary);
         commands.register("library.reader", "Back to Reader", this::showReader);
         commands.register("library.toggle", "Toggle Library / Reader", this::toggleLibrary);
@@ -328,12 +328,12 @@ final class ReaderController {
         commands.register("library.repairAll", "Repair Quarantined Archives", this::repairAllQuarantined);
         commands.register("lan.share", "Share Library on Local Network", this::toggleLanSharing);
         commands.register("library.search", "Search the Online Catalog", () -> {
-            showStore();
-            storePane.focusSearch();
+            showCatalog();
+            catalogPane.focusSearch();
         });
         commands.register("catalog.refresh", "Refresh the Catalog", () -> {
-            showStore();
-            storePane.refreshCommand();
+            showCatalog();
+            catalogPane.refreshCommand();
         });
         commands.register("download.cancelAll", "Cancel All Downloads", () -> {
             downloads.jobs().forEach(DownloadManager.Job::cancel);
@@ -362,7 +362,7 @@ final class ReaderController {
         keys.bind("view.zoomReset", new KeyCodeCombination(KeyCode.DIGIT0, KeyCombination.SHORTCUT_DOWN));
         keys.bind("library.toggle", new KeyCodeCombination(KeyCode.B, KeyCombination.SHORTCUT_DOWN));
         keys.bind("library.open", new KeyCodeCombination(KeyCode.DIGIT1, KeyCombination.SHORTCUT_DOWN));
-        keys.bind("store.open", new KeyCodeCombination(KeyCode.DIGIT2, KeyCombination.SHORTCUT_DOWN));
+        keys.bind("catalog.open", new KeyCodeCombination(KeyCode.DIGIT2, KeyCombination.SHORTCUT_DOWN));
         keys.bind("reader.cycleMode", new KeyCodeCombination(KeyCode.R, KeyCombination.SHORTCUT_DOWN));
         keys.bind(
                 "readerview.toggle",
@@ -404,8 +404,8 @@ final class ReaderController {
         typePanelButton.setManaged(false);
 
         libraryTab.setOnAction(e -> commands.run("library.open"));
-        storeTab.setOnAction(e -> commands.run("store.open"));
-        HBox navTabs = new HBox(2, libraryTab, storeTab);
+        catalogTab.setOnAction(e -> commands.run("catalog.open"));
+        HBox navTabs = new HBox(2, libraryTab, catalogTab);
         navTabs.setAlignment(Pos.CENTER_LEFT);
         Button paletteButton = new Button("⌘K");
         paletteButton.setTooltip(new javafx.scene.control.Tooltip("Command palette"));
@@ -918,9 +918,10 @@ final class ReaderController {
 
     private void showLibrary() {
         if (surface != Surface.LIBRARY) {
-            if (surface == Surface.STORE) {
+            if (surface == Surface.CATALOG) {
                 // leaving the store costs nothing; its state is plain fields
             }
+            catalogPane.deactivate();
             shell.setCenter(libraryPane.node());
             libraryPane.activate();
             surface = Surface.LIBRARY;
@@ -930,12 +931,12 @@ final class ReaderController {
         }
     }
 
-    private void showStore() {
-        if (surface != Surface.STORE) {
+    private void showCatalog() {
+        if (surface != Surface.CATALOG) {
             libraryPane.deactivate();
-            shell.setCenter(storePane.node());
-            storePane.activate();
-            surface = Surface.STORE;
+            shell.setCenter(catalogPane.node());
+            catalogPane.activate();
+            surface = Surface.CATALOG;
             syncNavTabs();
         }
     }
@@ -943,6 +944,7 @@ final class ReaderController {
     private void showReader() {
         if (surface != Surface.READER) {
             libraryPane.deactivate();
+            catalogPane.deactivate();
             shell.setCenter(readerSplit);
             surface = Surface.READER;
             syncNavTabs();
@@ -966,7 +968,7 @@ final class ReaderController {
 
     private void syncNavTabs() {
         libraryTab.setSelected(surface == Surface.LIBRARY);
-        storeTab.setSelected(surface == Surface.STORE);
+        catalogTab.setSelected(surface == Surface.CATALOG);
     }
 
     // ---------------------------------------------------------------- archive updates
@@ -994,7 +996,7 @@ final class ReaderController {
                 ? StarterPicks.resolve(
                         com.insula.catalog.CatalogGroups.group(catalogCache.entries()), freeDiskBytes(dataDir))
                 : List.of();
-        libraryPane.setStarters(starters, this::downloadUpdate, this::showStore);
+        libraryPane.setStarters(starters, this::downloadUpdate, this::showCatalog);
     }
 
     private List<String> installedFileNames() {
@@ -1024,7 +1026,7 @@ final class ReaderController {
                             : List.of();
                     Platform.runLater(() -> {
                         applyUpdates(updates, announce);
-                        libraryPane.setStarters(starters, this::downloadUpdate, this::showStore);
+                        libraryPane.setStarters(starters, this::downloadUpdate, this::showCatalog);
                     });
                 },
                 "update-check");
@@ -1309,11 +1311,28 @@ final class ReaderController {
         return alert.showAndWait().orElse(javafx.scene.control.ButtonType.CANCEL) == javafx.scene.control.ButtonType.OK;
     }
 
+    /**
+     * What the Catalog should show for an entry: the live download when one exists, otherwise
+     * whether it is on disk. Sharing this with the Library is what keeps the two surfaces from
+     * describing the same archive differently.
+     */
+    private CatalogPane.CardState catalogCardState(ZimEntry entry) {
+        DownloadManager.Job job = downloads.job(entry);
+        if (job != null) {
+            return new CatalogPane.CardState(
+                    installedFileFor(entry) != null ? CatalogPane.Installed.YES : CatalogPane.Installed.NO,
+                    job.snapshot(),
+                    job::pause);
+        }
+        return CatalogPane.CardState.of(
+                installedFileFor(entry) != null ? CatalogPane.Installed.YES : CatalogPane.Installed.NO);
+    }
+
     /** The verified installed file matching this catalog entry's (name, flavour), or null. */
     private Path installedFileFor(ZimEntry entry) {
-        String base = StoreFilter.installedBaseOf(entry.fileName());
+        String base = CatalogFilter.installedBaseOf(entry.fileName());
         return library.verifiedEntries().stream()
-                .filter(e -> StoreFilter.installedBaseOf(e.fileName()).equals(base))
+                .filter(e -> CatalogFilter.installedBaseOf(e.fileName()).equals(base))
                 .map(com.insula.library.LibraryEntry::file)
                 .findFirst()
                 .orElse(null);

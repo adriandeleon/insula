@@ -34,12 +34,16 @@ import javafx.scene.text.Font;
 import javafx.scene.text.Text;
 
 import com.insula.catalog.CatalogCache;
+import com.insula.catalog.CatalogFilter;
 import com.insula.catalog.CatalogGroups;
-import com.insula.catalog.StoreFilter;
 import com.insula.catalog.ZimEntry;
+import com.insula.download.ProgressSnapshot;
 
 /**
- * The Store: a faceted, card-based browser over the cached catalog.
+ * The Catalog: a faceted, card-based browser over the cached OPDS feed.
+ *
+ * <p>Named Catalog, not Store: nothing here is for sale, and the source really is an OPDS
+ * catalog. The rename covers the surface, the menus and the command ids ({@code catalog.*}).
  *
  * <p>Everything here runs against {@link CatalogCache} — filtering and search are local and
  * instant, and the network is touched only by the Refresh affordance (or the silent auto-refresh
@@ -49,12 +53,31 @@ import com.insula.catalog.ZimEntry;
  * <em>is</em> the meaning of the choice. Rendering is capped at {@link #MAX_CARDS} nodes; a count
  * line says what was elided (no silent truncation).
  */
-final class StorePane {
+final class CatalogPane {
 
     static final int MAX_CARDS = 60;
     private static final int PRESEED_LANGUAGES = 8;
 
     /** What the library already knows about a variant. */
+    /**
+     * What the app knows about one entry right now.
+     *
+     * <p>The kit is explicit that "the catalog and the library never tell different stories about
+     * the same archive", so a card shows the same live state a Library row would — including the
+     * amber verifying pass and a quarantined file's repair — rather than a flat installed/not.
+     *
+     * @param snapshot the live download, or null when nothing is in flight for this entry
+     */
+    record CardState(Installed installed, ProgressSnapshot snapshot, Runnable onPause) {
+        static CardState of(Installed installed) {
+            return new CardState(installed, null, null);
+        }
+
+        boolean inFlight() {
+            return snapshot != null && !snapshot.state().isTerminal();
+        }
+    }
+
     enum Installed {
         NO,
         YES
@@ -63,7 +86,14 @@ final class StorePane {
     private final CatalogCache cache;
     private final IconCache icons;
     private final BiConsumer<ZimEntry, String> onDownload; // entry + display title
-    private final Function<ZimEntry, Installed> installedState;
+    private final Function<ZimEntry, CardState> installedState;
+    /** Per-entry card controls, so a 4 Hz tick updates them in place instead of rebuilding. */
+    private final java.util.Map<String, CardControls> liveCards = new java.util.HashMap<>();
+
+    private record CardControls(ZimEntry entry, HBox actions, Button action) {}
+
+    private final javafx.animation.Timeline sampler = new javafx.animation.Timeline(
+            new javafx.animation.KeyFrame(javafx.util.Duration.millis(250), e -> refreshCardStates()));
     private final Function<ZimEntry, Path> installedFile;
     private final java.util.function.Consumer<Path> onOpenArchive;
     private final java.util.function.Consumer<String> onStatus;
@@ -82,11 +112,11 @@ final class StorePane {
     private String selectedCategory = "";
     private boolean refreshing;
 
-    StorePane(
+    CatalogPane(
             CatalogCache cache,
             IconCache icons,
             BiConsumer<ZimEntry, String> onDownload,
-            Function<ZimEntry, Installed> installedState,
+            Function<ZimEntry, CardState> installedState,
             Function<ZimEntry, Path> installedFile,
             java.util.function.Consumer<Path> onOpenArchive,
             java.util.function.Consumer<String> onStatus,
@@ -102,12 +132,32 @@ final class StorePane {
         build();
     }
 
+    /** The rendered card nodes. A test must not walk the scene: a ScrollPane's content is not
+     * reachable through its children until it has been skinned, which silently turns an
+     * absence-assertion into a vacuous pass. */
+    java.util.List<javafx.scene.Node> cardNodesForTest() {
+        return java.util.List.copyOf(cards.getChildren());
+    }
+
     Region node() {
         return root;
     }
 
     /** Loads the cache (off-thread) and auto-refreshes when it is older than the spec's 7 days. */
+    /** Starts the 4 Hz state tick; stops itself once nothing is in flight. */
+    private void startSampler() {
+        sampler.setCycleCount(javafx.animation.Animation.INDEFINITE);
+        if (sampler.getStatus() != javafx.animation.Animation.Status.RUNNING) {
+            sampler.play();
+        }
+    }
+
+    void deactivate() {
+        sampler.stop();
+    }
+
     void activate() {
+        startSampler();
         reloadFromCache();
         if (cache.isOlderThan(CatalogCache.AUTO_REFRESH_AGE, System.currentTimeMillis()) && !refreshing) {
             refresh(true);
@@ -231,7 +281,8 @@ final class StorePane {
     // ---------------------------------------------------------------- render
 
     private void render() {
-        StoreFilter.Result result = StoreFilter.apply(allGroups, search.getText(), selectedLanguages, selectedCategory);
+        CatalogFilter.Result result =
+                CatalogFilter.apply(allGroups, search.getText(), selectedLanguages, selectedCategory);
         renderFacets(result);
         renderCards(result.groups());
         renderFreshness();
@@ -252,7 +303,7 @@ final class StorePane {
         freshness.getStyleClass().addAll("pill", stale ? "pill-amber" : "pill-neutral");
     }
 
-    private void renderFacets(StoreFilter.Result result) {
+    private void renderFacets(CatalogFilter.Result result) {
         facetRail.getChildren().clear();
         facetRail.getChildren().add(facetTitle("Language"));
         result.languages().stream().limit(PRESEED_LANGUAGES).forEach(facet -> {
@@ -299,8 +350,10 @@ final class StorePane {
     }
 
     private void renderCards(List<CatalogGroups.TitleGroup> groups) {
+        liveCards.clear();
         cards.getChildren().clear();
         groups.stream().limit(MAX_CARDS).forEach(group -> cards.getChildren().add(card(group)));
+        startSampler();
         resultLine.setText(
                 groups.size() > MAX_CARDS
                         ? "Showing " + MAX_CARDS + " of " + groups.size()
@@ -338,6 +391,7 @@ final class StorePane {
         CatalogGroups.Variant preselected = group.defaultVariant(freeDiskBytes.getAsLong());
         ToggleGroup flavours = new ToggleGroup();
         HBox seg = new HBox(4);
+        seg.getStyleClass().add("surfaces");
         Button action = new Button();
         for (CatalogGroups.Variant variant : group.variants()) {
             ToggleButton flavourButton = new ToggleButton(variant.flavourLabel() + " · "
@@ -352,14 +406,14 @@ final class StorePane {
             if (toggle == null && old != null) {
                 old.setSelected(true); // one flavour is always chosen
             } else {
-                updateAction(action, selectedVariant(flavours, group));
+                applyCardState(
+                        liveCards.get(selectedVariant(flavours, group).entry().id()));
             }
         });
 
-        updateAction(action, preselected);
         action.setOnAction(e -> {
             CatalogGroups.Variant variant = selectedVariant(flavours, group);
-            if (installedState.apply(variant.entry()) == Installed.YES) {
+            if (installedState.apply(variant.entry()).installed() == Installed.YES) {
                 Path file = installedFile.apply(variant.entry());
                 if (file != null) {
                     onOpenArchive.accept(file);
@@ -371,12 +425,53 @@ final class StorePane {
 
         HBox actions = new HBox(8, action);
         actions.setAlignment(Pos.CENTER_LEFT);
+        liveCards.put(preselected.entry().id(), new CardControls(preselected.entry(), actions, action));
+        flavours.selectedToggleProperty().addListener((obs, old, toggle) -> {
+            CatalogGroups.Variant chosen = selectedVariant(flavours, group);
+            liveCards.values().removeIf(c -> c.actions() == actions);
+            liveCards.put(chosen.entry().id(), new CardControls(chosen.entry(), actions, action));
+            applyCardState(liveCards.get(chosen.entry().id()));
+        });
+        applyCardState(liveCards.get(preselected.entry().id()));
 
         VBox card = new VBox(7, head, description, meta, seg, actions);
         card.setPadding(new Insets(12));
         card.setPrefWidth(330);
         card.getStyleClass().add("rowcard");
         return card;
+    }
+
+    /** Re-reads every visible card's state; cheap because it only touches the pill and button. */
+    private void refreshCardStates() {
+        boolean anyLive = false;
+        for (CardControls controls : liveCards.values()) {
+            anyLive |= applyCardState(controls);
+        }
+        if (!anyLive) {
+            sampler.stop();
+        }
+    }
+
+    /** Returns whether this entry is still moving, so the sampler can stop when nothing is. */
+    private boolean applyCardState(CardControls controls) {
+        if (controls == null) {
+            return false;
+        }
+        CardState state = installedState.apply(controls.entry());
+        controls.actions().getChildren().retainAll(java.util.List.of(controls.action()));
+        updateAction(controls.action(), controls.entry(), state);
+
+        if (state.snapshot() != null) {
+            controls.actions().getChildren().add(Pills.forDownload(state.snapshot()));
+            if (state.inFlight() && state.onPause() != null) {
+                Button pause = new Button("Pause");
+                pause.setOnAction(e -> state.onPause().run());
+                controls.actions().getChildren().add(pause);
+            }
+        } else if (state.installed() == Installed.YES) {
+            controls.actions().getChildren().add(Pills.verified());
+        }
+        return state.inFlight();
     }
 
     private CatalogGroups.Variant selectedVariant(ToggleGroup flavours, CatalogGroups.TitleGroup group) {
@@ -386,11 +481,14 @@ final class StorePane {
                 : group.variants().getFirst();
     }
 
-    private void updateAction(Button action, CatalogGroups.Variant variant) {
-        if (installedState.apply(variant.entry()) == Installed.YES) {
+    /** The size lives on the button: nobody should start a 110 GB transfer by accident. */
+    private void updateAction(Button action, ZimEntry entry, CardState state) {
+        boolean busy = state.inFlight();
+        action.setDisable(busy);
+        if (state.installed() == Installed.YES) {
             action.setText("Open");
         } else {
-            action.setText("Download · " + Formats.bytes(variant.entry().sizeBytes()));
+            action.setText("Download · " + Formats.bytes(entry.sizeBytes()));
         }
     }
 

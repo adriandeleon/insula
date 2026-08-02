@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class StoreFilterTest {
+class CatalogFilterTest {
 
     private static ZimEntry entry(String name, String title, String summary, String lang, String category, long size) {
         return new ZimEntry(
@@ -35,7 +35,7 @@ class StoreFilterTest {
 
     @Test
     void noFiltersReturnsEverythingInCatalogOrder() {
-        StoreFilter.Result result = StoreFilter.apply(groups(), "", Set.of(), "");
+        CatalogFilter.Result result = CatalogFilter.apply(groups(), "", Set.of(), "");
         assertEquals(4, result.groups().size());
         assertEquals("wikipedia_en_all", result.groups().getFirst().name());
     }
@@ -43,24 +43,24 @@ class StoreFilterTest {
     @Test
     void queryRanksTitleMatchesAboveSummaryMatches() {
         // "free" appears in two summaries; "wik" prefixes two titles.
-        StoreFilter.Result result = StoreFilter.apply(groups(), "wik", Set.of(), "");
+        CatalogFilter.Result result = CatalogFilter.apply(groups(), "wik", Set.of(), "");
         assertEquals(3, result.groups().size(), "both Wikipedias and Wiktionary match");
         assertTrue(result.groups().getFirst().title().startsWith("Wik"));
 
-        StoreFilter.Result summaryHit = StoreFilter.apply(groups(), "encyclopedia", Set.of(), "");
+        CatalogFilter.Result summaryHit = CatalogFilter.apply(groups(), "encyclopedia", Set.of(), "");
         assertEquals(1, summaryHit.groups().size(), "summary text is searchable");
     }
 
     @Test
     void languageFacetFilters() {
-        StoreFilter.Result result = StoreFilter.apply(groups(), "", Set.of("spa"), "");
+        CatalogFilter.Result result = CatalogFilter.apply(groups(), "", Set.of("spa"), "");
         assertEquals(1, result.groups().size());
         assertEquals("wikipedia_es_all", result.groups().getFirst().name());
     }
 
     @Test
     void categoryFacetFilters() {
-        StoreFilter.Result result = StoreFilter.apply(groups(), "", Set.of(), "stack_exchange");
+        CatalogFilter.Result result = CatalogFilter.apply(groups(), "", Set.of(), "stack_exchange");
         assertEquals(1, result.groups().size());
         assertEquals("askubuntu", result.groups().getFirst().name());
     }
@@ -69,7 +69,7 @@ class StoreFilterTest {
     void facetCountsIgnoreTheirOwnDimension() {
         // With only "spa" selected, the language facet must still count "eng" groups —
         // otherwise checking a language would zero out every alternative.
-        StoreFilter.Result result = StoreFilter.apply(groups(), "", Set.of("spa"), "");
+        CatalogFilter.Result result = CatalogFilter.apply(groups(), "", Set.of("spa"), "");
         long engCount = result.languages().stream()
                 .filter(f -> f.value().equals("eng"))
                 .findFirst()
@@ -87,7 +87,7 @@ class StoreFilterTest {
 
     @Test
     void facetsAreOrderedByCount() {
-        StoreFilter.Result result = StoreFilter.apply(groups(), "", Set.of(), "");
+        CatalogFilter.Result result = CatalogFilter.apply(groups(), "", Set.of(), "");
         assertEquals("eng", result.languages().getFirst().value(), "the biggest language leads");
         for (int i = 1; i < result.languages().size(); i++) {
             assertTrue(result.languages().get(i - 1).count()
@@ -97,7 +97,7 @@ class StoreFilterTest {
 
     @Test
     void queryAndFacetsCompose() {
-        StoreFilter.Result result = StoreFilter.apply(groups(), "wikipedia", Set.of("eng"), "wikipedia");
+        CatalogFilter.Result result = CatalogFilter.apply(groups(), "wikipedia", Set.of("eng"), "wikipedia");
         assertEquals(1, result.groups().size());
         assertEquals("wikipedia_en_all", result.groups().getFirst().name());
     }
@@ -106,8 +106,8 @@ class StoreFilterTest {
     void installedBaseStripsTheBuildDate() {
         assertEquals(
                 "wikipedia_en_ray-charles_mini",
-                StoreFilter.installedBaseOf("wikipedia_en_ray-charles_mini_2026-05.zim"));
-        assertEquals("wiktionary_es_all", StoreFilter.installedBaseOf("wiktionary_es_all_2025-03.zim"));
-        assertEquals("no_date_name", StoreFilter.installedBaseOf("no_date_name.zim"));
+                CatalogFilter.installedBaseOf("wikipedia_en_ray-charles_mini_2026-05.zim"));
+        assertEquals("wiktionary_es_all", CatalogFilter.installedBaseOf("wiktionary_es_all_2025-03.zim"));
+        assertEquals("no_date_name", CatalogFilter.installedBaseOf("no_date_name.zim"));
     }
 }

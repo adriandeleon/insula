@@ -41,7 +41,7 @@ public final class CatalogCache implements AutoCloseable {
 
     public static final String DEFAULT_ENDPOINT = "https://opds.library.kiwix.org/v2/entries";
 
-    /** Older than this on opening the Store → refresh silently in the background. */
+    /** Older than this on opening the Catalog → refresh silently in the background. */
     public static final Duration AUTO_REFRESH_AGE = Duration.ofDays(7);
     /** Older than this → the freshness chip turns amber. */
     public static final Duration STALE_AGE = Duration.ofDays(14);

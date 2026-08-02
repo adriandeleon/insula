@@ -11,6 +11,18 @@ Everything below is in `main` and unreleased; there has been no tagged version y
 
 ### Added
 
+**Catalog (renamed from Store)**
+
+- The Store is now the **Catalog** — nothing in it is for sale, and the source feed is literally
+  an OPDS catalog. The rename covers the surface, its command ids (`catalog.open`), and the
+  internal `CatalogFilter`/`CatalogPane` names.
+- **Cards carry live state.** A card now shows exactly what a Library row would for the same
+  archive — downloading with an inline Pause, amber verifying, green in-library, coral
+  quarantined — sampled at 4 Hz and stopping by itself once nothing is moving. The design kit's
+  rule is that the two surfaces must never tell different stories about the same archive.
+- The download button keeps the size on the label ("Download · 4.0 GB"), so the commitment is
+  what you click, and the flavour switch is styled as the kit's segmented control.
+
 **Design system — "Lagoon & Shore"**
 
 - The UI now runs on the design kit's tokens: one Lagoon teal accent (`#0E7C6B` light, `#3FC9AC`

@@ -13,15 +13,16 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The Store driven through the real shell, against a pre-seeded catalog cache.
+ * The Catalog driven through the real shell, against a pre-seeded catalog cache.
  *
  * <p>The cache metadata is stamped fresh so {@code activate()} never auto-refreshes — an FX test
  * must not depend on (or hammer) the live Kiwix catalog.
  */
-class StoreFxTest {
+class CatalogFxTest {
 
     /** Copies the real 7-entry fixture in as the cached feed, stamped as freshly fetched. */
     private static void seedCatalog(Path configDir) throws Exception {
@@ -54,33 +55,33 @@ class StoreFxTest {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
         while (System.nanoTime() < deadline) {
             int count = FxTestSupport.callOnFx(() -> {
-                controller.storePaneForTest().setLanguagesForTest(Set.of()); // no facet filter
-                return controller.storePaneForTest().renderedCardsForTest();
+                controller.catalogPaneForTest().setLanguagesForTest(Set.of()); // no facet filter
+                return controller.catalogPaneForTest().renderedCardsForTest();
             });
             if (count >= minimum) {
                 return;
             }
             Thread.sleep(50);
         }
-        throw new AssertionError("store cards never rendered");
+        throw new AssertionError("catalog cards never rendered");
     }
 
     @Test
-    void storeRendersOneCardPerTitleGroupFromTheCache(@TempDir Path dir) throws Exception {
+    void catalogRendersOneCardPerTitleGroupFromTheCache(@TempDir Path dir) throws Exception {
         seedCatalog(dir);
         ReaderController controller = FxTestSupport.callOnFx(() -> {
             Settings settings = Settings.load(dir.resolve("settings.properties"));
             Stage stage = new Stage();
             ReaderController c = new ReaderController(stage, null, settings, dir);
             stage.setScene(new Scene(c.root(), 1100, 700));
-            c.commandsForTest().run("store.open");
+            c.commandsForTest().run("catalog.open");
             return c;
         });
         try {
             // The 7-entry fixture holds exactly 3 title groups.
             awaitCards(controller, 3);
             int count =
-                    FxTestSupport.callOnFx(() -> controller.storePaneForTest().renderedCardsForTest());
+                    FxTestSupport.callOnFx(() -> controller.catalogPaneForTest().renderedCardsForTest());
             assertEquals(3, count, "seven feed rows must collapse to three cards");
         } finally {
             FxTestSupport.runOnFx(controller::dispose);
@@ -88,27 +89,27 @@ class StoreFxTest {
     }
 
     @Test
-    void storeSearchFiltersInstantlyAndLocally(@TempDir Path dir) throws Exception {
+    void catalogSearchFiltersInstantlyAndLocally(@TempDir Path dir) throws Exception {
         seedCatalog(dir);
         ReaderController controller = FxTestSupport.callOnFx(() -> {
             Settings settings = Settings.load(dir.resolve("settings.properties"));
             Stage stage = new Stage();
             ReaderController c = new ReaderController(stage, null, settings, dir);
             stage.setScene(new Scene(c.root(), 1100, 700));
-            c.commandsForTest().run("store.open");
+            c.commandsForTest().run("catalog.open");
             return c;
         });
         try {
             awaitCards(controller, 3);
             int filtered = FxTestSupport.callOnFx(() -> {
-                controller.storePaneForTest().setSearchTextForTest("Wikipedia");
-                return controller.storePaneForTest().renderedCardsForTest();
+                controller.catalogPaneForTest().setSearchTextForTest("Wikipedia");
+                return controller.catalogPaneForTest().renderedCardsForTest();
             });
             assertEquals(1, filtered, "only the Wikipedia group matches");
 
             int restored = FxTestSupport.callOnFx(() -> {
-                controller.storePaneForTest().setSearchTextForTest("");
-                return controller.storePaneForTest().renderedCardsForTest();
+                controller.catalogPaneForTest().setSearchTextForTest("");
+                return controller.catalogPaneForTest().renderedCardsForTest();
             });
             assertEquals(3, restored);
         } finally {
@@ -124,13 +125,13 @@ class StoreFxTest {
             Stage stage = new Stage();
             ReaderController c = new ReaderController(stage, null, settings, dir);
             stage.setScene(new Scene(c.root(), 1100, 700));
-            c.commandsForTest().run("store.open");
+            c.commandsForTest().run("catalog.open");
             return c;
         });
         try {
             awaitCards(controller, 3);
             String chip =
-                    FxTestSupport.callOnFx(() -> controller.storePaneForTest().freshnessTextForTest());
+                    FxTestSupport.callOnFx(() -> controller.catalogPaneForTest().freshnessTextForTest());
             assertTrue(chip.contains("today"), "a just-seeded cache reads as updated today: " + chip);
         } finally {
             FxTestSupport.runOnFx(controller::dispose);
@@ -138,7 +139,7 @@ class StoreFxTest {
     }
 
     @Test
-    void storeCommandsAreRegistered(@TempDir Path dir) throws Exception {
+    void catalogCommandsAreRegistered(@TempDir Path dir) throws Exception {
         seedCatalog(dir);
         withShell(dir, (controller, settings) -> {
             for (String id : new String[] {"library.search", "catalog.refresh"}) {
@@ -149,5 +150,79 @@ class StoreFxTest {
             // catalog.refresh is deliberately NOT run here: it would hit the live catalog.
             return null;
         });
+    }
+
+    @Test
+    void aCardShowsTheSameLiveStateALibraryRowWould(@TempDir Path dir) throws Exception {
+        // The kit's rule: the Catalog and the Library never tell different stories about the same
+        // archive. A card with a download in flight must show the download, not a Download button.
+        seedCatalog(dir);
+        ReaderController controller = FxTestSupport.callOnFx(() -> {
+            Settings settings = Settings.load(dir.resolve("settings.properties"));
+            Stage stage = new Stage();
+            ReaderController c = new ReaderController(stage, null, settings, dir);
+            stage.setScene(new Scene(c.root(), 1100, 700));
+            c.commandsForTest().run("catalog.open");
+            return c;
+        });
+        try {
+            awaitCards(controller, 3);
+            String pills = FxTestSupport.callOnFx(() -> texts(controller, javafx.scene.control.Label.class, true));
+            // Nothing is downloading and nothing is installed, so no state pills are claimed.
+            assertFalse(pills.contains("Verifying"), pills);
+            assertFalse(pills.contains("Downloading"), pills);
+            // ...and the cards really were walked, so the absence above means something.
+            assertTrue(
+                    FxTestSupport.callOnFx(() -> controller
+                                    .catalogPaneForTest()
+                                    .cardNodesForTest()
+                                    .size())
+                            >= 3,
+                    "the assertion must be over real cards, not an empty walk");
+        } finally {
+            FxTestSupport.runOnFx(controller::dispose);
+        }
+    }
+
+    @Test
+    void theDownloadButtonCarriesTheSize(@TempDir Path dir) throws Exception {
+        // "nobody starts a 110 GB transfer by accident" — the commitment is the label itself.
+        seedCatalog(dir);
+        ReaderController controller = FxTestSupport.callOnFx(() -> {
+            Settings settings = Settings.load(dir.resolve("settings.properties"));
+            Stage stage = new Stage();
+            ReaderController c = new ReaderController(stage, null, settings, dir);
+            stage.setScene(new Scene(c.root(), 1100, 700));
+            c.commandsForTest().run("catalog.open");
+            return c;
+        });
+        try {
+            awaitCards(controller, 3);
+            String buttons = FxTestSupport.callOnFx(() -> texts(controller, javafx.scene.control.Button.class, false));
+            assertTrue(buttons.contains("Download · "), "a size-bearing download button: " + buttons);
+        } finally {
+            FxTestSupport.runOnFx(controller::dispose);
+        }
+    }
+
+    /** Text of every matching control inside the rendered cards, joined for easy assertions. */
+    private static String texts(ReaderController controller, Class<?> type, boolean pillsOnly) {
+        StringBuilder out = new StringBuilder();
+        for (javafx.scene.Node card : controller.catalogPaneForTest().cardNodesForTest()) {
+            collect(card, type, pillsOnly, out);
+        }
+        return out.toString();
+    }
+
+    private static void collect(javafx.scene.Node node, Class<?> type, boolean pillsOnly, StringBuilder out) {
+        if (type.isInstance(node) && (!pillsOnly || node.getStyleClass().contains("pill"))) {
+            out.append(node instanceof javafx.scene.control.Labeled l ? l.getText() : "")
+                    .append(" | ");
+        }
+        if (node instanceof javafx.scene.Parent parent) {
+            for (javafx.scene.Node child : parent.getChildrenUnmodifiable()) {
+                collect(child, type, pillsOnly, out);
+            }
+        }
     }
 }

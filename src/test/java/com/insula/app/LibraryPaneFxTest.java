@@ -83,7 +83,7 @@ class LibraryPaneFxTest {
             for (String id : new String[] {
                 "library.show",
                 "library.open",
-                "store.open",
+                "catalog.open",
                 "library.checkUpdates",
                 "library.updateAll",
                 "library.repairAll",
@@ -141,10 +141,10 @@ class LibraryPaneFxTest {
             assertEquals(ReaderController.Surface.LIBRARY, controller.surfaceForTest());
             Object libraryCenter = center.get();
 
-            controller.commandsForTest().run("store.open");
-            assertEquals(ReaderController.Surface.STORE, controller.surfaceForTest());
+            controller.commandsForTest().run("catalog.open");
+            assertEquals(ReaderController.Surface.CATALOG, controller.surfaceForTest());
             assertNotSame(libraryCenter, center.get(), "the store is its own surface, not embedded in the library");
-            assertSame(controller.storePaneForTest().node(), center.get());
+            assertSame(controller.catalogPaneForTest().node(), center.get());
 
             controller.commandsForTest().run("library.reader");
             assertEquals(ReaderController.Surface.READER, controller.surfaceForTest());

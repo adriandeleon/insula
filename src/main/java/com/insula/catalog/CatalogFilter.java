@@ -11,15 +11,15 @@ import java.util.Set;
 import com.insula.search.MatchScore;
 
 /**
- * Filters and ranks title groups for the Store: query × language facet × category facet.
+ * Filters and ranks title groups for the Catalog: query × language facet × category facet.
  *
  * <p>Pure, and runs entirely against the in-memory group list — this is what "search is local and
  * instant" means in practice. Facet counts are computed under the <em>other</em> active filters,
  * so a language with zero matches under the current query greys out instead of lying.
  */
-public final class StoreFilter {
+public final class CatalogFilter {
 
-    private StoreFilter() {}
+    private CatalogFilter() {}
 
     /** A facet value with the number of groups it would match right now. */
     public record Facet(String value, long count) {}
