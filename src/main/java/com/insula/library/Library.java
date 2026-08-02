@@ -55,9 +55,22 @@ public final class Library {
                     parseLong(props.getProperty(i + ".size")),
                     props.getProperty(i + ".sha256", ""),
                     Boolean.parseBoolean(props.getProperty(i + ".verified", "false")),
-                    parseLong(props.getProperty(i + ".added"))));
+                    parseLong(props.getProperty(i + ".added")),
+                    Boolean.parseBoolean(props.getProperty(i + ".pinned", "false")),
+                    (int) parseLong(props.getProperty(i + ".order")),
+                    props.getProperty(i + ".theme", "")));
         }
         return library;
+    }
+
+    /** Replaces an entry in place, matched by file. Used for pin, reorder and theme moves. */
+    public synchronized void replace(LibraryEntry updated) {
+        for (int i = 0; i < entries.size(); i++) {
+            if (entries.get(i).file().equals(updated.file())) {
+                entries.set(i, updated);
+                return;
+            }
+        }
     }
 
     public void save() {
@@ -71,6 +84,9 @@ public final class Library {
             props.setProperty(key + "sha256", e.sha256());
             props.setProperty(key + "verified", String.valueOf(e.verified()));
             props.setProperty(key + "added", String.valueOf(e.addedAtEpochMs()));
+            props.setProperty(key + "pinned", String.valueOf(e.pinned()));
+            props.setProperty(key + "order", String.valueOf(e.order()));
+            props.setProperty(key + "theme", e.theme());
         }
         try {
             Files.createDirectories(file.getParent());

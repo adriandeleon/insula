@@ -55,6 +55,11 @@ public final class Settings {
     /** Whether to return to where you left off in an article. */
     private boolean rememberPosition = true;
 
+    /** How the shelf is arranged. Kept here rather than in the index so it is a preference. */
+    private String libraryGroupBy = "THEME";
+
+    private String librarySortBy = "CUSTOM";
+
     /** Port for "Share on local network"; 0 = pick an ephemeral port. Sharing itself is session-only. */
     private int lanPort = 8181;
 
@@ -101,6 +106,8 @@ public final class Settings {
             settings.torrentEnabled = Boolean.parseBoolean(props.getProperty("torrentEnabled", "false"));
             settings.seedingEnabled = Boolean.parseBoolean(props.getProperty("seedingEnabled", "false"));
             settings.lanPort = clamp(parseInt(props.getProperty("lanPort"), settings.lanPort), 0, 65535);
+            settings.libraryGroupBy = props.getProperty("libraryGroupBy", settings.libraryGroupBy);
+            settings.librarySortBy = props.getProperty("librarySortBy", settings.librarySortBy);
             settings.readerViewFont = props.getProperty("readerViewFont", settings.readerViewFont);
             settings.readerViewFontSize =
                     parseInt(props.getProperty("readerViewFontSize"), settings.readerViewFontSize);
@@ -128,6 +135,8 @@ public final class Settings {
         props.setProperty("torrentEnabled", String.valueOf(torrentEnabled));
         props.setProperty("seedingEnabled", String.valueOf(seedingEnabled));
         props.setProperty("lanPort", String.valueOf(lanPort));
+        props.setProperty("libraryGroupBy", libraryGroupBy);
+        props.setProperty("librarySortBy", librarySortBy);
         props.setProperty("readerViewFont", readerViewFont);
         props.setProperty("readerViewFontSize", String.valueOf(readerViewFontSize));
         props.setProperty("readerViewWidth", String.valueOf(readerViewWidth));
@@ -335,6 +344,22 @@ public final class Settings {
 
     public void setFfprobePath(String ffprobePath) {
         this.ffprobePath = ffprobePath == null ? "" : ffprobePath;
+    }
+
+    public String getLibraryGroupBy() {
+        return libraryGroupBy;
+    }
+
+    public void setLibraryGroupBy(String value) {
+        this.libraryGroupBy = value == null ? "THEME" : value;
+    }
+
+    public String getLibrarySortBy() {
+        return librarySortBy;
+    }
+
+    public void setLibrarySortBy(String value) {
+        this.librarySortBy = value == null ? "CUSTOM" : value;
     }
 
     public int getLanPort() {

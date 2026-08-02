@@ -57,6 +57,7 @@ import com.insula.download.TorrentTransport;
 import com.insula.download.TransportSelector;
 import com.insula.library.Library;
 import com.insula.library.LibraryEntry;
+import com.insula.library.Shelf;
 import com.insula.media.HlsSession;
 import com.insula.media.TranscodeService;
 import com.insula.reader.ArticleLocation;
@@ -222,6 +223,8 @@ final class ReaderController {
                 ref -> openRef(ref, false),
                 () -> commands.run("view.commandPalette"),
                 this::showLibrary);
+        wireLibraryOrganization();
+        wireLanRow();
         buildUi();
         registerCommands();
         bindKeys();
@@ -620,6 +623,128 @@ final class ReaderController {
         shell.setCenter(readerSplit);
         shell.setBottom(statusBar);
         root.getChildren().add(shell);
+    }
+
+    // ---------------------------------------------------------------- library organization
+
+    private void wireLibraryOrganization() {
+        libraryPane.setOrganizeHandlers(
+                (groupBy, sortBy) -> {
+                    settings.setLibraryGroupBy(groupBy.name());
+                    settings.setLibrarySortBy(sortBy.name());
+                    settings.save();
+                },
+                reordered -> {
+                    reordered.forEach(library::replace);
+                    library.save();
+                    libraryPane.activate();
+                },
+                entry -> {
+                    library.replace(entry.withPinned(!entry.pinned()));
+                    library.save();
+                    libraryPane.activate();
+                    status.setText(entry.pinned() ? "Unpinned " + entry.title() : "Pinned " + entry.title());
+                });
+        libraryPane.setRowActions(new LibraryPane.RowActions() {
+            @Override
+            public void openInNewTab(LibraryEntry entry) {
+                openArchiveInNewTab(entry);
+            }
+
+            @Override
+            public void moveToTheme(LibraryEntry entry) {
+                promptTheme(entry);
+            }
+
+            @Override
+            public void shareOnLan(LibraryEntry entry) {
+                commands.run("lan.share");
+            }
+
+            @Override
+            public void checkForUpdate(LibraryEntry entry) {
+                checkForUpdates(true);
+            }
+
+            @Override
+            public void verifyNow(LibraryEntry entry) {
+                status.setText("Verification on demand is not available yet for " + entry.title());
+            }
+
+            @Override
+            public void reveal(LibraryEntry entry) {
+                if (hostServices != null) {
+                    hostServices.showDocument(entry.file().getParent().toUri().toString());
+                }
+            }
+
+            @Override
+            public void delete(LibraryEntry entry) {
+                confirmDeleteArchive(entry);
+            }
+        });
+        libraryPane.setArrangement(groupByPreference(), sortByPreference());
+    }
+
+    private Shelf.GroupBy groupByPreference() {
+        try {
+            return Shelf.GroupBy.valueOf(settings.getLibraryGroupBy());
+        } catch (IllegalArgumentException e) {
+            return Shelf.GroupBy.THEME;
+        }
+    }
+
+    private Shelf.SortBy sortByPreference() {
+        try {
+            return Shelf.SortBy.valueOf(settings.getLibrarySortBy());
+        } catch (IllegalArgumentException e) {
+            return Shelf.SortBy.CUSTOM;
+        }
+    }
+
+    private void openArchiveInNewTab(LibraryEntry entry) {
+        showReader();
+        openZim(entry.file());
+    }
+
+    /** Moving an archive to a theme is the override that keeps tagging optional. */
+    private void promptTheme(LibraryEntry entry) {
+        javafx.scene.control.TextInputDialog dialog = new javafx.scene.control.TextInputDialog(
+                entry.theme().isBlank() ? Shelf.themeOf(entry.fileName()) : entry.theme());
+        dialog.setTitle("Move to theme");
+        dialog.setHeaderText("Group " + entry.title() + " under:");
+        dialog.setContentText("Theme");
+        dialog.showAndWait().ifPresent(theme -> {
+            library.replace(entry.withTheme(theme.strip()));
+            library.save();
+            libraryPane.activate();
+        });
+    }
+
+    private void confirmDeleteArchive(LibraryEntry entry) {
+        javafx.scene.control.Alert alert = new javafx.scene.control.Alert(
+                javafx.scene.control.Alert.AlertType.CONFIRMATION,
+                "Delete " + entry.fileName() + " (" + Formats.bytes(entry.sizeBytes())
+                        + ") from disk? This cannot be undone.",
+                javafx.scene.control.ButtonType.OK,
+                javafx.scene.control.ButtonType.CANCEL);
+        alert.setHeaderText("Delete this archive?");
+        if (alert.showAndWait().orElse(javafx.scene.control.ButtonType.CANCEL) != javafx.scene.control.ButtonType.OK) {
+            return;
+        }
+        try {
+            if (currentArchiveFile != null && currentArchiveFile.equals(entry.file())) {
+                closeArchive();
+            }
+            java.nio.file.Files.deleteIfExists(entry.file());
+            library.remove(entry.file());
+            library.save();
+            librarySearch.remove(entry.file());
+            libraryPane.activate();
+            status.setText("Deleted " + entry.fileName());
+        } catch (IOException e) {
+            status.setText("Could not delete " + entry.fileName() + ": " + e.getMessage());
+        }
     }
 
     // ---------------------------------------------------------------- shell commands
@@ -1409,6 +1534,15 @@ final class ReaderController {
     private final List<com.insula.zim.ZimArchive> lanArchives = new java.util.ArrayList<>();
     private Stage lanShareWindow;
 
+    /**
+     * Which archives to share, session-only. Empty means "everything verified" — the default the
+     * command has always had, kept as the meaning of an untouched selection so the Library row and
+     * the Ctrl+L command can never disagree about what sharing does.
+     */
+    private final java.util.Set<Path> lanSelection = new java.util.LinkedHashSet<>();
+
+    private String lanUrl;
+
     com.insula.server.LanServer lanServerForTest() {
         return lanServer;
     }
@@ -1429,7 +1563,9 @@ final class ReaderController {
      * design; returns the URL other devices should use, or null when nothing could be shared.
      */
     String startLanSharing() {
-        List<com.insula.library.LibraryEntry> entries = library.verifiedEntries();
+        List<com.insula.library.LibraryEntry> entries = library.verifiedEntries().stream()
+                .filter(e -> lanSelection.isEmpty() || lanSelection.contains(e.file()))
+                .toList();
         if (entries.isEmpty()) {
             status.setText("Nothing to share — the library has no verified archives");
             return null;
@@ -1463,11 +1599,15 @@ final class ReaderController {
         }
         String host = com.insula.server.LanServer.lanAddress().orElse("127.0.0.1");
         String url = "http://" + host + ":" + lanServer.port() + "/";
+        lanUrl = url;
+        refreshLanRow();
         status.setText("Sharing " + sharedCount + (sharedCount == 1 ? " archive at " : " archives at ") + url);
         return url;
     }
 
     void stopLanSharing() {
+        lanUrl = null;
+        refreshLanRow();
         if (lanShareWindow != null) {
             lanShareWindow.close();
             lanShareWindow = null;
@@ -1485,6 +1625,80 @@ final class ReaderController {
         }
         lanArchives.clear();
         status.setText("Stopped sharing");
+    }
+
+    private void refreshLanRow() {
+        libraryPane.setLanState(lanUrl, lanSelection.size());
+    }
+
+    private void wireLanRow() {
+        libraryPane.setLanActions(new LibraryPane.LanActions() {
+            @Override
+            public void toggle() {
+                toggleLanSharing();
+            }
+
+            @Override
+            public void showQr() {
+                if (lanUrl != null) {
+                    showLanShareWindow(lanUrl);
+                }
+            }
+
+            @Override
+            public void chooseArchives() {
+                chooseLanArchives();
+            }
+        });
+        refreshLanRow();
+    }
+
+    /**
+     * Picking archives to share. A restart of the server is forced when the choice changes while
+     * sharing is live — silently serving the old set would make the row lie.
+     */
+    private void chooseLanArchives() {
+        List<com.insula.library.LibraryEntry> verified = library.verifiedEntries();
+        if (verified.isEmpty()) {
+            status.setText("Nothing to share — the library has no verified archives");
+            return;
+        }
+        VBox box = new VBox(6);
+        List<javafx.scene.control.CheckBox> boxes = new java.util.ArrayList<>();
+        for (com.insula.library.LibraryEntry entry : verified) {
+            javafx.scene.control.CheckBox check =
+                    new javafx.scene.control.CheckBox(entry.title() + "  (" + Formats.bytes(entry.sizeBytes()) + ")");
+            check.setSelected(lanSelection.isEmpty() || lanSelection.contains(entry.file()));
+            check.setUserData(entry.file());
+            boxes.add(check);
+            box.getChildren().add(check);
+        }
+        javafx.scene.control.Dialog<javafx.scene.control.ButtonType> dialog = new javafx.scene.control.Dialog<>();
+        dialog.setTitle("Choose archives to share");
+        dialog.setHeaderText("Other devices will see only what is ticked.");
+        dialog.getDialogPane().setContent(new javafx.scene.control.ScrollPane(box));
+        dialog.getDialogPane()
+                .getButtonTypes()
+                .addAll(javafx.scene.control.ButtonType.OK, javafx.scene.control.ButtonType.CANCEL);
+        if (dialog.showAndWait().orElse(javafx.scene.control.ButtonType.CANCEL) != javafx.scene.control.ButtonType.OK) {
+            return;
+        }
+        List<Path> chosen = boxes.stream()
+                .filter(javafx.scene.control.CheckBox::isSelected)
+                .map(c -> (Path) c.getUserData())
+                .toList();
+        lanSelection.clear();
+        // All ticked is the same as no choice at all, and storing it that way keeps a later
+        // download automatically shared rather than silently excluded.
+        if (chosen.size() != verified.size()) {
+            lanSelection.addAll(chosen);
+        }
+        if (lanServer != null) {
+            stopLanSharing();
+            startLanSharing();
+        } else {
+            refreshLanRow();
+        }
     }
 
     /** URL + QR in a small window — the point is a phone camera, not a copy-paste. */

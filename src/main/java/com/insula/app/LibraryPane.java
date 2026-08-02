@@ -31,6 +31,7 @@ import javafx.util.Duration;
 import com.insula.download.DownloadManager;
 import com.insula.library.Library;
 import com.insula.library.LibraryEntry;
+import com.insula.library.Shelf;
 
 /**
  * Home. Everything on this screen answers one of three questions: what's arriving, what can I
@@ -67,6 +68,57 @@ final class LibraryPane {
     private final VBox attentionSection = new VBox(8);
     private final VBox attentionRows = new VBox(8);
     private final VBox deviceRows = new VBox(8);
+    private final javafx.scene.control.ComboBox<Shelf.GroupBy> groupBox = new javafx.scene.control.ComboBox<>();
+    private final javafx.scene.control.ComboBox<Shelf.SortBy> sortBox = new javafx.scene.control.ComboBox<>();
+    private final Label dragHint = new Label();
+    private final HBox organizeBar = new HBox(10);
+    private final HBox lanRow = new HBox(12);
+    private final Label lanState = new Label();
+    private final Button lanToggle = new Button();
+    private final Button lanQr = new Button("Show QR");
+    private LanActions lanActions = LanActions.NONE;
+    private java.util.function.BiConsumer<Shelf.GroupBy, Shelf.SortBy> onArrangementChanged = (g, s2) -> {};
+    private Consumer<List<LibraryEntry>> onReorder = list -> {};
+    private Consumer<LibraryEntry> onTogglePin = entry -> {};
+    private RowActions rowActions = RowActions.NONE;
+
+    /** What a row's ⋯ menu can do; the pane owns the menu, the controller owns the doing. */
+    interface RowActions {
+        RowActions NONE = new RowActions() {};
+
+        default void openInNewTab(LibraryEntry entry) {}
+
+        default void moveToTheme(LibraryEntry entry) {}
+
+        default void shareOnLan(LibraryEntry entry) {}
+
+        default void checkForUpdate(LibraryEntry entry) {}
+
+        default void verifyNow(LibraryEntry entry) {}
+
+        default void reveal(LibraryEntry entry) {}
+
+        default void delete(LibraryEntry entry) {}
+    }
+
+    void setRowActions(RowActions actions) {
+        this.rowActions = actions == null ? RowActions.NONE : actions;
+    }
+
+    void setOrganizeHandlers(
+            java.util.function.BiConsumer<Shelf.GroupBy, Shelf.SortBy> onArrangementChanged,
+            Consumer<List<LibraryEntry>> onReorder,
+            Consumer<LibraryEntry> onTogglePin) {
+        this.onArrangementChanged = onArrangementChanged;
+        this.onReorder = onReorder;
+        this.onTogglePin = onTogglePin;
+    }
+
+    void setArrangement(Shelf.GroupBy groupBy, Shelf.SortBy sortBy) {
+        groupBox.setValue(groupBy);
+        sortBox.setValue(sortBy);
+        rebuildDevice();
+    }
 
     private final Map<DownloadManager.Job, DownloadRow> rows = new LinkedHashMap<>();
     private Map<String, com.insula.catalog.ZimEntry> updates = Map.of();
@@ -102,12 +154,13 @@ final class LibraryPane {
         gauge.getStyleClass().add("rowcard");
         gaugeLabel.getStyleClass().add("card-sub");
 
+        buildOrganizeControls();
         arrivingSection.getChildren().addAll(sectionTitle("Arriving"), arrivingRows);
         attentionSection.getChildren().addAll(sectionTitle("Needs attention"), attentionRows);
 
+        buildLanRow();
         content.setPadding(new Insets(14));
-        content.getChildren()
-                .addAll(gauge, arrivingSection, attentionSection, sectionTitle("On this device"), deviceRows);
+        content.getChildren().addAll(gauge, arrivingSection, attentionSection, organizeBar, deviceRows, lanRow);
 
         root = new ScrollPane(content);
         root.setFitToWidth(true);
@@ -227,15 +280,135 @@ final class LibraryPane {
         arrivingSection.setManaged(visible);
     }
 
+    /**
+     * The LAN row lives at the foot of the Library because sharing is a property of the shelf, not
+     * a separate destination — the archives you would share are the ones listed directly above it.
+     */
+    private void buildLanRow() {
+        Label heading = new Label("Share on local network");
+        heading.getStyleClass().add("card-title");
+        lanState.getStyleClass().add("card-sub");
+        VBox main = new VBox(2, heading, lanState);
+        HBox.setHgrow(main, Priority.ALWAYS);
+
+        lanToggle.setOnAction(e -> lanActions.toggle());
+        lanQr.setOnAction(e -> lanActions.showQr());
+        Button choose = new Button("Choose archives…");
+        choose.setOnAction(e -> lanActions.chooseArchives());
+
+        lanRow.getChildren().addAll(main, choose, lanQr, lanToggle);
+        lanRow.setAlignment(Pos.CENTER_LEFT);
+        lanRow.getStyleClass().add("rowcard");
+        setLanState(null, 0);
+    }
+
+    /** What the LAN row can ask for; the controller owns the server. */
+    interface LanActions {
+        LanActions NONE = new LanActions() {};
+
+        default void toggle() {}
+
+        default void showQr() {}
+
+        default void chooseArchives() {}
+    }
+
+    void setLanActions(LanActions actions) {
+        this.lanActions = actions == null ? LanActions.NONE : actions;
+    }
+
+    /** {@code url} null means not sharing; {@code selected} is 0 for "everything verified". */
+    void setLanState(String url, int selected) {
+        boolean sharing = url != null && !url.isBlank();
+        lanState.setText(
+                sharing
+                        ? "Other devices on this network can read "
+                                + (selected == 0 ? "your library" : selected + " archives") + " at " + url
+                        : "Off — nothing is reachable from other devices"
+                                + (selected == 0 ? "" : " · " + selected + " archives chosen"));
+        lanToggle.setText(sharing ? "Stop sharing" : "Start sharing");
+        lanQr.setDisable(!sharing);
+    }
+
+    private void buildOrganizeControls() {
+        groupBox.getItems().setAll(Shelf.GroupBy.values());
+        groupBox.setValue(Shelf.GroupBy.THEME);
+        groupBox.setConverter(labels(Map.of(
+                Shelf.GroupBy.THEME, "Theme",
+                Shelf.GroupBy.LANGUAGE, "Language",
+                Shelf.GroupBy.PUBLISHER, "Publisher",
+                Shelf.GroupBy.NONE, "None — flat list")));
+        sortBox.getItems().setAll(Shelf.SortBy.values());
+        sortBox.setValue(Shelf.SortBy.CUSTOM);
+        sortBox.setConverter(labels(Map.of(
+                Shelf.SortBy.CUSTOM, "Custom — drag to order",
+                Shelf.SortBy.RECENT, "Recently added",
+                Shelf.SortBy.NAME, "Name",
+                Shelf.SortBy.SIZE, "Size — largest first",
+                Shelf.SortBy.BUILD_DATE, "Build date — newest first")));
+        groupBox.valueProperty().addListener((obs, old, now) -> arrangementChanged());
+        sortBox.valueProperty().addListener((obs, old, now) -> arrangementChanged());
+
+        dragHint.getStyleClass().add("card-faint");
+        Region gap = new Region();
+        HBox.setHgrow(gap, Priority.ALWAYS);
+        organizeBar.setAlignment(Pos.CENTER_LEFT);
+        organizeBar
+                .getChildren()
+                .addAll(
+                        sectionTitle("On this device"),
+                        new Label("Group"),
+                        groupBox,
+                        new Label("Sort"),
+                        sortBox,
+                        gap,
+                        dragHint);
+    }
+
+    private <T> javafx.util.StringConverter<T> labels(Map<T, String> names) {
+        return new javafx.util.StringConverter<>() {
+            @Override
+            public String toString(T value) {
+                return value == null ? "" : names.getOrDefault(value, String.valueOf(value));
+            }
+
+            @Override
+            public T fromString(String text) {
+                return null;
+            }
+        };
+    }
+
+    private void arrangementChanged() {
+        onArrangementChanged.accept(groupBox.getValue(), sortBox.getValue());
+        rebuildDevice();
+    }
+
+    private boolean draggable() {
+        return sortBox.getValue() == Shelf.SortBy.CUSTOM;
+    }
+
     private void rebuildDevice() {
         deviceRows.getChildren().clear();
         updatePillCount = 0;
         List<LibraryEntry> entries = library.entries();
+        organizeBar.setVisible(!entries.isEmpty());
+        organizeBar.setManaged(!entries.isEmpty());
+        // Handles appear only while Custom is chosen — dragging must not look available when the
+        // arrangement it produces would be ignored.
+        dragHint.setText(draggable() ? "★ pins to the top · drag ⠿ to reorder" : "★ pins to the top");
+
         if (entries.isEmpty()) {
             deviceRows.getChildren().add(emptyState());
+            updateGauge();
+            return;
         }
-        for (LibraryEntry entry : entries) {
-            deviceRows.getChildren().add(archiveRow(entry));
+        for (Shelf.Group group : Shelf.arrange(entries, groupBox.getValue(), sortBox.getValue())) {
+            Label heading = groupHeading(group.title() + "  (" + group.entries().size() + ")");
+            deviceRows.getChildren().add(heading);
+            for (LibraryEntry entry : group.entries()) {
+                deviceRows.getChildren().add(archiveRow(entry));
+            }
         }
         updateGauge();
     }
@@ -295,26 +468,104 @@ final class LibraryPane {
         VBox main = new VBox(2, title, meta);
         HBox.setHgrow(main, Priority.ALWAYS);
 
+        // The star is the whole favourites model: one click lifts the archive above every group.
+        Button star = new Button(entry.pinned() ? "★" : "☆");
+        star.getStyleClass().add("star");
+        star.setTooltip(new javafx.scene.control.Tooltip(entry.pinned() ? "Unpin" : "Pin to top"));
+        star.setOnAction(e -> onTogglePin.accept(entry));
+
         Button open = new Button("Open");
         open.setOnAction(e -> onOpenArchive.accept(entry.file()));
 
-        HBox row = new HBox(12, icon, main);
-        com.insula.catalog.ZimEntry replacement = updates.get(entry.fileName());
-        if (replacement != null) {
-            Button pill = new Button("Update to " + UpdateCheckDates.dateOf(replacement.fileName()));
-            pill.getStyleClass().addAll("pill", "pill-accent");
-            pill.setOnAction(e -> {
-                pill.setDisable(true);
-                onUpdate.accept(replacement);
-            });
-            row.getChildren().add(pill);
-            updatePillCount++;
+        Label handle = new Label("⠿");
+        handle.getStyleClass().add("card-faint");
+        handle.setVisible(draggable());
+        handle.setManaged(draggable());
+
+        HBox row = new HBox(12, handle, icon, main, star);
+        Label updatePill = updatePillFor(entry);
+        if (updatePill != null) {
+            row.getChildren().add(updatePill);
         }
-        row.getChildren().add(open);
+        row.getChildren().addAll(open, rowMenu(entry));
         row.setAlignment(Pos.CENTER_LEFT);
-        row.setPadding(new Insets(10, 12, 10, 12));
         row.getStyleClass().add("rowcard");
+        if (draggable()) {
+            installDrag(row, entry);
+        }
         return row;
+    }
+
+    /** The row's ⋯ menu. Everything here acts on one archive, so it lives beside it. */
+    private Region rowMenu(LibraryEntry entry) {
+        javafx.scene.control.MenuButton menu = new javafx.scene.control.MenuButton("⋯");
+        menu.getItems()
+                .addAll(
+                        item("Open in new tab", () -> rowActions.openInNewTab(entry)),
+                        item(entry.pinned() ? "Unpin" : "Pin to top", () -> onTogglePin.accept(entry)),
+                        item("Move to theme…", () -> rowActions.moveToTheme(entry)),
+                        new javafx.scene.control.SeparatorMenuItem(),
+                        item("Share on LAN", () -> rowActions.shareOnLan(entry)),
+                        item("Check for update", () -> rowActions.checkForUpdate(entry)),
+                        item("Verify integrity now", () -> rowActions.verifyNow(entry)),
+                        new javafx.scene.control.SeparatorMenuItem(),
+                        item("Reveal file", () -> rowActions.reveal(entry)),
+                        item("Delete from disk…", () -> rowActions.delete(entry)));
+        return menu;
+    }
+
+    private javafx.scene.control.MenuItem item(String label, Runnable action) {
+        javafx.scene.control.MenuItem menuItem = new javafx.scene.control.MenuItem(label);
+        menuItem.setOnAction(e -> action.run());
+        return menuItem;
+    }
+
+    private Label updatePillFor(LibraryEntry entry) {
+        com.insula.catalog.ZimEntry replacement = updates.get(entry.fileName());
+        if (replacement == null) {
+            return null;
+        }
+        updatePillCount++;
+        Label pill =
+                Pills.update(UpdateCheckDates.dateOf(replacement.fileName()), Formats.bytes(replacement.sizeBytes()));
+        pill.setOnMouseClicked(e -> onUpdate.accept(replacement));
+        pill.setTooltip(new javafx.scene.control.Tooltip("Download this build"));
+        return pill;
+    }
+
+    /** Drag-to-reorder, offered only while Custom is the sort. */
+    private void installDrag(HBox row, LibraryEntry entry) {
+        row.setOnDragDetected(e -> {
+            var board = row.startDragAndDrop(javafx.scene.input.TransferMode.MOVE);
+            var content = new javafx.scene.input.ClipboardContent();
+            content.putString(entry.file().toString());
+            board.setContent(content);
+            e.consume();
+        });
+        row.setOnDragOver(e -> {
+            if (e.getGestureSource() != row && e.getDragboard().hasString()) {
+                e.acceptTransferModes(javafx.scene.input.TransferMode.MOVE);
+            }
+            e.consume();
+        });
+        row.setOnDragDropped(e -> {
+            String dropped = e.getDragboard().getString();
+            List<LibraryEntry> current = new java.util.ArrayList<>(
+                    Shelf.arrange(library.entries(), groupBox.getValue(), Shelf.SortBy.CUSTOM).stream()
+                            .flatMap(g -> g.entries().stream())
+                            .toList());
+            LibraryEntry moving = current.stream()
+                    .filter(candidate -> candidate.file().toString().equals(dropped))
+                    .findFirst()
+                    .orElse(null);
+            if (moving != null) {
+                current.remove(moving);
+                current.add(Math.min(current.indexOf(entry) + 1, current.size()), moving);
+                onReorder.accept(Shelf.reorder(current));
+            }
+            e.setDropCompleted(moving != null);
+            e.consume();
+        });
     }
 
     private void updateGauge() {
@@ -328,6 +579,17 @@ final class LibraryPane {
 
     private static Label sectionTitle(String text) {
         Label label = new Label(text.toUpperCase(Locale.ROOT));
+        label.getStyleClass().add("hsec-title");
+        return label;
+    }
+
+    /**
+     * A group heading is <em>data</em> — a theme, a language, a publisher — so unlike the fixed
+     * structural heads it is not upper-cased. "ENCYCLOPEDIAS &amp; REFERENCE" reads as shouting,
+     * and a language code that is meaningfully lower-case ("en") should not be rewritten.
+     */
+    private static Label groupHeading(String text) {
+        Label label = new Label(text);
         label.getStyleClass().add("hsec-title");
         return label;
     }
@@ -369,6 +631,36 @@ final class LibraryPane {
 
     String gaugeTextForTest() {
         return gaugeLabel.getText();
+    }
+
+    /** The section headings currently rendered, in order, with their counts stripped. */
+    List<String> groupTitlesForTest() {
+        return deviceRows.getChildren().stream()
+                .filter(n -> n instanceof Label label && label.getStyleClass().contains("hsec-title"))
+                .map(n -> ((Label) n).getText().replaceAll("\\s+\\(\\d+\\)$", ""))
+                .toList();
+    }
+
+    /** Archive titles in display order, so a sort can be asserted rather than inferred. */
+    List<String> deviceTitlesForTest() {
+        return deviceRows.getChildren().stream()
+                .filter(n -> n instanceof HBox)
+                .map(n -> ((HBox) n)
+                        .getChildren().stream()
+                                .filter(c -> c instanceof VBox)
+                                .findFirst()
+                                .map(c -> ((Label) ((VBox) c).getChildren().getFirst()).getText())
+                                .orElse(""))
+                .toList();
+    }
+
+    boolean dragHandlesShownForTest() {
+        return deviceRows.getChildren().stream()
+                .filter(n -> n instanceof HBox)
+                .anyMatch(n -> ((HBox) n)
+                        .getChildren().stream()
+                                .anyMatch(
+                                        c -> c instanceof Label label && "⠿".equals(label.getText()) && c.isManaged()));
     }
 
     int updatePillsForTest() {
