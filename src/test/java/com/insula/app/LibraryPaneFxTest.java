@@ -153,11 +153,12 @@ class LibraryPaneFxTest {
     }
 
     @Test
-    void startupLandsOnTheLibraryWhenNothingOpens(@TempDir Path dir) {
+    void startupLandsOnHomeWhenNothingOpens(@TempDir Path dir) {
         withShell(dir, (controller, settings) -> {
-            // Main calls this after openLastArchiveIfEnabled(); with no archive it must land home.
+            // Main calls this after openLastArchiveIfEnabled(). The design kit makes Home the
+            // answer to "what do I read now?", so the management surface is no longer the door.
             controller.landOnLibraryIfIdle();
-            assertEquals(ReaderController.Surface.LIBRARY, controller.surfaceForTest());
+            assertEquals(ReaderController.Surface.HOME, controller.surfaceForTest());
             return null;
         });
     }

@@ -76,6 +76,14 @@ public final class LibrarySearch implements AutoCloseable {
     }
 
     /**
+     * Titles currently searchable across every indexed archive — what Home's placeholder counts.
+     * Zero until the first search has built an index, which is why the caller must cope with it.
+     */
+    public synchronized long indexedTitleCount() {
+        return indexes.values().stream().mapToLong(TitleIndex::size).sum();
+    }
+
+    /**
      * Runs a search and delivers ranked results on the search thread. Superseded queries are
      * dropped, so a fast typist never sees older results overwrite newer ones.
      */

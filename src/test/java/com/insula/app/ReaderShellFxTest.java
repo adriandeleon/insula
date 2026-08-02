@@ -73,7 +73,9 @@ class ReaderShellFxTest {
         withShell(dir, (controller, settings) -> {
             String hint = controller.keybindingsForTest().displayFor("view.commandPalette");
             assertFalse(hint.isBlank(), "the palette command should advertise its own shortcut");
-            assertEquals("", controller.keybindingsForTest().displayFor("app.quit"), "unbound → no hint");
+            // A command that does not exist is unambiguously unbound; using a real one here is
+            // fragile, because the design kit is free to give it a chord later (it did: Ctrl+Q).
+            assertEquals("", controller.keybindingsForTest().displayFor("no.such.command"), "unbound → no hint");
             return null;
         });
     }

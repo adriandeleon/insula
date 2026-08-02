@@ -385,6 +385,15 @@ archive differently. Two rules from the kit that are easy to lose: verifying is 
 downloading, and a quarantined file advertises the cost of the **repair**, not the size of the
 loss.
 
+**The menubar is generated from command ids** (`app/Menus`), never from handlers: the label is the
+command's title and the accelerator is read from the same `Keybindings` the scene installs, so it
+cannot drift from the palette. `Menus.missingCommands` makes that assertable.
+
+**A chord bound twice is silently destructive.** `Keybindings.install` maps chord → action, so a
+second binding for the same combination just wins and the other command becomes unreachable with
+no error at all — `Ctrl+R` really was bound to both `catalog.refresh` and `reader.cycleMode`.
+`Keybindings.conflicts()` exists so a test can assert there are none; keep that test.
+
 **Testing UI structure:** do not walk the scene graph from a pane's root. A `ScrollPane`'s content
 is not reachable through `getChildrenUnmodifiable()` until it has been skinned, so an
 absence-assertion ("no Downloading pill is shown") passes vacuously against an empty walk. Panes

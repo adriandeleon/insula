@@ -47,6 +47,7 @@ import com.insula.catalog.CatalogFilter;
 import com.insula.catalog.StarterPicks;
 import com.insula.catalog.UpdateCheck;
 import com.insula.catalog.ZimEntry;
+import com.insula.command.Command;
 import com.insula.command.CommandRegistry;
 import com.insula.command.Keybindings;
 import com.insula.config.Settings;
@@ -97,12 +98,19 @@ final class ReaderController {
     private final Button backButton = new Button("←");
     private final Button forwardButton = new Button("→");
     private final Button homeButton = new Button("Home");
-    private final Button readerViewButton = new Button("Reader");
+    private final Button readerViewButton = new Button("Reader View");
     private final Button typePanelButton = new Button("Aa");
     private javafx.stage.Popup typePanel;
     private ReaderViewSession readerView;
+    private final javafx.scene.control.ToggleButton homeTab = new javafx.scene.control.ToggleButton("Home");
     private final javafx.scene.control.ToggleButton libraryTab = new javafx.scene.control.ToggleButton("Library");
     private final javafx.scene.control.ToggleButton catalogTab = new javafx.scene.control.ToggleButton("Catalog");
+    private final javafx.scene.control.ToggleButton readerTab = new javafx.scene.control.ToggleButton("Reader");
+    private HomePane homePane;
+    private final Label statusArchive = new Label();
+    private final Label statusArriving = new Label();
+    private final Label statusLan = new Label();
+    private final TextField omniField = new TextField();
     private final Label status = new Label("Open a .zim archive to start reading");
 
     private final CommandRegistry commands = new CommandRegistry();
@@ -161,6 +169,7 @@ final class ReaderController {
 
     /** Which surface fills the window: the Reader, the Library (home), or the Catalog. */
     enum Surface {
+        HOME,
         READER,
         LIBRARY,
         CATALOG
@@ -204,6 +213,15 @@ final class ReaderController {
                 () -> freeDiskBytes(dataDir));
         this.libraryPane =
                 new LibraryPane(downloads, library, this::openFromLibrary, status::setText, () -> diskInfo(dataDir));
+        this.homePane = new HomePane(
+                bookmarks,
+                history,
+                downloads,
+                this::lastReadArticle,
+                this::homeSearchScope,
+                ref -> openRef(ref, false),
+                () -> commands.run("view.commandPalette"),
+                this::showLibrary);
         buildUi();
         registerCommands();
         bindKeys();
@@ -318,7 +336,22 @@ final class ReaderController {
             saveAndApply();
             status.setText("Remember reading position: " + (settings.isRememberPosition() ? "on" : "off"));
         });
+        commands.register("home.open", "Show Home", this::showHome);
         commands.register("library.open", "Show the Library", this::showLibrary);
+        commands.register("tab.reopen", "Reopen Closed Tab", this::reopenClosedTab);
+        commands.register("file.closeArchive", "Close Archive", this::closeCurrentArchive);
+        commands.register("library.reveal", "Reveal Archives Folder", this::revealArchivesFolder);
+        commands.register(
+                "download.pauseAll",
+                "Pause All Downloads",
+                () -> eachActiveDownload(DownloadManager.Job::pause, "Paused all downloads"));
+        commands.register(
+                "download.resumeAll",
+                "Resume All Downloads",
+                () -> eachActiveDownload(DownloadManager.Job::resume, "Resumed all downloads"));
+        commands.register("help.shortcuts", "Keyboard Shortcuts", this::showShortcuts);
+        commands.register("help.about", "About Insula", this::showAbout);
+        commands.register("app.quit", "Quit Insula", () -> stage.close());
         commands.register("catalog.open", "Show the Catalog", this::showCatalog);
         commands.register("library.show", "Show Library and Downloads", this::showLibrary);
         commands.register("library.reader", "Back to Reader", this::showReader);
@@ -354,20 +387,36 @@ final class ReaderController {
                 new KeyCodeCombination(KeyCode.P, KeyCombination.SHORTCUT_DOWN, KeyCombination.SHIFT_DOWN));
         keys.bind("file.open", new KeyCodeCombination(KeyCode.O, KeyCombination.SHORTCUT_DOWN));
         keys.bind("view.settings", new KeyCodeCombination(KeyCode.COMMA, KeyCombination.SHORTCUT_DOWN));
-        keys.bind("search.focus", new KeyCodeCombination(KeyCode.L, KeyCombination.SHORTCUT_DOWN));
+        keys.bind("search.focus", new KeyCodeCombination(KeyCode.F, KeyCombination.SHORTCUT_DOWN));
         keys.bind("nav.back", new KeyCodeCombination(KeyCode.LEFT, KeyCombination.ALT_DOWN));
         keys.bind("nav.forward", new KeyCodeCombination(KeyCode.RIGHT, KeyCombination.ALT_DOWN));
         keys.bind("view.zoomIn", new KeyCodeCombination(KeyCode.EQUALS, KeyCombination.SHORTCUT_DOWN));
         keys.bind("view.zoomOut", new KeyCodeCombination(KeyCode.MINUS, KeyCombination.SHORTCUT_DOWN));
         keys.bind("view.zoomReset", new KeyCodeCombination(KeyCode.DIGIT0, KeyCombination.SHORTCUT_DOWN));
-        keys.bind("library.toggle", new KeyCodeCombination(KeyCode.B, KeyCombination.SHORTCUT_DOWN));
-        keys.bind("library.open", new KeyCodeCombination(KeyCode.DIGIT1, KeyCombination.SHORTCUT_DOWN));
-        keys.bind("catalog.open", new KeyCodeCombination(KeyCode.DIGIT2, KeyCombination.SHORTCUT_DOWN));
-        keys.bind("reader.cycleMode", new KeyCodeCombination(KeyCode.R, KeyCombination.SHORTCUT_DOWN));
+        keys.bind("home.open", new KeyCodeCombination(KeyCode.DIGIT1, KeyCombination.SHORTCUT_DOWN));
+        keys.bind("library.open", new KeyCodeCombination(KeyCode.DIGIT2, KeyCombination.SHORTCUT_DOWN));
+        keys.bind("catalog.open", new KeyCodeCombination(KeyCode.DIGIT3, KeyCombination.SHORTCUT_DOWN));
+        keys.bind("catalog.refresh", new KeyCodeCombination(KeyCode.R, KeyCombination.SHORTCUT_DOWN));
+        keys.bind("lan.share", new KeyCodeCombination(KeyCode.L, KeyCombination.SHORTCUT_DOWN));
+        keys.bind("app.quit", new KeyCodeCombination(KeyCode.Q, KeyCombination.SHORTCUT_DOWN));
+        keys.bind("help.shortcuts", new KeyCodeCombination(KeyCode.SLASH, KeyCombination.SHORTCUT_DOWN));
+        keys.bind(
+                "tab.reopen",
+                new KeyCodeCombination(KeyCode.T, KeyCombination.SHORTCUT_DOWN, KeyCombination.SHIFT_DOWN));
+        // reader.cycleMode is deliberately unbound: the kit gives Ctrl+R to the catalog refresh,
+        // and leaving both bound made one of them silently unreachable.
         keys.bind(
                 "readerview.toggle",
                 new KeyCodeCombination(KeyCode.R, KeyCombination.SHORTCUT_DOWN, KeyCombination.ALT_DOWN));
-        keys.bind("catalog.refresh", new KeyCodeCombination(KeyCode.F5));
+        keys.bind("tab.new", new KeyCodeCombination(KeyCode.T, KeyCombination.SHORTCUT_DOWN));
+        keys.bind("tab.close", new KeyCodeCombination(KeyCode.W, KeyCombination.SHORTCUT_DOWN));
+        keys.bind("tab.next", new KeyCodeCombination(KeyCode.TAB, KeyCombination.CONTROL_DOWN));
+        keys.bind(
+                "tab.previous",
+                new KeyCodeCombination(KeyCode.TAB, KeyCombination.CONTROL_DOWN, KeyCombination.SHIFT_DOWN));
+        keys.bind("bookmark.toggle", new KeyCodeCombination(KeyCode.D, KeyCombination.SHORTCUT_DOWN));
+        keys.bind("bookmark.show", new KeyCodeCombination(KeyCode.B, KeyCombination.SHORTCUT_DOWN));
+        keys.bind("history.show", new KeyCodeCombination(KeyCode.H, KeyCombination.SHORTCUT_DOWN));
     }
 
     void installShortcuts(Scene scene) {
@@ -403,30 +452,59 @@ final class ReaderController {
         typePanelButton.setVisible(false);
         typePanelButton.setManaged(false);
 
+        // Surfaces: the kit's segmented switcher. Reader only appears once something is open.
+        javafx.scene.control.ToggleGroup surfaceGroup = new javafx.scene.control.ToggleGroup();
+        homeTab.setToggleGroup(surfaceGroup);
+        libraryTab.setToggleGroup(surfaceGroup);
+        catalogTab.setToggleGroup(surfaceGroup);
+        readerTab.setToggleGroup(surfaceGroup);
+        homeTab.setOnAction(e -> commands.run("home.open"));
         libraryTab.setOnAction(e -> commands.run("library.open"));
         catalogTab.setOnAction(e -> commands.run("catalog.open"));
-        HBox navTabs = new HBox(2, libraryTab, catalogTab);
-        navTabs.setAlignment(Pos.CENTER_LEFT);
+        readerTab.setOnAction(e -> commands.run("library.reader"));
+        readerTab.setVisible(false);
+        readerTab.setManaged(false);
+        HBox surfaces = new HBox(homeTab, libraryTab, catalogTab, readerTab);
+        surfaces.getStyleClass().add("surfaces");
+        surfaces.setAlignment(Pos.CENTER_LEFT);
+
         Button paletteButton = new Button("⌘K");
         paletteButton.setTooltip(new javafx.scene.control.Tooltip("Command palette"));
         paletteButton.setOnAction(e -> commands.run("view.commandPalette"));
         Button settingsButton = new Button("Settings");
         settingsButton.setOnAction(e -> commands.run("view.settings"));
 
-        Region spacer = new Region();
-        HBox.setHgrow(spacer, Priority.ALWAYS);
+        // One omnibox, whose placeholder states the scope and the count of what it searches.
+        omniField.setPromptText("Search");
+        omniField.getStyleClass().add("omni");
+        omniField.setOnAction(e -> commands.run("view.commandPalette"));
+        omniField.setEditable(false);
+        omniField.setFocusTraversable(false);
+        omniField.setOnMouseClicked(e -> commands.run("view.commandPalette"));
+        // Wide enough to actually say the scope: an elided "Search everything you have — 17 archi"
+        // defeats the point of a placeholder that names what it searches.
+        omniField.setPrefWidth(460);
+        omniField.setMinWidth(320);
+        omniField.setMaxWidth(560);
+
+        Region leftGap = new Region();
+        Region rightGap = new Region();
+        HBox.setHgrow(leftGap, Priority.ALWAYS);
+        HBox.setHgrow(rightGap, Priority.ALWAYS);
         ToolBar toolbar = new ToolBar(
                 openButton,
-                navTabs,
                 new Separator(),
                 backButton,
                 forwardButton,
                 homeButton,
                 new Separator(),
+                surfaces,
+                leftGap,
+                omniField,
+                rightGap,
                 readerViewButton,
                 typePanelButton,
                 bookmarkButton,
-                spacer,
                 paletteButton,
                 settingsButton);
 
@@ -526,13 +604,121 @@ final class ReaderController {
             }
         });
 
-        HBox statusBar = new HBox(status);
+        // The kit's status bar: the archive's verified flag, arriving downloads (click → Library),
+        // and LAN state. Quiet facts only — nothing here pushes per event.
+        statusArriving.setOnMouseClicked(e -> commands.run("library.open"));
+        for (Label label : List.of(statusArchive, statusArriving, statusLan)) {
+            label.getStyleClass().add("card-faint");
+        }
+        Region statusGap = new Region();
+        HBox.setHgrow(statusGap, Priority.ALWAYS);
+        HBox statusBar = new HBox(18, status, statusGap, statusArchive, statusArriving, statusLan);
         statusBar.setPadding(new Insets(4, 10, 4, 10));
 
-        shell.setTop(toolbar);
+        VBox topChrome = new VBox(Menus.build(commands, keys), toolbar);
+        shell.setTop(topChrome);
         shell.setCenter(readerSplit);
         shell.setBottom(statusBar);
         root.getChildren().add(shell);
+    }
+
+    // ---------------------------------------------------------------- shell commands
+
+    /** Closed tabs, newest first, so Ctrl+Shift+T walks back through them. */
+    private final java.util.Deque<ArticleRef> closedTabs = new java.util.ArrayDeque<>();
+
+    private static final int MAX_CLOSED_TABS = 20;
+
+    private void reopenClosedTab() {
+        if (closedTabs.isEmpty()) {
+            status.setText("No recently closed tabs");
+            return;
+        }
+        openRef(closedTabs.pop(), true);
+    }
+
+    private void rememberClosedTab(ArticleRef ref) {
+        if (ref == null) {
+            return;
+        }
+        closedTabs.push(ref);
+        while (closedTabs.size() > MAX_CLOSED_TABS) {
+            closedTabs.removeLast();
+        }
+    }
+
+    int closedTabCountForTest() {
+        return closedTabs.size();
+    }
+
+    private void closeCurrentArchive() {
+        if (archive == null) {
+            status.setText("No archive is open");
+            return;
+        }
+        closeArchive();
+        lastArticlePath = null;
+        bookTitle = "";
+        showLibrary();
+        syncNavTabs();
+        status.setText("Closed the archive");
+    }
+
+    private void revealArchivesFolder() {
+        Path folder = dataDir.resolve("archives");
+        try {
+            java.nio.file.Files.createDirectories(folder);
+        } catch (IOException e) {
+            status.setText("Could not open the archives folder: " + e.getMessage());
+            return;
+        }
+        if (hostServices != null) {
+            hostServices.showDocument(folder.toUri().toString());
+        } else {
+            status.setText(folder.toString());
+        }
+    }
+
+    private void eachActiveDownload(java.util.function.Consumer<DownloadManager.Job> action, String message) {
+        List<DownloadManager.Job> active = downloads.jobs().stream()
+                .filter(job -> !job.snapshot().state().isTerminal())
+                .toList();
+        if (active.isEmpty()) {
+            status.setText("Nothing is downloading");
+            return;
+        }
+        active.forEach(action);
+        status.setText(message);
+    }
+
+    private void showAbout() {
+        javafx.scene.control.Alert alert =
+                new javafx.scene.control.Alert(javafx.scene.control.Alert.AlertType.INFORMATION);
+        alert.setTitle("About Insula");
+        alert.setHeaderText("Insula");
+        alert.setContentText("An offline reader for ZIM archives — whole encyclopedias, courses and "
+                + "talks stored as single files on your disk.\n\nArchives live in "
+                + dataDir.resolve("archives") + ".");
+        alert.showAndWait();
+    }
+
+    /** The shortcut sheet is the keymap itself, so it can never drift from what is bound. */
+    private void showShortcuts() {
+        StringBuilder text = new StringBuilder();
+        commands.all().stream()
+                .filter(c -> !keys.displayFor(c.id()).isBlank())
+                .sorted(java.util.Comparator.comparing(Command::title))
+                .forEach(c -> text.append(String.format("%-28s %s%n", keys.displayFor(c.id()), c.title())));
+        javafx.scene.control.Alert alert =
+                new javafx.scene.control.Alert(javafx.scene.control.Alert.AlertType.INFORMATION);
+        alert.setTitle("Keyboard shortcuts");
+        alert.setHeaderText("Keyboard shortcuts");
+        javafx.scene.control.TextArea area = new javafx.scene.control.TextArea(text.toString());
+        area.setEditable(false);
+        area.setPrefRowCount(18);
+        area.setStyle("-fx-font-family: monospace;");
+        alert.getDialogPane().setContent(area);
+        alert.showAndWait();
     }
 
     // ---------------------------------------------------------------- tabs
@@ -720,6 +906,10 @@ final class ReaderController {
         if (tabs.count() == 0) {
             return;
         }
+        ReaderTabs.Tab closing = tabs.active();
+        if (closing != null) {
+            rememberClosedTab(closing.article());
+        }
         ReaderTabs.Tab next = tabs.closeActive();
         syncTabBar();
         if (next == null) {
@@ -777,6 +967,7 @@ final class ReaderController {
         if (tab == null) {
             return;
         }
+        rememberClosedTab(tab.article());
         int index = tabs.tabs().indexOf(tab);
         ReaderTabs.Tab next = tabs.close(index);
         syncTabBar();
@@ -959,16 +1150,107 @@ final class ReaderController {
         }
     }
 
-    /** Lands on the Library at startup when nothing is being read — the spec's "Library is home". */
+    /**
+     * Where an idle startup lands. The kit makes <b>Home</b> the answer to "what do I read now?",
+     * so the Library — the management surface — is no longer the front door.
+     */
     void landOnLibraryIfIdle() {
         if (archive == null) {
-            showLibrary();
+            showHome();
         }
     }
 
     private void syncNavTabs() {
+        homeTab.setSelected(surface == Surface.HOME);
         libraryTab.setSelected(surface == Surface.LIBRARY);
         catalogTab.setSelected(surface == Surface.CATALOG);
+        readerTab.setSelected(surface == Surface.READER);
+        // Reader is a surface only once there is something to read.
+        boolean readable = archive != null;
+        readerTab.setVisible(readable);
+        readerTab.setManaged(readable);
+        refreshStatusBar();
+        refreshOmniPlaceholder();
+    }
+
+    private void showHome() {
+        if (surface != Surface.HOME) {
+            libraryPane.deactivate();
+            catalogPane.deactivate();
+            shell.setCenter(homePane.node());
+            homePane.activate();
+            surface = Surface.HOME;
+            syncNavTabs();
+        }
+    }
+
+    /** The omnibox says what it searches and how much of it — the kit's contextual placeholder. */
+    private void refreshOmniPlaceholder() {
+        omniField.setPromptText(
+                switch (surface) {
+                    case CATALOG -> "Search the catalog — instant, offline";
+                    case READER ->
+                        archive == null
+                                ? "Search"
+                                : "Search this archive — "
+                                        + String.format(java.util.Locale.ROOT, "%,d", archive.entryCount())
+                                        + " articles";
+                    default -> homeSearchScope();
+                });
+    }
+
+    /** "Search everything you have — N articles in M archives". */
+    private String homeSearchScope() {
+        int archives = library.verifiedEntries().size();
+        long articles = librarySearch.indexedTitleCount();
+        if (archives == 0) {
+            return "Search everything you have — no archives yet";
+        }
+        return articles > 0
+                ? String.format(
+                        java.util.Locale.ROOT,
+                        "Search everything you have — %,d articles in %d archive%s",
+                        articles,
+                        archives,
+                        archives == 1 ? "" : "s")
+                : String.format(
+                        java.util.Locale.ROOT,
+                        "Search everything you have — %d archive%s",
+                        archives,
+                        archives == 1 ? "" : "s");
+    }
+
+    private void refreshStatusBar() {
+        statusArchive.setText(
+                archive == null ? "" : bookTitle + (library.isVerified(currentArchiveFile) ? " · verified ✓" : ""));
+        long arriving = downloads.jobs().stream()
+                .filter(job -> !job.snapshot().state().isTerminal())
+                .count();
+        statusArriving.setText(arriving == 0 ? "" : arriving + " download" + (arriving == 1 ? "" : "s") + " arriving");
+        statusLan.setText(lanServer == null ? "" : "LAN: sharing " + lanServer.sharedCount() + " archives");
+    }
+
+    /** The article to resume, for Home's Continue card. */
+    private HomePane.Continue lastReadArticle() {
+        List<ArticleRef> recent = history.entries();
+        if (recent.isEmpty()) {
+            return null;
+        }
+        ArticleRef ref = recent.getFirst();
+        double fraction = positions.positionOf(ReadingPositions.key(ref.archiveFile(), ref.articlePath()));
+        return new HomePane.Continue(ref, fraction, "");
+    }
+
+    boolean readerSurfaceVisibleForTest() {
+        return readerTab.isVisible();
+    }
+
+    String omniPlaceholderForTest() {
+        return omniField.getPromptText();
+    }
+
+    HomePane homePaneForTest() {
+        return homePane;
     }
 
     // ---------------------------------------------------------------- archive updates
@@ -1506,6 +1788,7 @@ final class ReaderController {
             settings.save();
             // The archive being read participates in search alongside the rest of the library.
             librarySearch.add(currentArchiveFile, bookTitle, archive);
+            syncNavTabs();
             refreshSearchSources();
             goHome();
             searchField.requestFocus();
@@ -1647,6 +1930,7 @@ final class ReaderController {
             recordHistory();
             updateBookmarkButton();
             syncActiveTabToCurrentArticle();
+            refreshStatusBar();
         }
     }
 

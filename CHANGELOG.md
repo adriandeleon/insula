@@ -11,6 +11,34 @@ Everything below is in `main` and unreleased; there has been no tagged version y
 
 ### Added
 
+**App shell — menubar, four surfaces, one omnibox**
+
+- A **menubar** (File / View / Bookmarks / Library / Catalog / Help) built entirely from registered
+  commands: an item's label is the command's title and its accelerator comes from the same
+  keymap the scene installs, so the menubar and the command palette cannot disagree. A test
+  asserts no menu item names a command that does not exist — it immediately caught one.
+- The toolbar's centre is now the kit's **surface switcher** — Home · Library · Catalog · Reader —
+  with Reader appearing only once an article is open, plus **one omnibox** whose placeholder
+  states what it searches and how much ("Search everything you have — 17 archives" on Home,
+  the open archive's article count in the Reader).
+- A **status bar** carrying the quiet facts: the open archive and its verified flag, arriving
+  downloads (click → Library), and LAN state.
+- **Home** is a new surface and the new front door (`Ctrl+1`): the hero cross-archive search, a
+  Continue-reading card that turns the saved scroll position into a visible "N% through" with the
+  surface's one primary button, recent articles, bookmarks, and a single arriving strip that is a
+  teaser — it has no pause or cancel, only a way to the Library.
+- The keymap follows the kit: `Ctrl+1/2/3` for the surfaces, `Ctrl+B`/`Ctrl+H` for the bookmarks
+  and history panels, `Ctrl+F` to search within an archive, `Ctrl+R` to refresh the catalog,
+  `Ctrl+L` to share on the network, `Ctrl+Shift+T` to reopen a closed tab, `Ctrl+/` for the
+  shortcut sheet (generated from the bindings, so it cannot drift).
+
+### Fixed
+
+- **`Ctrl+R` was bound to two commands at once** — the catalog refresh and the reader-mode cycle.
+  Bindings are installed into a map keyed by chord, so the loser simply became unreachable from
+  the keyboard with no error anywhere. Reader-mode cycling is now palette-only, and a test asserts
+  no two commands share a chord.
+
 **Catalog (renamed from Store)**
 
 - The Store is now the **Catalog** — nothing in it is for sale, and the source feed is literally
