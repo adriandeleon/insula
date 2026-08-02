@@ -94,7 +94,7 @@
     -fx-background-radius: 999;
     -fx-padding: 3 10 3 10;
     -fx-font-size: 11.5px;
-    -fx-font-weight: 650;
+    -fx-font-weight: 700;
 }
 .pill-ok      { -fx-background-color: -insula-ok-bg;      -fx-text-fill: -insula-ok; }
 .pill-amber   { -fx-background-color: -insula-amber-bg;   -fx-text-fill: -insula-amber; }
