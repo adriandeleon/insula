@@ -48,6 +48,26 @@ class ShellFxTest {
     }
 
     @Test
+    void theMenubarOnScreenActuallyHasItems(@TempDir Path dir) {
+        // Asserting against a menubar the test builds itself proves only that Menus.build works
+        // given a populated registry — it cannot see the assembly, where the bar is built before
+        // the commands are registered and every menu comes out empty.
+        withShell(dir, controller -> {
+            var bar = controller.menuBarForTest();
+            assertEquals(6, bar.getMenus().size());
+            for (var menu : bar.getMenus()) {
+                // Separators are added unconditionally, so "not empty" is not the test — a menu
+                // that lost every command still renders as a stack of bare dividers.
+                long real = menu.getItems().stream()
+                        .filter(i -> !(i instanceof javafx.scene.control.SeparatorMenuItem))
+                        .count();
+                assertTrue(real > 0, "the " + menu.getText() + " menu has no commands on screen");
+            }
+            return null;
+        });
+    }
+
+    @Test
     void theMenubarCarriesTheKitsSixMenus(@TempDir Path dir) {
         withShell(dir, controller -> {
             var bar = Menus.build(controller.commandsForTest(), controller.keybindingsForTest());

@@ -133,6 +133,7 @@ final class ReaderController {
     private String lastArticlePath;
 
     private final ReaderTabs tabs = new ReaderTabs();
+    private javafx.scene.control.MenuBar menuBar;
     private final javafx.scene.control.TabPane tabBar = new javafx.scene.control.TabPane();
     private final HBox restoredBar = new HBox(10);
     private final Label restoredLabel = new Label();
@@ -230,9 +231,13 @@ final class ReaderController {
         homePane.setEmptyDevice(() -> library.entries().isEmpty());
         wireLibraryOrganization();
         wireLanRow();
-        buildUi();
+        // Commands and their chords first: the menubar is built *out of* them, so building the UI
+        // beforehand leaves every menu holding nothing but its separators. Neither of these two
+        // touches a node — every command body is a lambda evaluated when it runs — so the order
+        // costs nothing.
         registerCommands();
         bindKeys();
+        buildUi();
         palette = new CommandPalette(root, commands, keys::displayFor);
         applySettings();
         // Verification a previous run never finished resumes now that the whole shell exists.
@@ -261,6 +266,10 @@ final class ReaderController {
 
     DownloadManager downloadsForTest() {
         return downloads;
+    }
+
+    javafx.scene.control.MenuBar menuBarForTest() {
+        return menuBar;
     }
 
     javafx.scene.control.TabPane tabBarForTest() {
@@ -657,7 +666,8 @@ final class ReaderController {
         HBox statusBar = new HBox(18, status, statusGap, statusArchive, statusArriving, statusLan);
         statusBar.setPadding(new Insets(4, 10, 4, 10));
 
-        VBox topChrome = new VBox(Menus.build(commands, keys), toolbar);
+        menuBar = Menus.build(commands, keys);
+        VBox topChrome = new VBox(menuBar, toolbar);
         shell.setTop(topChrome);
         shell.setCenter(readerSplit);
         shell.setBottom(statusBar);
