@@ -139,4 +139,30 @@ class ReaderTabsTest {
         tabs.close(0);
         assertFalse(tabs.selectTab(a), "a closed tab cannot be selected");
     }
+
+    @Test
+    void archiveChipsAppearOnlyOnceTheTabsSpanMoreThanOneArchive() {
+        // A chip on every tab of a single-archive session repeats the same word down the strip.
+        ReaderTabs tabs = new ReaderTabs();
+        tabs.open(new ArticleRef(java.nio.file.Path.of("/a.zim"), "C/One", "One", "Wikipedia"), true);
+        tabs.open(new ArticleRef(java.nio.file.Path.of("/a.zim"), "C/Two", "Two", "Wikipedia"), true);
+        assertFalse(tabs.showsArchiveChips());
+        assertEquals("", tabs.chipFor(tabs.active()));
+
+        tabs.open(new ArticleRef(java.nio.file.Path.of("/b.zim"), "C/Three", "Three", "TED"), true);
+        assertTrue(tabs.showsArchiveChips());
+        assertEquals("TED", tabs.chipFor(tabs.active()));
+        assertEquals("Wikipedia", tabs.chipFor(tabs.tabs().getFirst()));
+    }
+
+    @Test
+    void twoArchivesSharingATitleStillGetChips() {
+        // The maxi and mini builds of one project both call themselves "Wikipedia"; keying the
+        // decision on the title would leave exactly those tabs unlabelled.
+        ReaderTabs tabs = new ReaderTabs();
+        tabs.open(new ArticleRef(Path.of("/maxi.zim"), "C/One", "One", "Wikipedia"), true);
+        tabs.open(new ArticleRef(Path.of("/mini.zim"), "C/Two", "Two", "Wikipedia"), true);
+        assertTrue(tabs.showsArchiveChips());
+        assertEquals("Wikipedia", tabs.chipFor(tabs.active()));
+    }
 }

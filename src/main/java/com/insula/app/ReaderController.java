@@ -134,6 +134,8 @@ final class ReaderController {
 
     private final ReaderTabs tabs = new ReaderTabs();
     private final javafx.scene.control.TabPane tabBar = new javafx.scene.control.TabPane();
+    private final HBox restoredBar = new HBox(10);
+    private final Label restoredLabel = new Label();
     private final java.util.Map<javafx.scene.control.Tab, ReaderTabs.Tab> tabModel = new java.util.IdentityHashMap<>();
     private boolean syncingTabs;
     private ArticleStore bookmarks;
@@ -161,6 +163,7 @@ final class ReaderController {
 
     private final java.util.Map<Path, ZimArchive> searchArchives = new java.util.LinkedHashMap<>();
     private final ReadingPositions positions;
+    private final com.insula.reader.ReaderSession session;
     /** The article currently shown, for saving its scroll position when we navigate away. */
     private String currentPositionKey;
 
@@ -187,6 +190,7 @@ final class ReaderController {
         this.settings = settings;
         this.library = Library.load(dataDir.resolve("library.properties"));
         this.positions = ReadingPositions.load(dataDir.resolve("reading.properties"));
+        this.session = com.insula.reader.ReaderSession.load(dataDir.resolve("session.txt"));
         this.bookmarks = ArticleStore.load(dataDir.resolve("bookmarks.properties"), MAX_BOOKMARKS);
         this.history = ArticleStore.load(dataDir.resolve("history.properties"), MAX_HISTORY);
         this.transports = new TransportSelector(new HttpMultiSourceTransport());
@@ -253,6 +257,30 @@ final class ReaderController {
 
     Keybindings keybindingsForTest() {
         return keys;
+    }
+
+    javafx.scene.control.TabPane tabBarForTest() {
+        return tabBar;
+    }
+
+    void openRefForTest(ArticleRef ref, boolean inNewTab) {
+        openRef(ref, inNewTab);
+    }
+
+    String statusTextForTest() {
+        return status.getText() == null ? "" : status.getText();
+    }
+
+    ListView<ArticleRef> bookmarkListForTest() {
+        return bookmarkList;
+    }
+
+    void refreshBookmarkListForTest() {
+        refreshBookmarkList();
+    }
+
+    java.util.Set<Path> missingArchivesForTest() {
+        return java.util.Set.copyOf(missingArchives);
     }
 
     WebViewRenderer rendererForTest() {
@@ -537,7 +565,10 @@ final class ReaderController {
                     return;
                 }
                 Label title = new Label(item.title());
-                Label source = new Label(item.archiveTitle());
+                // Why this result is here, read back out of its own score, so the caption can
+                // never disagree with the ranking that put it in this position.
+                String tier = com.insula.search.MatchScore.tierOf(item.score()).caption();
+                Label source = new Label(tier.isEmpty() ? item.archiveTitle() : item.archiveTitle() + " · " + tier);
                 source.setStyle("-fx-opacity: 0.6; -fx-font-size: 0.85em;");
                 VBox box = new VBox(1, title, source);
                 setGraphic(box);
@@ -591,7 +622,10 @@ final class ReaderController {
             }
         });
 
-        readerSplit = new SplitPane(sidebar, tabBar);
+        buildRestoredBar();
+        javafx.scene.layout.BorderPane readerSide = new javafx.scene.layout.BorderPane(tabBar);
+        readerSide.setTop(restoredBar);
+        readerSplit = new SplitPane(sidebar, readerSide);
         readerSplit.setOrientation(Orientation.HORIZONTAL);
         readerSplit.setDividerPositions(0.24);
         SplitPane.setResizableWithParent(sidebar, false);
@@ -914,9 +948,15 @@ final class ReaderController {
                         return;
                     }
                     Label title = new Label(item.title());
-                    Label source = new Label(item.bookTitle());
+                    // A bookmark outlives its archive by design, so one whose file is gone is
+                    // shown greyed with the reason rather than hidden: hiding it looks like the
+                    // bookmark was lost, when in fact plugging the drive back in restores it.
+                    boolean installed = missingArchives.stream().noneMatch(p -> p.equals(item.archiveFile()));
+                    Label source = new Label(installed ? item.bookTitle() : item.bookTitle() + " · not installed");
                     source.setStyle("-fx-opacity: 0.6; -fx-font-size: 0.85em;");
-                    setGraphic(new VBox(1, title, source));
+                    VBox box = new VBox(1, title, source);
+                    box.setOpacity(installed ? 1 : 0.45);
+                    setGraphic(box);
                 }
             });
             list.setOnMouseClicked(e -> {
@@ -934,12 +974,32 @@ final class ReaderController {
         }
     }
 
+    /**
+     * Archives referenced by a saved article but not on disk. Recomputed when a list is refreshed
+     * rather than probed per cell: a cell factory runs on every scroll, and a {@code Files.exists}
+     * per row per frame would put the filesystem on the scroll path.
+     */
+    private final java.util.Set<Path> missingArchives = new java.util.HashSet<>();
+
+    private void refreshMissingArchives(List<ArticleRef> refs) {
+        missingArchives.clear();
+        refs.stream()
+                .map(ArticleRef::archiveFile)
+                .distinct()
+                .filter(f -> !java.nio.file.Files.isRegularFile(f))
+                .forEach(missingArchives::add);
+    }
+
     private void refreshBookmarkList() {
-        bookmarkList.getItems().setAll(bookmarks.entries());
+        List<ArticleRef> entries = bookmarks.entries();
+        refreshMissingArchives(entries);
+        bookmarkList.getItems().setAll(entries);
     }
 
     private void refreshHistoryList() {
-        historyList.getItems().setAll(history.entries());
+        List<ArticleRef> entries = history.entries();
+        refreshMissingArchives(entries);
+        historyList.getItems().setAll(entries);
     }
 
     /** The article currently showing, or null when nothing is open. */
@@ -1060,7 +1120,18 @@ final class ReaderController {
             tabModel.clear();
             tabBar.getTabs().clear();
             for (ReaderTabs.Tab tab : tabs.tabs()) {
-                javafx.scene.control.Tab uiTab = new javafx.scene.control.Tab(tab.label());
+                javafx.scene.control.Tab uiTab = new javafx.scene.control.Tab();
+                // The label lives in the graphic so an archive chip can sit beside it; the text is
+                // left empty rather than duplicated, which would render the title twice.
+                Label label = new Label(tab.label());
+                String chip = tabs.chipFor(tab);
+                if (chip.isBlank()) {
+                    uiTab.setGraphic(label);
+                } else {
+                    Label chipLabel = new Label(chip);
+                    chipLabel.getStyleClass().addAll("pill", "pill-neutral");
+                    uiTab.setGraphic(new HBox(6, label, chipLabel));
+                }
                 tabModel.put(uiTab, tab);
                 tabBar.getTabs().add(uiTab);
             }
@@ -1072,6 +1143,7 @@ final class ReaderController {
         } finally {
             syncingTabs = false;
         }
+        rememberSession();
     }
 
     private void onTabSelected(javafx.scene.control.Tab uiTab) {
@@ -1152,10 +1224,23 @@ final class ReaderController {
         }
         active.setArticle(ref);
         active.setScroll(0);
-        int index = tabs.activeIndex();
-        if (index >= 0 && index < tabBar.getTabs().size()) {
-            tabBar.getTabs().get(index).setText(ref.title());
-        }
+        // The title moved, so the strip is rebuilt rather than poked: a new article can change
+        // whether chips are warranted at all.
+        syncTabBar();
+    }
+
+    /**
+     * Records the open set so a restart can reopen it. Called wherever the strip changes rather
+     * than only at shutdown, because a crash or a kill is exactly when losing the session stings.
+     */
+    private void rememberSession() {
+        session.set(
+                tabs.tabs().stream()
+                        .map(ReaderTabs.Tab::article)
+                        .filter(java.util.Objects::nonNull)
+                        .toList(),
+                tabs.activeIndex());
+        session.save();
     }
 
     private void rememberScrollForActiveTab() {
@@ -1985,10 +2070,46 @@ final class ReaderController {
     }
 
     /** Opens the archive remembered by {@link Settings#getLastArchive()}, if enabled and still present. */
+    /**
+     * Reopens the previous sitting: every tab, with the last-active one selected.
+     *
+     * <p>Falls back to the single last archive when there is no session to restore, so an install
+     * that predates sessions — or one where every archive has since been deleted — still behaves
+     * the way it used to. Tabs whose archive is gone are dropped and <em>counted</em>, because
+     * silently reopening four of five tabs looks like a bug from the outside.
+     */
     void openLastArchiveIfEnabled() {
+        if (!settings.isReopenLastArchive()) {
+            return;
+        }
+        com.insula.reader.ReaderSession.Restored restored = session.restore(Files::isRegularFile);
+        if (!restored.open().isEmpty()) {
+            restoreTabs(restored);
+            return;
+        }
         String last = settings.getLastArchive();
-        if (settings.isReopenLastArchive() && !last.isBlank() && Files.isRegularFile(Path.of(last))) {
+        if (!last.isBlank() && Files.isRegularFile(Path.of(last))) {
             openZim(Path.of(last));
+        }
+    }
+
+    private void restoreTabs(com.insula.reader.ReaderSession.Restored restored) {
+        // Opened in order so the strip matches last time, then the remembered one is selected —
+        // opening the active tab last would reorder the strip instead.
+        for (ArticleRef ref : restored.open()) {
+            openRef(ref, true);
+        }
+        int active = restored.activeIndex();
+        if (active >= 0 && active < tabs.count()) {
+            ReaderTabs.Tab tab = tabs.tabs().get(active);
+            tabs.selectTab(tab);
+            syncTabBar();
+            activateTab(tab);
+        }
+        if (restored.dropped() > 0) {
+            status.setText("Reopened " + restored.open().size() + " tab"
+                    + (restored.open().size() == 1 ? "" : "s") + " · " + restored.dropped()
+                    + " skipped, their archives are no longer on this device");
         }
     }
 
@@ -2590,8 +2711,62 @@ final class ReaderController {
                 PauseTransition settle = new PauseTransition(Duration.millis(150));
                 settle.setOnFinished(e -> renderer.scrollTo(saved));
                 settle.play();
+                if (saved >= RESTORE_NOTICE_FLOOR) {
+                    showRestoredBar(saved);
+                } else {
+                    hideRestoredBar();
+                }
+            } else {
+                hideRestoredBar();
             }
+        } else {
+            hideRestoredBar();
         }
+    }
+
+    /**
+     * The "you were N% through — restored" line.
+     *
+     * <p>Its value is not the announcement but the escape hatch beside it: being dropped into the
+     * middle of an article with no explanation and no way back to the top is disorienting, and a
+     * message without the button would only name the confusion rather than resolve it. It is shown
+     * only past {@link #RESTORE_NOTICE_FLOOR}, because restoring 2% is indistinguishable from the
+     * top and would make the bar appear for essentially every article.
+     */
+    private void buildRestoredBar() {
+        restoredLabel.getStyleClass().add("card-sub");
+        Region gap = new Region();
+        HBox.setHgrow(gap, Priority.ALWAYS);
+        Button toTop = new Button("Back to top");
+        toTop.setOnAction(e -> {
+            renderer.scrollTo(0);
+            hideRestoredBar();
+        });
+        Button dismiss = new Button("✕");
+        dismiss.setOnAction(e -> hideRestoredBar());
+        restoredBar.getChildren().addAll(restoredLabel, gap, toTop, dismiss);
+        restoredBar.setAlignment(Pos.CENTER_LEFT);
+        restoredBar.setPadding(new Insets(6, 12, 6, 12));
+        restoredBar.getStyleClass().addAll("rowcard", "rowcard-arriving");
+        hideRestoredBar();
+    }
+
+    /** Below this a restore is indistinguishable from the top, so saying so is noise. */
+    static final double RESTORE_NOTICE_FLOOR = 0.05;
+
+    private void showRestoredBar(double fraction) {
+        restoredLabel.setText("You were " + Math.round(fraction * 100) + "% through — restored.");
+        restoredBar.setVisible(true);
+        restoredBar.setManaged(true);
+    }
+
+    private void hideRestoredBar() {
+        restoredBar.setVisible(false);
+        restoredBar.setManaged(false);
+    }
+
+    String restoredNoticeForTest() {
+        return restoredBar.isVisible() ? restoredLabel.getText() : "";
     }
 
     /** Records the scroll position of the article being left. */
@@ -2603,6 +2778,11 @@ final class ReaderController {
 
     void dispose() {
         savePosition();
+        try {
+            rememberSession();
+        } catch (RuntimeException e) {
+            // a failed session save must never block shutdown
+        }
         try {
             positions.save();
         } catch (RuntimeException e) {

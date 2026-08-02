@@ -124,4 +124,24 @@ class MatchScoreTest {
         assertTrue(score("уикипедия", "Уикипедия") != MatchScore.NO_MATCH);
         assertTrue(score("перш", "Першая старонка") != MatchScore.NO_MATCH);
     }
+
+    @Test
+    void theTierIsRecoverableFromTheScoreSoTheCaptionCannotContradictTheRanking() {
+        assertEquals(MatchScore.Tier.EXACT_MATCH, MatchScore.tierOf(MatchScore.score("paris", "paris", 5)));
+        assertEquals(MatchScore.Tier.STARTS_WITH, MatchScore.tierOf(MatchScore.score("par", "paris", 5)));
+        assertEquals(MatchScore.Tier.WORD_START, MatchScore.tierOf(MatchScore.score("york", "new york", 8)));
+        assertEquals(MatchScore.Tier.CONTAINS_TEXT, MatchScore.tierOf(MatchScore.score("ari", "paris", 5)));
+        assertEquals(MatchScore.Tier.FUZZY, MatchScore.tierOf(MatchScore.score("nyk", "new york", 8)));
+        assertEquals(MatchScore.Tier.NONE, MatchScore.tierOf(MatchScore.NO_MATCH));
+    }
+
+    @Test
+    void theLongestPossibleTitleStillStaysInsideItsOwnTier() {
+        // The length penalty is bounded below a band's width on purpose; if that ever stopped
+        // holding, a long exact match would be captioned as merely "starts with".
+        int worstCase = MatchScore.score("paris", "paris", Integer.MAX_VALUE);
+        assertEquals(MatchScore.Tier.EXACT_MATCH, MatchScore.tierOf(worstCase));
+        assertEquals(
+                MatchScore.Tier.STARTS_WITH, MatchScore.tierOf(MatchScore.score("par", "paris", Integer.MAX_VALUE)));
+    }
 }

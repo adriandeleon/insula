@@ -50,6 +50,32 @@ public final class ReaderTabs {
     private final List<Tab> tabs = new ArrayList<>();
     private int activeIndex = -1;
 
+    /**
+     * Whether a tab should name the archive it came from.
+     *
+     * <p>Only when the open tabs actually span more than one archive. A chip on every tab of a
+     * single-archive session repeats the same word down the strip and disambiguates nothing — the
+     * chip earns its space exactly when it tells two tabs apart.
+     *
+     * <p>The count is over archive <em>files</em>, not titles, even though the chip displays the
+     * title: two different archives can carry the same title (the maxi and mini builds of one
+     * project both call themselves "Wikipedia"), and keying on the title would leave those tabs
+     * with no chip at all — the case where telling them apart matters most. A degenerate pair of
+     * identical chips at least says the tabs come from different files.
+     */
+    public boolean showsArchiveChips() {
+        return tabs.stream()
+                        .map(t -> t.article() == null ? null : t.article().archiveFile())
+                        .distinct()
+                        .count()
+                > 1;
+    }
+
+    /** The chip's text for one tab: the archive's title, or empty when a chip is not warranted. */
+    public String chipFor(Tab tab) {
+        return showsArchiveChips() && tab.article() != null ? tab.article().bookTitle() : "";
+    }
+
     public List<Tab> tabs() {
         return List.copyOf(tabs);
     }

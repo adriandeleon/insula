@@ -17,6 +17,53 @@ public final class MatchScore {
 
     public static final int NO_MATCH = 0;
 
+    /**
+     * Why a result matched, recovered from its score.
+     *
+     * <p>The tier is already encoded in the score — it is the band the score falls in — so this
+     * reads it back rather than being carried alongside, which is what keeps the caption and the
+     * ranking from ever disagreeing. The length penalty is bounded below a band's width precisely
+     * so a long title can never sink into the tier beneath it.
+     */
+    public enum Tier {
+        EXACT_MATCH("exact match"),
+        STARTS_WITH("starts with"),
+        WORD_START("word start"),
+        CONTAINS_TEXT("contains"),
+        FUZZY("fuzzy"),
+        NONE("");
+
+        private final String caption;
+
+        Tier(String caption) {
+            this.caption = caption;
+        }
+
+        /** The words the kit puts under a result, explaining why it is there. */
+        public String caption() {
+            return caption;
+        }
+    }
+
+    public static Tier tierOf(int score) {
+        if (score <= NO_MATCH) {
+            return Tier.NONE;
+        }
+        if (score > PREFIX) {
+            return Tier.EXACT_MATCH;
+        }
+        if (score > WORD_PREFIX) {
+            return Tier.STARTS_WITH;
+        }
+        if (score > CONTAINS) {
+            return Tier.WORD_START;
+        }
+        if (score > SUBSEQUENCE) {
+            return Tier.CONTAINS_TEXT;
+        }
+        return Tier.FUZZY;
+    }
+
     private static final int EXACT = 1_000_000;
     private static final int PREFIX = 900_000;
     private static final int WORD_PREFIX = 800_000;
