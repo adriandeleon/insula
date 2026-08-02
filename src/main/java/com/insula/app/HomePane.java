@@ -8,6 +8,7 @@ import java.util.function.Supplier;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
+import javafx.scene.control.Hyperlink;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressBar;
 import javafx.scene.control.ScrollPane;
@@ -49,7 +50,18 @@ final class HomePane {
     private List<com.insula.catalog.StarterPicks.Resolved> starters = List.of();
     private Consumer<com.insula.catalog.ZimEntry> onDownloadStarter = e -> {};
     private Runnable onOpenCatalog = () -> {};
+    private Runnable onOpenFile = () -> {};
+    private Supplier<Integer> catalogCount = () -> 0;
     private Supplier<Boolean> emptyDevice = () -> false;
+
+    /** The kit's hero paragraph is capped near 52ch; past that a centered line is hard to track. */
+    private static final double HERO_TEXT_WIDTH = 520;
+
+    /** The two escapes from an empty library: the catalog, and a file the user already has. */
+    void setFirstRunActions(Runnable onOpenFile, Supplier<Integer> catalogCount) {
+        this.onOpenFile = onOpenFile == null ? () -> {} : onOpenFile;
+        this.catalogCount = catalogCount == null ? () -> 0 : catalogCount;
+    }
 
     /** Whether the device has no archives at all — the difference between "get some" and "read some". */
     void setEmptyDevice(Supplier<Boolean> emptyDevice) {
@@ -135,40 +147,83 @@ final class HomePane {
         }
 
         Label tagline = new Label("The library that works when nothing else does.");
-        tagline.getStyleClass().add("card-title");
-        Label sub = new Label(
-                starters.isEmpty()
-                        ? "Nothing downloaded yet — open the Catalog to find archives."
-                        : "Nothing downloaded yet. A few good places to start:");
-        sub.getStyleClass().add("card-sub");
-        box.getChildren().addAll(tagline, sub);
-        starters.forEach(starter -> box.getChildren().add(starterRow(starter)));
+        tagline.getStyleClass().add("hero-title");
+        tagline.setWrapText(true);
+        tagline.setTextAlignment(javafx.scene.text.TextAlignment.CENTER);
+        Label pitch = new Label("Insula reads ZIM archives — whole encyclopedias, courses and talks stored as "
+                + "single files on your disk. Download once, read forever, no connection needed.");
+        pitch.getStyleClass().add("hero-sub");
+        pitch.setWrapText(true);
+        pitch.setMaxWidth(HERO_TEXT_WIDTH);
+        pitch.setTextAlignment(javafx.scene.text.TextAlignment.CENTER);
+        VBox hero = new VBox(8, tagline, pitch);
+        hero.setAlignment(Pos.CENTER);
+        box.getChildren().add(hero);
 
-        Button catalog = new Button("Browse the Catalog →");
-        catalog.setOnAction(e -> onOpenCatalog.run());
-        box.getChildren().add(catalog);
+        if (!starters.isEmpty()) {
+            TilePane grid = new TilePane(14, 14);
+            grid.setPrefColumns(3);
+            grid.setAlignment(Pos.CENTER);
+            for (int i = 0; i < starters.size(); i++) {
+                grid.getChildren().add(starterCard(starters.get(i), i == 0));
+            }
+            box.getChildren().add(grid);
+        }
+        box.getChildren().add(catalogFooter());
         return box;
     }
 
-    private Region starterRow(com.insula.catalog.StarterPicks.Resolved starter) {
-        Label title = new Label(starter.group().title());
-        title.getStyleClass().add("card-title");
-        Label blurb = new Label(
-                starter.pick().blurb() + " · " + Formats.bytes(starter.entry().sizeBytes()));
-        blurb.getStyleClass().add("card-sub");
-        VBox main = new VBox(2, title, blurb);
-        HBox.setHgrow(main, Priority.ALWAYS);
+    /**
+     * The kit's footer line. Both routes out of an empty library sit here, and the second one
+     * matters more than it looks: someone handed a .zim on a USB stick has nothing to download
+     * and would otherwise read this screen as a dead end.
+     */
+    private Region catalogFooter() {
+        int count = catalogCount.get();
+        Label lead = new Label(
+                count > 0 ? "Browse all " + String.format("%,d", count) + " archives in the " : "Browse the ");
+        lead.getStyleClass().add("card-sub");
+        Hyperlink catalog = new Hyperlink("Catalog");
+        catalog.setOnAction(e -> onOpenCatalog.run());
+        Label mid = new Label(" · or ");
+        mid.getStyleClass().add("card-sub");
+        Hyperlink open = new Hyperlink("open a .zim file");
+        open.setOnAction(e -> onOpenFile.run());
+        Label tail = new Label(" you already have");
+        tail.getStyleClass().add("card-sub");
 
-        Button get = new Button("Download");
+        HBox line = new HBox(lead, catalog, mid, open, tail);
+        line.setAlignment(Pos.CENTER);
+        return line;
+    }
+
+    /** One starter: the framing, the archive it resolves to, the blurb, and the size on the button. */
+    private Region starterCard(com.insula.catalog.StarterPicks.Resolved starter, boolean lead) {
+        Label label = new Label(starter.pick().label());
+        label.getStyleClass().add("starter-label");
+        label.setWrapText(true);
+        Label archive = new Label(starter.group().title());
+        archive.getStyleClass().add("card-faint");
+        archive.setWrapText(true);
+        Label blurb = new Label(starter.pick().blurb());
+        blurb.getStyleClass().add("card-sub");
+        blurb.setWrapText(true);
+
+        // The size is on the button: the commitment is the label, so nobody starts a multi-GB
+        // transfer by accident.
+        Button get = new Button("Download · " + Formats.bytes(starter.entry().sizeBytes()));
         get.setOnAction(e -> {
             get.setDisable(true);
             onDownloadStarter.accept(starter.entry());
         });
 
-        HBox row = new HBox(12, monogram(starter.group().title()), main, get);
-        row.setAlignment(Pos.CENTER_LEFT);
-        row.getStyleClass().add("rowcard");
-        return row;
+        VBox card = new VBox(8, monogram(starter.group().title()), label, archive, blurb, get);
+        card.getStyleClass().add("starter");
+        if (lead) {
+            card.getStyleClass().add("starter-lead");
+        }
+        card.setPrefWidth(250);
+        return card;
     }
 
     /**
@@ -311,23 +366,44 @@ final class HomePane {
                                 .anyMatch(c -> c instanceof Button b && "Resume".equals(b.getText())));
     }
 
-    /** Only the first-run block's rows: the search hero is also an HBox.rowcard inside a VBox. */
-    private java.util.stream.Stream<javafx.scene.Node> firstRunChildren() {
+    /**
+     * Everything under the first-run block. Scoped to that subtree because the search hero is
+     * also a rowcard, and walked recursively because the hero text and the starter grid are
+     * nested rather than direct children.
+     */
+    private java.util.stream.Stream<javafx.scene.Node> firstRunNodes() {
         return content.getChildren().stream()
                 .filter(n -> n.getStyleClass().contains("first-run"))
-                .flatMap(n -> ((VBox) n).getChildren().stream());
+                .flatMap(HomePane::descendants);
+    }
+
+    private static java.util.stream.Stream<javafx.scene.Node> descendants(javafx.scene.Node node) {
+        if (node instanceof javafx.scene.Parent parent) {
+            return java.util.stream.Stream.concat(
+                    java.util.stream.Stream.of(node),
+                    parent.getChildrenUnmodifiable().stream().flatMap(HomePane::descendants));
+        }
+        return java.util.stream.Stream.of(node);
     }
 
     int starterRowsForTest() {
-        return (int) firstRunChildren()
-                .filter(n -> n instanceof HBox && n.getStyleClass().contains("rowcard"))
+        return (int) firstRunNodes()
+                .filter(n -> n.getStyleClass().contains("starter"))
                 .count();
     }
 
     boolean showsTaglineForTest() {
-        return firstRunChildren()
+        return firstRunNodes()
                 .anyMatch(n -> n instanceof Label label
                         && "The library that works when nothing else does.".equals(label.getText()));
+    }
+
+    /** The two escape routes the kit puts under the cards. */
+    List<String> firstRunLinksForTest() {
+        return firstRunNodes()
+                .filter(n -> n instanceof Hyperlink)
+                .map(n -> ((Hyperlink) n).getText())
+                .toList();
     }
 
     boolean showsArrivingStripForTest() {

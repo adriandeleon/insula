@@ -143,4 +143,23 @@ class StarterFlowFxTest {
             FxTestSupport.runOnFx(controller::dispose);
         }
     }
+
+    @Test
+    void firstRunOffersBothWaysOut(@TempDir Path dir) throws Exception {
+        // Someone handed a .zim on a USB stick has nothing to download; without the second link
+        // an empty library reads as a dead end for them.
+        seedCatalog(dir, "starters-sample.xml", 3);
+        ReaderController controller = FxTestSupport.callOnFx(() -> shell(dir));
+        try {
+            FxTestSupport.runOnFx(() -> {
+                controller.commandsForTest().run("home.open");
+                controller.checkForUpdatesSyncForTest();
+            });
+            assertEquals(
+                    java.util.List.of("Catalog", "open a .zim file"),
+                    FxTestSupport.callOnFx(() -> controller.homePaneForTest().firstRunLinksForTest()));
+        } finally {
+            FxTestSupport.runOnFx(controller::dispose);
+        }
+    }
 }

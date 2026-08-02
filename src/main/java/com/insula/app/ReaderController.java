@@ -229,6 +229,8 @@ final class ReaderController {
                 () -> commands.run("view.commandPalette"),
                 this::showLibrary);
         homePane.setEmptyDevice(() -> library.entries().isEmpty());
+        homePane.setFirstRunActions(
+                () -> commands.run("file.open"), () -> catalogCache.entries().size());
         wireLibraryOrganization();
         wireLanRow();
         // Commands and their chords first: the menubar is built *out of* them, so building the UI
@@ -262,6 +264,10 @@ final class ReaderController {
 
     Keybindings keybindingsForTest() {
         return keys;
+    }
+
+    void closeArchiveForTest() {
+        closeArchive();
     }
 
     DownloadManager downloadsForTest() {
@@ -394,6 +400,9 @@ final class ReaderController {
                 "download.resumeAll",
                 "Resume All Downloads",
                 () -> eachActiveDownload(DownloadManager.Job::resume, "Resumed all downloads"));
+        commands.register("library.import", "Import Archive into Library…", this::importArchive);
+        commands.register("catalog.starterPicks", "Starter Picks", this::showStarterPicks);
+        commands.register("help.zimFormat", "What's in a ZIM File?", this::showZimExplainer);
         commands.register("help.shortcuts", "Keyboard Shortcuts", this::showShortcuts);
         commands.register("help.about", "About Insula", this::showAbout);
         commands.register("app.quit", "Quit Insula", () -> stage.close());
@@ -673,7 +682,7 @@ final class ReaderController {
         HBox statusBar = new HBox(18, status, statusGap, statusArchive, statusArriving, statusLan);
         statusBar.setPadding(new Insets(4, 10, 4, 10));
 
-        menuBar = Menus.build(commands, keys);
+        menuBar = Menus.build(commands, keys, menuDynamics());
         VBox topChrome = new VBox(menuBar, toolbar);
         shell.setTop(topChrome);
         shell.setCenter(readerSplit);
@@ -2093,6 +2102,140 @@ final class ReaderController {
                 + (days > com.insula.catalog.CatalogCache.STALE_AGE.toDays() ? " — stale, worth refreshing" : "");
     }
 
+    /**
+     * Registers an existing .zim on the shelf without moving it.
+     *
+     * <p>Deliberately not a copy: an archive is routinely tens of gigabytes and often lives on the
+     * external drive it was handed over on, so copying it into the archives folder inside a modal
+     * would be both slow and presumptuous. The entry points at the file where it is, and is marked
+     * unverified — there is no publisher checksum for a file that did not come from the catalog,
+     * and claiming otherwise would devalue the tick on everything else.
+     */
+    private void importArchive() {
+        javafx.stage.FileChooser chooser = new javafx.stage.FileChooser();
+        chooser.setTitle("Import archive into library");
+        chooser.getExtensionFilters().add(new javafx.stage.FileChooser.ExtensionFilter("ZIM archives", "*.zim"));
+        java.io.File chosen = chooser.showOpenDialog(stage);
+        if (chosen == null) {
+            return;
+        }
+        Path file = chosen.toPath().toAbsolutePath();
+        if (library.entries().stream().anyMatch(e -> e.file().equals(file))) {
+            status.setText(file.getFileName() + " is already in your library");
+            openZim(file);
+            return;
+        }
+        try (com.insula.zim.ZimArchive probe = com.insula.zim.ZimArchive.open(file)) {
+            String title = probe.metadata("Title").orElse(file.getFileName().toString());
+            library.put(new com.insula.library.LibraryEntry(
+                    file, title, Files.size(file), "", false, System.currentTimeMillis()));
+            library.save();
+            status.setText("Added " + title + " to your library — left where it is, and not verified");
+            openZim(file);
+            if (surface == Surface.LIBRARY) {
+                libraryPane.activate();
+            }
+        } catch (IOException e) {
+            status.setText("Could not read " + file.getFileName() + ": " + e.getMessage());
+        }
+    }
+
+    /**
+     * The starter picks on demand. They are hidden once the library has anything in it — a
+     * stocked library must not nag — so this is the way back to them.
+     */
+    private void showStarterPicks() {
+        List<StarterPicks.Resolved> picks = StarterPicks.resolve(
+                com.insula.catalog.CatalogGroups.group(catalogCache.entries()), freeDiskBytes(dataDir));
+        if (picks.isEmpty()) {
+            status.setText("No starter picks — refresh the catalog first");
+            showCatalog();
+            return;
+        }
+        VBox box = new VBox(10);
+        for (StarterPicks.Resolved pick : picks) {
+            Label title = new Label(pick.pick().label() + " — " + pick.group().title());
+            title.getStyleClass().add("card-title");
+            Label blurb = new Label(pick.pick().blurb());
+            blurb.getStyleClass().add("card-sub");
+            blurb.setWrapText(true);
+            VBox main = new VBox(2, title, blurb);
+            HBox.setHgrow(main, Priority.ALWAYS);
+            Button get = new Button("Download · " + Formats.bytes(pick.entry().sizeBytes()));
+            get.setOnAction(e -> {
+                get.setDisable(true);
+                downloadUpdate(pick.entry());
+            });
+            HBox row = new HBox(12, main, get);
+            row.setAlignment(Pos.CENTER_LEFT);
+            row.getStyleClass().add("rowcard");
+            box.getChildren().add(row);
+        }
+        javafx.scene.control.Dialog<javafx.scene.control.ButtonType> dialog = new javafx.scene.control.Dialog<>();
+        dialog.initOwner(stage);
+        dialog.setTitle("Starter picks");
+        dialog.setHeaderText("A few good places to start.");
+        dialog.getDialogPane().setContent(box);
+        dialog.getDialogPane().getButtonTypes().add(javafx.scene.control.ButtonType.CLOSE);
+        dialog.getDialogPane()
+                .getStylesheets()
+                .add(getClass().getResource("insula.css").toExternalForm());
+        dialog.showAndWait();
+    }
+
+    /** The kit's Help entry: what the thing on your disk actually is. */
+    private void showZimExplainer() {
+        javafx.scene.control.Alert alert =
+                new javafx.scene.control.Alert(javafx.scene.control.Alert.AlertType.INFORMATION);
+        alert.initOwner(stage);
+        alert.setTitle("What's in a ZIM file?");
+        alert.setHeaderText("One file, one whole library.");
+        alert.setContentText("""
+                A .zim archive is a compressed, indexed snapshot of a website — every article, \
+                image and stylesheet in a single file, with a directory so any page can be found \
+                without unpacking the rest.
+
+                It is an open format (openzim.org), the same one Kiwix uses, so an archive you \
+                download here opens in any ZIM reader on any platform. Nothing about it is \
+                specific to Insula.
+
+                That is what makes them worth the disk: they are ordinary files. Copy one to a \
+                USB stick, hand it to someone with no connection at all, and it opens exactly as \
+                it does here — no account, no server, no network.""");
+        alert.getDialogPane().setMinWidth(520);
+        alert.showAndWait();
+    }
+
+    /**
+     * The two menu lists that change while the app runs. Read when the menu opens, so there is
+     * nothing to keep in sync.
+     */
+    private Menus.Dynamic menuDynamics() {
+        return new Menus.Dynamic() {
+            @Override
+            public List<Menus.Entry> recentArchives() {
+                return settings.getRecentArchives().stream()
+                        .map(Path::of)
+                        // A deleted or unplugged archive is dropped rather than offered: a recent
+                        // entry that only ever reports failure is worse than a shorter list.
+                        .filter(Files::isRegularFile)
+                        .map(p -> new Menus.Entry(Formats.collapseHome(p.toString()), () -> openZim(p)))
+                        .toList();
+            }
+
+            @Override
+            public List<Menus.Entry> bookmarks() {
+                return bookmarks.entries().stream()
+                        .limit(MENU_BOOKMARKS)
+                        .map(ref -> new Menus.Entry(ref.title() + "   " + ref.bookTitle(), () -> openRef(ref, false)))
+                        .toList();
+            }
+        };
+    }
+
+    /** Enough to be a shortcut, few enough that the full panel still has a reason to exist. */
+    private static final int MENU_BOOKMARKS = 8;
+
     private void toggleTheme() {
         settings.setTheme(settings.isDark() ? Settings.THEME_LIGHT : Settings.THEME_DARK);
         saveAndApply();
@@ -2189,6 +2332,8 @@ final class ReaderController {
             currentArchiveFile = file.toAbsolutePath();
             lastArticlePath = null;
             settings.setLastArchive(currentArchiveFile.toString());
+            settings.setRecentArchives(
+                    com.insula.config.RecentList.promote(settings.getRecentArchives(), currentArchiveFile.toString()));
             settings.save();
             // The archive being read participates in search alongside the rest of the library.
             librarySearch.add(currentArchiveFile, bookTitle, archive);
@@ -2793,28 +2938,28 @@ final class ReaderController {
      * top and would make the bar appear for essentially every article.
      */
     private void buildRestoredBar() {
-        restoredLabel.getStyleClass().add("card-sub");
-        Region gap = new Region();
-        HBox.setHgrow(gap, Priority.ALWAYS);
-        Button toTop = new Button("Back to top");
+        restoredLabel.getStyleClass().add("restored-text");
+        // A link, not a button. The kit shows no action at all here; scrolling up is the obvious
+        // recovery. But Ctrl+Home is not obvious inside a WebView, and a link costs the line
+        // nothing, so this is a deliberate one-word addition to an otherwise verbatim treatment.
+        javafx.scene.control.Hyperlink toTop = new javafx.scene.control.Hyperlink("Back to top");
         toTop.setOnAction(e -> {
             renderer.scrollTo(0);
             hideRestoredBar();
         });
-        Button dismiss = new Button("✕");
-        dismiss.setOnAction(e -> hideRestoredBar());
-        restoredBar.getChildren().addAll(restoredLabel, gap, toTop, dismiss);
+        restoredBar.getChildren().addAll(restoredLabel, toTop);
         restoredBar.setAlignment(Pos.CENTER_LEFT);
-        restoredBar.setPadding(new Insets(6, 12, 6, 12));
-        restoredBar.getStyleClass().addAll("rowcard", "rowcard-arriving");
+        restoredBar.getStyleClass().add("restored-notice");
         hideRestoredBar();
     }
 
     /** Below this a restore is indistinguishable from the top, so saying so is noise. */
     static final double RESTORE_NOTICE_FLOOR = 0.05;
 
+    /** The kit's wording, in the kit's place: quiet, in the header, never a toast over the text. */
     private void showRestoredBar(double fraction) {
-        restoredLabel.setText("You were " + Math.round(fraction * 100) + "% through — restored.");
+        String where = bookTitle == null || bookTitle.isBlank() ? "" : bookTitle + " · ";
+        restoredLabel.setText(where + "you were " + Math.round(fraction * 100) + "% through — restored");
         restoredBar.setVisible(true);
         restoredBar.setManaged(true);
     }

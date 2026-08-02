@@ -157,4 +157,22 @@ class ShelfTest {
                 .entries());
         assertEquals(List.of("Gamma", "Alpha", "Beta"), backToCustom, "the arrangement survived the detour");
     }
+
+    @Test
+    void theVariantIsReadFromTheNameWhenTheNameCarriesOne() {
+        assertEquals("maxi", Shelf.variantOf("alpinelinux_en_all_maxi_2026-07.zim"));
+        assertEquals("all", Shelf.variantOf("ifixit_en_all_2025-12.zim"));
+        assertEquals("nopic", Shelf.variantOf("wikipedia_de_all_nopic_2026-01.zim"));
+    }
+
+    @Test
+    void aSubjectOrShelfTokenIsNeverPassedOffAsAVariant() {
+        // These are real archives on a real disk. The token before the build date is a subject,
+        // a Library-of-Congress shelf and an article count — printing any of them where a
+        // flavour belongs states something false about the file.
+        assertEquals("", Shelf.variantOf("ted_mul_tech_2025-10.zim"));
+        assertEquals("", Shelf.variantOf("gutenberg_en_lcc-j_2026-03.zim"));
+        assertEquals("", Shelf.variantOf("wikipedia_en_100_2026-07.zim"));
+        assertEquals("", Shelf.variantOf("robotics.stackexchange.com_en_2026-02.zim"));
+    }
 }

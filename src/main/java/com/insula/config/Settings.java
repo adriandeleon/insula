@@ -32,6 +32,10 @@ public final class Settings {
     private int zoomPercent = 100;
     private boolean reopenLastArchive = true;
     private String lastArchive = "";
+
+    /** Newline-separated MRU of opened archives; see {@link RecentList}. */
+    private String recentArchives = "";
+
     private int searchLimit = 40;
 
     /**
@@ -112,6 +116,7 @@ public final class Settings {
             settings.torrentEnabled = Boolean.parseBoolean(props.getProperty("torrentEnabled", "false"));
             settings.seedingEnabled = Boolean.parseBoolean(props.getProperty("seedingEnabled", "false"));
             settings.lanPort = clamp(parseInt(props.getProperty("lanPort"), settings.lanPort), 0, 65535);
+            settings.recentArchives = props.getProperty("recentArchives", settings.recentArchives);
             settings.updatePolicy = props.getProperty("updatePolicy", settings.updatePolicy);
             settings.maxConcurrentDownloads = clamp(
                     parseInt(props.getProperty("maxConcurrentDownloads"), settings.maxConcurrentDownloads),
@@ -146,6 +151,7 @@ public final class Settings {
         props.setProperty("torrentEnabled", String.valueOf(torrentEnabled));
         props.setProperty("seedingEnabled", String.valueOf(seedingEnabled));
         props.setProperty("lanPort", String.valueOf(lanPort));
+        props.setProperty("recentArchives", recentArchives);
         props.setProperty("updatePolicy", updatePolicy);
         props.setProperty("maxConcurrentDownloads", String.valueOf(maxConcurrentDownloads));
         props.setProperty("libraryGroupBy", libraryGroupBy);
@@ -368,6 +374,14 @@ public final class Settings {
     public static final int MAX_CONCURRENT_DOWNLOADS = 6;
 
     public static final int DEFAULT_CONCURRENT_DOWNLOADS = 2;
+
+    public java.util.List<String> getRecentArchives() {
+        return RecentList.decode(recentArchives);
+    }
+
+    public void setRecentArchives(java.util.List<String> entries) {
+        this.recentArchives = RecentList.encode(entries == null ? java.util.List.of() : entries);
+    }
 
     public com.insula.library.UpdateReplacement.Policy getUpdatePolicy() {
         return com.insula.library.UpdateReplacement.Policy.parse(updatePolicy);

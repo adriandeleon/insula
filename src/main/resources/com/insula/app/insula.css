@@ -265,3 +265,41 @@
     -fx-padding: 11 14 11 14;
     -fx-line-spacing: 2;
 }
+
+/* ============ first run ============ */
+
+.hero-title { -fx-font-size: 27px; -fx-font-weight: 700; }
+.hero-sub   { -fx-font-size: 14px; -fx-text-fill: -insula-muted; }
+
+/* A starter card: the framing, the archive, the blurb, the size on the button. */
+.starter {
+    -fx-background-color: -insula-surface;
+    -fx-background-radius: 13;
+    -fx-border-color: -insula-line;
+    -fx-border-radius: 13;
+    -fx-padding: 20;
+}
+/* The lead pick is the seconds-sized one — the cheapest way to find out if this is for you. */
+.starter-lead { -fx-border-color: -insula-accent; }
+.starter-label { -fx-font-size: 15.5px; -fx-font-weight: 700; }
+
+/* ============ reader ============ */
+
+/*
+ * The position-restore notice. The kit is explicit that this is announced "once, quietly, in the
+ * article header — never a toast over the text", so it is a hairline-ruled meta strip in muted
+ * type rather than a card: it explains why you are mid-article and then gets out of the way.
+ */
+.restored-notice {
+    -fx-background-color: -insula-surface;
+    -fx-border-color: transparent transparent -insula-line transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 5 14 5 14;
+}
+.restored-text { -fx-font-size: 12px; -fx-text-fill: -insula-faint; }
+.restored-notice .hyperlink {
+    -fx-font-size: 12px;
+    -fx-text-fill: -insula-accent;
+    -fx-padding: 0 0 0 8;
+    -fx-border-color: transparent;
+}

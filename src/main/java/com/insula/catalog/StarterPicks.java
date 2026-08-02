@@ -16,8 +16,15 @@ public final class StarterPicks {
 
     private StarterPicks() {}
 
-    /** A curated suggestion: a catalog name plus the one-line reason a newcomer would want it. */
-    public record Pick(String name, String blurb) {}
+    /**
+     * A curated suggestion: a catalog name, the editorial framing a newcomer scans first
+     * ("Try it in 10 seconds"), and the one-line reason they would want it.
+     *
+     * <p>The label matters because the archive's own name answers "what is this" but not "why
+     * would I start here", and on an empty library the second question is the only one being
+     * asked.
+     */
+    public record Pick(String label, String name, String blurb) {}
 
     /**
      * Ordered smallest-first commitment: a seconds-sized demo, then genuinely useful mid-size
@@ -26,10 +33,14 @@ public final class StarterPicks {
      * picks resolve by name instead of shipping links.
      */
     public static final List<Pick> PICKS = List.of(
-            new Pick("wikipedia_en_ray-charles", "A tiny slice of Wikipedia — try offline reading in seconds"),
-            new Pick("wikipedia_en_top", "Wikipedia's most-read articles, ready anywhere"),
-            new Pick("wikivoyage_en_all", "Travel guides that work where roaming doesn't"),
-            new Pick("vikidia_en_all", "An encyclopedia written for 8–13 year olds"));
+            new Pick(
+                    "Try it in 10 seconds",
+                    "wikipedia_en_ray-charles",
+                    "A tiny slice of Wikipedia. See how reading feels before committing disk space to "
+                            + "anything bigger."),
+            new Pick("Most popular", "wikipedia_en_top", "Wikipedia's most-read articles, ready anywhere."),
+            new Pick("Travel, offline", "wikivoyage_en_all", "Travel guides that work where roaming doesn't."),
+            new Pick("For younger readers", "vikidia_en_all", "An encyclopedia written for 8–13 year olds."));
 
     /** A pick resolved against the catalog: the group plus the variant chosen for this disk. */
     public record Resolved(Pick pick, CatalogGroups.TitleGroup group, ZimEntry entry) {}

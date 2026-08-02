@@ -461,10 +461,22 @@ final class LibraryPane {
 
         Label title = new Label(entry.title());
         title.getStyleClass().add("card-title");
-        Label meta = new Label(Formats.bytes(entry.sizeBytes())
-                + (entry.verified() ? " · verified ✓" : " · not verified")
-                + " · " + entry.fileName());
+        // The kit's subline: variant · size · build · verified. The file name moves to the
+        // tooltip — it is the least interesting fact on the row and the longest.
+        StringBuilder facts = new StringBuilder();
+        String variant = Shelf.variantOf(entry.fileName());
+        if (!variant.isEmpty()) {
+            facts.append(variant).append(" · ");
+        }
+        facts.append(Formats.bytes(entry.sizeBytes()));
+        String build = Shelf.buildDateOf(entry);
+        if (!build.isEmpty()) {
+            facts.append(" · build ").append(build);
+        }
+        facts.append(entry.verified() ? " · verified ✓" : " · not verified");
+        Label meta = new Label(facts.toString());
         meta.getStyleClass().add("card-sub");
+        meta.setTooltip(new javafx.scene.control.Tooltip(entry.fileName()));
         VBox main = new VBox(2, title, meta);
         HBox.setHgrow(main, Priority.ALWAYS);
 

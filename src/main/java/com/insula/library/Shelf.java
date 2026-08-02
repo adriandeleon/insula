@@ -140,8 +140,33 @@ public final class Shelf {
         return List.copyOf(renumbered);
     }
 
+    /**
+     * Kiwix's flavour/selection words. Deliberately a whitelist: the token before the build date
+     * is <em>usually</em> the variant, but on real archives it is just as often a subject
+     * ({@code ted_mul_tech}), a shelf ({@code gutenberg_en_lcc-j}) or a count
+     * ({@code wikipedia_en_100}), and printing those where a flavour belongs states something
+     * false about the file rather than merely being untidy.
+     */
+    private static final java.util.Set<String> VARIANTS =
+            java.util.Set.of("maxi", "mini", "nopic", "nodet", "novid", "all");
+
+    /**
+     * The variant a row shows beside its size — {@code maxi}, {@code all} — or {@code ""} when the
+     * name carries none.
+     */
+    public static String variantOf(String fileName) {
+        String[] parts = base(fileName).split("_");
+        for (int i = parts.length - 1; i >= 0; i--) {
+            String token = parts[i].toLowerCase(Locale.ROOT);
+            if (VARIANTS.contains(token)) {
+                return token;
+            }
+        }
+        return "";
+    }
+
     /** The {@code YYYY-MM} build stamp, or {@code ""} — the same convention updates use. */
-    static String buildDateOf(LibraryEntry entry) {
+    public static String buildDateOf(LibraryEntry entry) {
         var matcher = java.util.regex.Pattern.compile("_(\\d{4}-\\d{2})(?:\\.zim)?$")
                 .matcher(
                         entry.fileName().endsWith(".zim")
