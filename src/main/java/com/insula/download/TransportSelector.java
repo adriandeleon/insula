@@ -17,8 +17,12 @@ import com.insula.catalog.ZimEntry;
  */
 public final class TransportSelector {
 
-    /** Below this size the torrent overhead is not worth it. Configurable; brief suggests 5 GB. */
-    public static final long DEFAULT_TORRENT_THRESHOLD = 5L * 1024 * 1024 * 1024;
+    /**
+     * Below this size the torrent overhead is not worth it: setting up a swarm costs more than a
+     * few hundred megabytes takes over HTTP, where the mirror list already parallelises. One
+     * gigabyte is the default; {@link #setTorrentThreshold} makes it the user's call.
+     */
+    public static final long DEFAULT_TORRENT_THRESHOLD = 1024L * 1024 * 1024;
 
     private final List<DownloadTransport> transports = new ArrayList<>();
     private final DownloadTransport fallback;

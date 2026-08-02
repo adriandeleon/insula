@@ -52,6 +52,12 @@ public final class Settings {
      */
     private boolean seedingEnabled = false;
 
+    /**
+     * Archives at least this many GB prefer BitTorrent. Stored in whole gigabytes because that is
+     * the unit the choice is actually made in; 0 means "always prefer it".
+     */
+    private int torrentThresholdGb = DEFAULT_TORRENT_THRESHOLD_GB;
+
     /** Reader mode: how much of the archive's own styling to override ("original"/"comfortable"/"dark"). */
     private String readerMode = "original";
     /** Content column in pixels; MAX means unconstrained. */
@@ -122,6 +128,10 @@ public final class Settings {
             settings.seedingEnabled = Boolean.parseBoolean(props.getProperty("seedingEnabled", "false"));
             settings.lanPort = clamp(parseInt(props.getProperty("lanPort"), settings.lanPort), 0, 65535);
             settings.recentArchives = props.getProperty("recentArchives", settings.recentArchives);
+            settings.torrentThresholdGb = clamp(
+                    parseInt(props.getProperty("torrentThresholdGb"), settings.torrentThresholdGb),
+                    MIN_TORRENT_THRESHOLD_GB,
+                    MAX_TORRENT_THRESHOLD_GB);
             settings.sidebarVisible = Boolean.parseBoolean(props.getProperty("sidebarVisible", "true"));
             settings.sidebarSide = props.getProperty("sidebarSide", settings.sidebarSide);
             settings.updatePolicy = props.getProperty("updatePolicy", settings.updatePolicy);
@@ -159,6 +169,7 @@ public final class Settings {
         props.setProperty("seedingEnabled", String.valueOf(seedingEnabled));
         props.setProperty("lanPort", String.valueOf(lanPort));
         props.setProperty("recentArchives", recentArchives);
+        props.setProperty("torrentThresholdGb", String.valueOf(torrentThresholdGb));
         props.setProperty("sidebarVisible", String.valueOf(sidebarVisible));
         props.setProperty("sidebarSide", sidebarSide);
         props.setProperty("updatePolicy", updatePolicy);
@@ -383,6 +394,26 @@ public final class Settings {
     public static final int MAX_CONCURRENT_DOWNLOADS = 6;
 
     public static final int DEFAULT_CONCURRENT_DOWNLOADS = 2;
+
+    /** 0 means every archive prefers BitTorrent, whatever its size. */
+    public static final int MIN_TORRENT_THRESHOLD_GB = 0;
+
+    public static final int MAX_TORRENT_THRESHOLD_GB = 64;
+
+    public static final int DEFAULT_TORRENT_THRESHOLD_GB = 1;
+
+    public int getTorrentThresholdGb() {
+        return torrentThresholdGb;
+    }
+
+    public void setTorrentThresholdGb(int gb) {
+        this.torrentThresholdGb = clamp(gb, MIN_TORRENT_THRESHOLD_GB, MAX_TORRENT_THRESHOLD_GB);
+    }
+
+    /** The threshold as the selector wants it. */
+    public long getTorrentThresholdBytes() {
+        return (long) torrentThresholdGb * 1024 * 1024 * 1024;
+    }
 
     public boolean isSidebarVisible() {
         return sidebarVisible;

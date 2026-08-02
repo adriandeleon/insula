@@ -28,7 +28,6 @@ import javafx.stage.Window;
 import atlantafx.base.controls.ToggleSwitch;
 import com.insula.config.Settings;
 import com.insula.download.TorrentTransport;
-import com.insula.download.TransportSelector;
 import com.insula.library.UpdateReplacement;
 import com.insula.reader.ReaderTheme;
 
@@ -75,6 +74,12 @@ final class SettingsDialog {
     private final ToggleSwitch torrentSwitch = new ToggleSwitch();
     private final Label torrentStatus = new Label();
     private final ToggleSwitch seedingSwitch = new ToggleSwitch();
+    private final Label torrentThresholdLabel = new Label();
+    private final Spinner<Integer> torrentThresholdSpinner = new Spinner<>(
+            Settings.MIN_TORRENT_THRESHOLD_GB,
+            Settings.MAX_TORRENT_THRESHOLD_GB,
+            Settings.DEFAULT_TORRENT_THRESHOLD_GB,
+            1);
     private final ComboBox<UpdateReplacement.Policy> updatePolicyCombo = new ComboBox<>();
     private final Spinner<Integer> concurrentSpinner = new Spinner<>(
             Settings.MIN_CONCURRENT_DOWNLOADS,
@@ -429,19 +434,31 @@ final class SettingsDialog {
         Button openFolder = new Button("Open folder");
         openFolder.setOnAction(e -> onRevealArchives.run());
 
+        torrentThresholdSpinner.setEditable(true);
+        torrentThresholdSpinner.valueProperty().addListener((obs, old, value) -> {
+            if (!loading && value != null) {
+                settings.setTorrentThresholdGb(value);
+                refreshTorrentThresholdLabel();
+                applyAndSave();
+            }
+        });
+        torrentThresholdSpinner
+                .disableProperty()
+                .bind(torrentSwitch.selectedProperty().not());
+
         return page(
                 "Downloads",
                 "Where archives land, and which transport fetches them.",
                 card(
                         row("Archives folder", null, archivesDesc, openFolder),
                         row(
-                                "Prefer BitTorrent for archives over "
-                                        + Formats.bytes(TransportSelector.DEFAULT_TORRENT_THRESHOLD),
+                                "Prefer BitTorrent for large archives",
                                 "Spreads load off the donated mirrors. Smaller archives always use HTTP, where "
                                         + "the mirror list makes it faster anyway. If a torrent cannot get moving, "
                                         + "the download switches to HTTP by itself.",
                                 torrentStatus,
                                 torrentSwitch),
+                        row("Use BitTorrent from (GB)", null, torrentThresholdLabel, torrentThresholdSpinner),
                         row(
                                 "Share downloaded archives with others (seeding)",
                                 "Off by default. Uploads only while Insula is open.",
@@ -548,6 +565,17 @@ final class SettingsDialog {
         onApply.run();
     }
 
+    /** Spells the number back out, since "0" on its own would read as "off" rather than "always". */
+    private void refreshTorrentThresholdLabel() {
+        int gb = settings.getTorrentThresholdGb();
+        torrentThresholdLabel.setText(
+                gb == 0
+                        ? "Every archive prefers BitTorrent"
+                        : "Archives of " + gb + " GB or more prefer BitTorrent; smaller ones use HTTP");
+        torrentThresholdLabel.getStyleClass().removeAll("srow-desc");
+        torrentThresholdLabel.getStyleClass().add("srow-desc");
+    }
+
     /** The kit's folder line: "~/.insula/archives — 96.2 GB in use, 312 GB free". */
     private void refreshArchivesRow() {
         if (archivesFolder == null) {
@@ -594,6 +622,8 @@ final class SettingsDialog {
             rememberPositionSwitch.setSelected(settings.isRememberPosition());
             searchLimitSpinner.getValueFactory().setValue(settings.getSearchLimit());
             torrentSwitch.setSelected(settings.isTorrentEnabled());
+            torrentThresholdSpinner.getValueFactory().setValue(settings.getTorrentThresholdGb());
+            refreshTorrentThresholdLabel();
             seedingSwitch.setSelected(settings.isSeedingEnabled());
             updatePolicyCombo.setValue(settings.getUpdatePolicy());
             concurrentSpinner.getValueFactory().setValue(settings.getMaxConcurrentDownloads());

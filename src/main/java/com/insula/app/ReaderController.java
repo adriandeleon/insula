@@ -2087,6 +2087,7 @@ final class ReaderController {
         renderer.setZoom(settings.getZoomPercent() / 100.0);
         applyReaderTheme();
         transports.setTorrentEnabled(settings.isTorrentEnabled());
+        transports.setTorrentThreshold(settings.getTorrentThresholdBytes());
         applyTranscodeSupport();
         if (settingsDialog != null) {
             settingsDialog.sync();
