@@ -190,3 +190,21 @@
     -fx-font-size: 13px;
     -fx-padding: 0;
 }
+
+/* ============ settings ============ */
+
+/* A heading is structure, not a destination: muted, uppercase, and never selectable. */
+.settings-group-header {
+    -fx-font-size: 11px;
+    -fx-font-weight: 700;
+    -fx-text-fill: -insula-faint;
+    -fx-padding: 10 8 3 8;
+}
+.settings-group-header:selected,
+.settings-group-header:filled:selected {
+    -fx-background-color: transparent;
+    -fx-text-fill: -insula-faint;
+}
+.settings-sidebar-item {
+    -fx-padding: 5 8 5 8;
+}

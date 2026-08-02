@@ -13,7 +13,6 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
@@ -110,11 +109,44 @@ public final class DownloadManager implements AutoCloseable {
     /** Fired after a verified download is admitted to the library, on the pipeline thread. */
     private volatile Consumer<Job> onAdmitted = job -> {};
 
-    private final ExecutorService pipeline = Executors.newFixedThreadPool(2, r -> {
-        Thread t = new Thread(r, "download-pipeline");
-        t.setDaemon(true);
-        return t;
-    });
+    /**
+     * Built directly rather than via {@link Executors} so the pool can be resized while running —
+     * a concurrency setting that only takes effect after a restart is not worth having.
+     */
+    private final java.util.concurrent.ThreadPoolExecutor pipeline = new java.util.concurrent.ThreadPoolExecutor(
+            DEFAULT_CONCURRENCY,
+            DEFAULT_CONCURRENCY,
+            0L,
+            java.util.concurrent.TimeUnit.MILLISECONDS,
+            new java.util.concurrent.LinkedBlockingQueue<>(),
+            r -> {
+                Thread t = new Thread(r, "download-pipeline");
+                t.setDaemon(true);
+                return t;
+            });
+
+    static final int DEFAULT_CONCURRENCY = 2;
+
+    /**
+     * How many downloads may run at once. Order matters: raising the maximum before the core (and
+     * lowering the core before the maximum) is what keeps the pool from momentarily holding a core
+     * above its maximum, which {@link java.util.concurrent.ThreadPoolExecutor} rejects outright.
+     */
+    public void setConcurrency(int threads) {
+        int n = Math.max(1, threads);
+        if (n >= pipeline.getMaximumPoolSize()) {
+            pipeline.setMaximumPoolSize(n);
+            pipeline.setCorePoolSize(n);
+        } else {
+            pipeline.setCorePoolSize(n);
+            pipeline.setMaximumPoolSize(n);
+        }
+    }
+
+    /** Visible so the caller can assert the setting actually reached the pool. */
+    public int concurrencyForTest() {
+        return pipeline.getCorePoolSize();
+    }
 
     public DownloadManager(TransportSelector selector, Library library, Path downloadDir) {
         this.selector = selector;

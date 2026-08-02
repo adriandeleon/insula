@@ -259,6 +259,10 @@ final class ReaderController {
         return keys;
     }
 
+    DownloadManager downloadsForTest() {
+        return downloads;
+    }
+
     javafx.scene.control.TabPane tabBarForTest() {
         return tabBar;
     }
@@ -1580,9 +1584,19 @@ final class ReaderController {
     }
 
     void afterAdmittedFile(String newName) {
+        com.insula.library.UpdateReplacement.Policy policy = settings.getUpdatePolicy();
+        Path installed = library.entries().stream()
+                .filter(e -> e.fileName().equals(newName))
+                .map(com.insula.library.LibraryEntry::file)
+                .findFirst()
+                .orElse(null);
         List<com.insula.library.LibraryEntry> superseded = library.entries().stream()
                 .filter(e -> UpdateCheck.supersedes(newName, e.fileName()))
                 .filter(e -> currentArchiveFile == null || !e.file().equals(currentArchiveFile))
+                // The replacement must be verified and be a different file; both guards live in
+                // the pure decision so the same rule governs the prompt and the silent path.
+                .filter(e -> com.insula.library.UpdateReplacement.shouldDelete(
+                        policy, e.file(), installed, library.isVerified(installed)))
                 .toList();
         if (!superseded.isEmpty()) {
             List<String> names = superseded.stream()
@@ -1591,7 +1605,7 @@ final class ReaderController {
             long bytes = superseded.stream()
                     .mapToLong(com.insula.library.LibraryEntry::sizeBytes)
                     .sum();
-            if (supersededConfirmer.test(names, bytes)) {
+            if (!policy.confirms() || supersededConfirmer.test(names, bytes)) {
                 for (com.insula.library.LibraryEntry old : superseded) {
                     try {
                         Files.deleteIfExists(old.file());
@@ -1966,6 +1980,7 @@ final class ReaderController {
 
     /** Pushes every preference onto the live UI. Called at startup and after each settings change. */
     void applySettings() {
+        downloads.setConcurrency(settings.getMaxConcurrentDownloads());
         boolean dark = resolveDark();
         Application.setUserAgentStylesheet(
                 dark ? new PrimerDark().getUserAgentStylesheet() : new PrimerLight().getUserAgentStylesheet());
@@ -2030,6 +2045,7 @@ final class ReaderController {
     private void showSettings() {
         if (settingsDialog == null) {
             settingsDialog = new SettingsDialog(stage, settings, this::applySettings);
+            settingsDialog.setArchivesFolder(dataDir.resolve("archives"), this::revealArchivesFolder);
         }
         settingsDialog.show();
     }

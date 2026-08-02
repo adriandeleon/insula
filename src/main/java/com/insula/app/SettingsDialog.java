@@ -1,6 +1,7 @@
 package com.insula.app;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import javafx.geometry.Insets;
@@ -24,6 +25,7 @@ import javafx.stage.Window;
 import com.insula.config.Settings;
 import com.insula.download.TorrentTransport;
 import com.insula.download.TransportSelector;
+import com.insula.library.UpdateReplacement;
 import com.insula.reader.ReaderTheme;
 
 /**
@@ -51,6 +53,31 @@ final class SettingsDialog {
     private final CheckBox torrentCheck = new CheckBox(
             "Prefer BitTorrent for archives over " + Formats.bytes(TransportSelector.DEFAULT_TORRENT_THRESHOLD));
     private final CheckBox seedingCheck = new CheckBox("Share downloaded archives with others (seeding)");
+    private final ComboBox<UpdateReplacement.Policy> updatePolicyCombo = new ComboBox<>();
+    private final Spinner<Integer> concurrentSpinner = new Spinner<>(
+            Settings.MIN_CONCURRENT_DOWNLOADS,
+            Settings.MAX_CONCURRENT_DOWNLOADS,
+            Settings.DEFAULT_CONCURRENT_DOWNLOADS,
+            1);
+    private final ListView<Object> sidebar = new ListView<>();
+    private final StackPane content = new StackPane();
+    private java.nio.file.Path archivesFolder;
+
+    ListView<Object> sidebarForTest() {
+        return sidebar;
+    }
+
+    boolean pageEmptyForTest() {
+        return content.getChildren().isEmpty();
+    }
+
+    private Runnable onRevealArchives = () -> {};
+
+    /** Where archives live and how to open that folder; supplied by the controller. */
+    void setArchivesFolder(java.nio.file.Path folder, Runnable onReveal) {
+        this.archivesFolder = folder;
+        this.onRevealArchives = onReveal == null ? () -> {} : onReveal;
+    }
 
     /** Guards control listeners while the dialog is being populated from settings. */
     private boolean loading;
@@ -67,28 +94,72 @@ final class SettingsDialog {
         this.onApply = onApply;
         stage.initOwner(owner);
         stage.setTitle("Settings");
-        stage.setScene(new Scene(build(), 560, 380));
+        stage.setScene(new Scene(build(), 640, 460));
     }
+
+    /** A non-selectable sidebar heading. */
+    private record Group(String title) {}
 
     private BorderPane build() {
         Map<String, Region> pages = new LinkedHashMap<>();
         pages.put("Appearance", appearancePage());
-        pages.put("Reader", readerPage());
         pages.put("Reading view", readingViewPage());
+        pages.put("Reader", readerPage());
+        pages.put("Archives", archivesPage());
         pages.put("Downloads", downloadsPage());
+        pages.put("Updates", updatesPage());
 
-        ListView<String> sidebar = new ListView<>();
-        sidebar.getItems().setAll(pages.keySet());
-        sidebar.setPrefWidth(140);
+        // The kit's grouped sidebar. Flat lists stop scaling once a category name has to carry the
+        // grouping too ("Reading view" vs "Reader" tells you nothing about which holds what).
+        List<Object> rows = List.of(
+                new Group("Reading"),
+                "Appearance",
+                "Reading view",
+                "Reader",
+                new Group("Content"),
+                "Archives",
+                new Group("Network"),
+                "Downloads",
+                new Group("System"),
+                "Updates");
 
-        StackPane content = new StackPane();
-        content.setPadding(new Insets(16));
-        sidebar.getSelectionModel().selectedItemProperty().addListener((obs, old, category) -> {
-            if (category != null) {
-                content.getChildren().setAll(pages.get(category));
+        ListView<Object> sidebar = this.sidebar;
+        sidebar.getItems().setAll(rows);
+        sidebar.setPrefWidth(160);
+        sidebar.setCellFactory(view -> new javafx.scene.control.ListCell<>() {
+            @Override
+            protected void updateItem(Object item, boolean empty) {
+                super.updateItem(item, empty);
+                getStyleClass().removeAll("settings-group-header", "settings-sidebar-item");
+                if (empty || item == null) {
+                    setText(null);
+                    setMouseTransparent(false);
+                    setFocusTraversable(true);
+                    return;
+                }
+                if (item instanceof Group group) {
+                    setText(group.title().toUpperCase(java.util.Locale.ROOT));
+                    getStyleClass().add("settings-group-header");
+                    // A heading is not a destination, so it cannot be clicked or arrowed onto.
+                    setMouseTransparent(true);
+                    setFocusTraversable(false);
+                } else {
+                    setText("    " + item);
+                    getStyleClass().add("settings-sidebar-item");
+                    setMouseTransparent(false);
+                    setFocusTraversable(true);
+                }
             }
         });
-        sidebar.getSelectionModel().select(0);
+
+        StackPane content = this.content;
+        content.setPadding(new Insets(16));
+        sidebar.getSelectionModel().selectedItemProperty().addListener((obs, old, category) -> {
+            if (category instanceof String name) {
+                content.getChildren().setAll(pages.get(name));
+            }
+        });
+        sidebar.getSelectionModel().select(1);
 
         Button close = new Button("Close");
         close.setOnAction(e -> stage.hide());
@@ -232,6 +303,87 @@ final class SettingsDialog {
         return page("Downloads", box);
     }
 
+    /** Where the archives live, and how to get to them. */
+    private Region archivesPage() {
+        Label path = new Label(archivesFolder == null ? "" : archivesFolder.toString());
+        path.setWrapText(true);
+        path.setStyle("-fx-font-family: monospace;");
+
+        Button reveal = new Button("Open folder");
+        reveal.setOnAction(e -> onRevealArchives.run());
+        Button copy = new Button("Copy path");
+        copy.setOnAction(e -> {
+            javafx.scene.input.ClipboardContent content = new javafx.scene.input.ClipboardContent();
+            content.putString(String.valueOf(archivesFolder));
+            javafx.scene.input.Clipboard.getSystemClipboard().setContent(content);
+        });
+
+        // Deliberately no "Change…": relocating would either move gigabytes inside a modal or
+        // split the library across two folders, and a setting that silently does the second is
+        // worse than not having one. Say where they are and let the file manager do the rest.
+        return page(
+                "Archives",
+                new VBox(
+                        12,
+                        new Label("Downloaded archives are kept in:"),
+                        path,
+                        new HBox(8, reveal, copy),
+                        note("Moving this folder is not supported from here. Archives are ordinary .zim files: "
+                                + "you can copy them to another machine, or hand one to someone with no internet "
+                                + "at all, and they will open exactly as they do here.")));
+    }
+
+    /** What happens to the old build when a newer one arrives. */
+    private Region updatesPage() {
+        updatePolicyCombo.getItems().setAll(UpdateReplacement.Policy.values());
+        updatePolicyCombo.setConverter(new javafx.util.StringConverter<>() {
+            @Override
+            public String toString(UpdateReplacement.Policy policy) {
+                return policy == null
+                        ? ""
+                        : switch (policy) {
+                            case ASK -> "Ask me each time";
+                            case REPLACE -> "Delete the old build";
+                            case KEEP -> "Keep both builds";
+                        };
+            }
+
+            @Override
+            public UpdateReplacement.Policy fromString(String text) {
+                return null;
+            }
+        });
+        updatePolicyCombo.valueProperty().addListener((obs, old, value) -> {
+            if (!loading && value != null) {
+                settings.setUpdatePolicy(value);
+                applyAndSave();
+            }
+        });
+
+        concurrentSpinner.setEditable(true);
+        concurrentSpinner.valueProperty().addListener((obs, old, value) -> {
+            if (!loading && value != null) {
+                settings.setMaxConcurrentDownloads(value);
+                applyAndSave();
+            }
+        });
+
+        GridPane grid = grid();
+        grid.addRow(0, new Label("When an update arrives"), updatePolicyCombo);
+        grid.addRow(1, new Label("Downloads at once"), concurrentSpinner);
+        return page(
+                "Updates",
+                new VBox(
+                        12,
+                        grid,
+                        note("An update is a whole new archive, not a patch — a year-newer Wikipedia is another "
+                                + "90 GB. Deleting the old build only ever happens after the new one passes its "
+                                + "checksum, so a failed download can never cost you the copy you had."),
+                        note("Past a handful, extra simultaneous downloads make each one slower without "
+                                + "finishing the set any sooner: the limit is your connection, not the number "
+                                + "of sockets.")));
+    }
+
     private static Label note(String text) {
         Label label = new Label(text);
         label.setWrapText(true);
@@ -272,6 +424,8 @@ final class SettingsDialog {
             readerWidthSpinner.getValueFactory().setValue(ReaderTheme.clampWidth(settings.getReaderWidth()));
             rememberPositionCheck.setSelected(settings.isRememberPosition());
             videoTranscodeCheck.setSelected(settings.isVideoTranscode());
+            updatePolicyCombo.setValue(settings.getUpdatePolicy());
+            concurrentSpinner.getValueFactory().setValue(settings.getMaxConcurrentDownloads());
             torrentCheck.setSelected(settings.isTorrentEnabled());
             seedingCheck.setSelected(settings.isSeedingEnabled());
         } finally {

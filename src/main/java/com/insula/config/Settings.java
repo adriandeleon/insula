@@ -56,6 +56,12 @@ public final class Settings {
     private boolean rememberPosition = true;
 
     /** How the shelf is arranged. Kept here rather than in the index so it is a preference. */
+    /** What to do with a superseded archive once its replacement verifies. */
+    private String updatePolicy = "ask";
+
+    /** How many downloads may run at once. */
+    private int maxConcurrentDownloads = DEFAULT_CONCURRENT_DOWNLOADS;
+
     private String libraryGroupBy = "THEME";
 
     private String librarySortBy = "CUSTOM";
@@ -106,6 +112,11 @@ public final class Settings {
             settings.torrentEnabled = Boolean.parseBoolean(props.getProperty("torrentEnabled", "false"));
             settings.seedingEnabled = Boolean.parseBoolean(props.getProperty("seedingEnabled", "false"));
             settings.lanPort = clamp(parseInt(props.getProperty("lanPort"), settings.lanPort), 0, 65535);
+            settings.updatePolicy = props.getProperty("updatePolicy", settings.updatePolicy);
+            settings.maxConcurrentDownloads = clamp(
+                    parseInt(props.getProperty("maxConcurrentDownloads"), settings.maxConcurrentDownloads),
+                    MIN_CONCURRENT_DOWNLOADS,
+                    MAX_CONCURRENT_DOWNLOADS);
             settings.libraryGroupBy = props.getProperty("libraryGroupBy", settings.libraryGroupBy);
             settings.librarySortBy = props.getProperty("librarySortBy", settings.librarySortBy);
             settings.readerViewFont = props.getProperty("readerViewFont", settings.readerViewFont);
@@ -135,6 +146,8 @@ public final class Settings {
         props.setProperty("torrentEnabled", String.valueOf(torrentEnabled));
         props.setProperty("seedingEnabled", String.valueOf(seedingEnabled));
         props.setProperty("lanPort", String.valueOf(lanPort));
+        props.setProperty("updatePolicy", updatePolicy);
+        props.setProperty("maxConcurrentDownloads", String.valueOf(maxConcurrentDownloads));
         props.setProperty("libraryGroupBy", libraryGroupBy);
         props.setProperty("librarySortBy", librarySortBy);
         props.setProperty("readerViewFont", readerViewFont);
@@ -344,6 +357,32 @@ public final class Settings {
 
     public void setFfprobePath(String ffprobePath) {
         this.ffprobePath = ffprobePath == null ? "" : ffprobePath;
+    }
+
+    public static final int MIN_CONCURRENT_DOWNLOADS = 1;
+
+    /**
+     * More than a handful of parallel archive downloads makes every one of them slower without
+     * making the set finish sooner — the bottleneck is the link, not the number of sockets.
+     */
+    public static final int MAX_CONCURRENT_DOWNLOADS = 6;
+
+    public static final int DEFAULT_CONCURRENT_DOWNLOADS = 2;
+
+    public com.insula.library.UpdateReplacement.Policy getUpdatePolicy() {
+        return com.insula.library.UpdateReplacement.Policy.parse(updatePolicy);
+    }
+
+    public void setUpdatePolicy(com.insula.library.UpdateReplacement.Policy policy) {
+        this.updatePolicy = (policy == null ? com.insula.library.UpdateReplacement.Policy.ASK : policy).stored();
+    }
+
+    public int getMaxConcurrentDownloads() {
+        return maxConcurrentDownloads;
+    }
+
+    public void setMaxConcurrentDownloads(int value) {
+        this.maxConcurrentDownloads = clamp(value, MIN_CONCURRENT_DOWNLOADS, MAX_CONCURRENT_DOWNLOADS);
     }
 
     public String getLibraryGroupBy() {
