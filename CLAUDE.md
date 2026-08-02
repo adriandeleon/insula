@@ -304,6 +304,18 @@ of ours, or an archive shipping MP4 would lose its working player); sources reso
 than using `loadContent`); and the script is **idempotent per document** via a window flag, since
 the load-succeeded event can fire more than once.
 
+**Tabs share one engine.** `reader/ReaderTabs` is pure state (open/close/cycle, plus which tab
+shows next after a close) and the strip follows it; `reader/ArticleRef` + `ArticleStore` back both
+bookmarks and history, which differ in policy, not shape. A WebView per tab would hold an engine,
+scene graph and GPU textures per open article — the memory shape this project avoids everywhere
+else — so a switch reloads and restores the tab's recorded scroll instead. Two consequences worth
+knowing: in-page state (a playing video, an entered Reader View) belongs to the tab that is
+showing, and `syncActiveTabToCurrentArticle` must run on every navigation or the strip keeps the
+title the tab was opened with. `ArticleStore` keys its properties file by a **zero-padded** index
+because `Properties` is unordered — plain keys would reload a twelve-entry history with `C/10`
+before `C/2` — and every field is percent-encoded so a `|`, `=` or newline in a path or title
+cannot corrupt the store.
+
 **A fragment navigation is not a new article.** The engine fires its location listener for
 `#anchor` exactly as for a real navigation (measured), and archive scripts append query strings of
 their own — TED's produce `?lang=undefined`. Article identity therefore comes from

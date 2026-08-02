@@ -94,6 +94,10 @@ with `sha256sum -c` against the published `.sha256`.
 | `Ctrl+1` / `Ctrl+2` | Library / Store |
 | `Ctrl+R` | Cycle reader mode (original / comfortable / dark) |
 | `Ctrl+Alt+R` | Reader View (extracted article, Firefox-style) |
+| `Ctrl+T` / `Ctrl+W` | New tab / close tab |
+| `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous tab |
+| `Ctrl+D` | Bookmark this article |
+| `Ctrl+Shift+B` / `Ctrl+Shift+H` | Bookmarks / History |
 
 Videos in archives are stored as WebM, which JavaFX cannot decode. Install **ffmpeg** and Insula
 converts them once and plays them inline; without it, videos open in your usual player.

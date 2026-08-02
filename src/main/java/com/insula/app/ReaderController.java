@@ -60,8 +60,11 @@ import com.insula.media.MediaCache;
 import com.insula.media.TranscodeService;
 import com.insula.media.Transcoder;
 import com.insula.reader.ArticleLocation;
+import com.insula.reader.ArticleRef;
+import com.insula.reader.ArticleStore;
 import com.insula.reader.MediaBridge;
 import com.insula.reader.MediaFallback;
+import com.insula.reader.ReaderTabs;
 import com.insula.reader.ReaderTheme;
 import com.insula.reader.ReaderView;
 import com.insula.reader.ReaderViewSession;
@@ -120,8 +123,21 @@ final class ReaderController {
     private ZimArchive archive;
     private Path currentArchiveFile;
     private String lastArticlePath;
+
+    private final ReaderTabs tabs = new ReaderTabs();
+    private final javafx.scene.control.TabPane tabBar = new javafx.scene.control.TabPane();
+    private final java.util.Map<javafx.scene.control.Tab, ReaderTabs.Tab> tabModel = new java.util.IdentityHashMap<>();
+    private boolean syncingTabs;
+    private ArticleStore bookmarks;
+    private ArticleStore history;
+    private final ListView<ArticleRef> bookmarkList = new ListView<>();
+    private final ListView<ArticleRef> historyList = new ListView<>();
+    private final Button bookmarkButton = new Button("☆");
     private String token;
     private String bookTitle = "";
+
+    private static final int MAX_BOOKMARKS = 500;
+    private static final int MAX_HISTORY = 300;
 
     private final CatalogCache catalogCache;
     private final TranscodeService transcodes;
@@ -141,6 +157,8 @@ final class ReaderController {
     private String currentPositionKey;
 
     private SplitPane readerSplit;
+    private VBox[] sidebarPanes;
+    private VBox sidebarHost;
 
     /** Which surface fills the window: the Reader, the Library (home), or the Store. */
     enum Surface {
@@ -160,6 +178,8 @@ final class ReaderController {
         this.settings = settings;
         this.library = Library.load(dataDir.resolve("library.properties"));
         this.positions = ReadingPositions.load(dataDir.resolve("reading.properties"));
+        this.bookmarks = ArticleStore.load(dataDir.resolve("bookmarks.properties"), MAX_BOOKMARKS);
+        this.history = ArticleStore.load(dataDir.resolve("history.properties"), MAX_HISTORY);
         this.transports = new TransportSelector(new HttpMultiSourceTransport());
         // BitTorrent is an option, never the only way: it is registered only when its native
         // library actually loads, and HTTP stays the fallback regardless.
@@ -269,6 +289,21 @@ final class ReaderController {
             status.setText("Reopen last archive on startup: " + (settings.isReopenLastArchive() ? "on" : "off"));
         });
         commands.register("readerview.toggle", "Toggle Reader View", this::toggleReaderView);
+        commands.register("tab.new", "New Tab", this::newTab);
+        commands.register("tab.close", "Close Tab", this::closeActiveTab);
+        commands.register("tab.next", "Next Tab", () -> cycleTab(1));
+        commands.register("tab.previous", "Previous Tab", () -> cycleTab(-1));
+        commands.register("bookmark.toggle", "Bookmark This Article", this::toggleBookmark);
+        commands.register("bookmark.show", "Show Bookmarks", () -> {
+            showReader();
+            showSidebarPane(1);
+        });
+        commands.register("history.show", "Show History", () -> {
+            showReader();
+            showSidebarPane(2);
+        });
+        commands.register("history.clear", "Clear History", this::clearHistory);
+        commands.register("search.show", "Show Search", () -> showSidebarPane(0));
         commands.register("reader.cycleMode", "Reader Mode: Original / Comfortable / Dark", this::cycleReaderMode);
         commands.register(
                 "reader.modeOriginal", "Reader Mode: Original", () -> setReaderMode(ReaderTheme.Mode.ORIGINAL));
@@ -354,6 +389,9 @@ final class ReaderController {
         forwardButton.setDisable(true);
         homeButton.setDisable(true);
 
+        bookmarkButton.setOnAction(e -> commands.run("bookmark.toggle"));
+        bookmarkButton.setTooltip(new javafx.scene.control.Tooltip("Bookmark this article (Ctrl+D)"));
+        bookmarkButton.setDisable(true);
         readerViewButton.setOnAction(e -> commands.run("readerview.toggle"));
         readerViewButton.setDisable(true);
         readerViewButton.setTooltip(new javafx.scene.control.Tooltip("Reader View (Ctrl+Alt+R)"));
@@ -384,6 +422,7 @@ final class ReaderController {
                 new Separator(),
                 readerViewButton,
                 typePanelButton,
+                bookmarkButton,
                 spacer,
                 paletteButton,
                 settingsButton);
@@ -434,12 +473,40 @@ final class ReaderController {
         });
         VBox.setVgrow(results, Priority.ALWAYS);
 
-        VBox sidebar = new VBox(8, searchField, results);
+        VBox searchPane = new VBox(8, searchField, results);
+        VBox.setVgrow(results, Priority.ALWAYS);
+        VBox sidebar = new VBox(8, buildSidebarSwitcher(), searchPane);
+        VBox.setVgrow(searchPane, Priority.ALWAYS);
         sidebar.setPadding(new Insets(8));
         sidebar.setMinWidth(220);
         sidebar.setPrefWidth(300);
+        sidebarPanes = new VBox[] {searchPane, wrap(bookmarkList), wrap(historyList)};
+        sidebarHost = sidebar;
+        for (int i = 1; i < sidebarPanes.length; i++) {
+            sidebarPanes[i].setVisible(false);
+            sidebarPanes[i].setManaged(false);
+            sidebar.getChildren().add(sidebarPanes[i]);
+            VBox.setVgrow(sidebarPanes[i], Priority.ALWAYS);
+        }
+        buildArticleLists();
 
-        readerSplit = new SplitPane(sidebar, renderer.node());
+        // The tab strip sits directly over the article; the renderer is moved into whichever tab
+        // is showing, because all tabs share one engine.
+        tabBar.setTabClosingPolicy(javafx.scene.control.TabPane.TabClosingPolicy.ALL_TABS);
+        tabBar.getSelectionModel().selectedItemProperty().addListener((obs, old, selected) -> {
+            if (!syncingTabs && selected != null) {
+                onTabSelected(selected);
+            }
+        });
+        tabBar.getTabs().addListener((javafx.collections.ListChangeListener<javafx.scene.control.Tab>) change -> {
+            while (change.next()) {
+                for (javafx.scene.control.Tab removed : change.getRemoved()) {
+                    onTabClosedByUser(removed);
+                }
+            }
+        });
+
+        readerSplit = new SplitPane(sidebar, tabBar);
         readerSplit.setOrientation(Orientation.HORIZONTAL);
         readerSplit.setDividerPositions(0.24);
         SplitPane.setResizableWithParent(sidebar, false);
@@ -463,6 +530,385 @@ final class ReaderController {
         shell.setCenter(readerSplit);
         shell.setBottom(statusBar);
         root.getChildren().add(shell);
+    }
+
+    // ---------------------------------------------------------------- tabs
+
+    private VBox wrap(ListView<ArticleRef> list) {
+        VBox box = new VBox(list);
+        VBox.setVgrow(list, Priority.ALWAYS);
+        return box;
+    }
+
+    private Region buildSidebarSwitcher() {
+        javafx.scene.control.ToggleGroup group = new javafx.scene.control.ToggleGroup();
+        HBox row = new HBox(2);
+        String[] names = {"Search", "Bookmarks", "History"};
+        for (int i = 0; i < names.length; i++) {
+            javafx.scene.control.ToggleButton button = new javafx.scene.control.ToggleButton(names[i]);
+            button.setToggleGroup(group);
+            button.setMaxWidth(Double.MAX_VALUE);
+            HBox.setHgrow(button, Priority.ALWAYS);
+            int index = i;
+            button.setSelected(i == 0);
+            button.setOnAction(e -> showSidebarPane(index));
+            row.getChildren().add(button);
+            sidebarButtons.add(button);
+        }
+        return row;
+    }
+
+    private final List<javafx.scene.control.ToggleButton> sidebarButtons = new java.util.ArrayList<>();
+
+    /** 0 = search, 1 = bookmarks, 2 = history. */
+    private void showSidebarPane(int index) {
+        if (sidebarPanes == null) {
+            return;
+        }
+        for (int i = 0; i < sidebarPanes.length; i++) {
+            sidebarPanes[i].setVisible(i == index);
+            sidebarPanes[i].setManaged(i == index);
+        }
+        if (index < sidebarButtons.size()) {
+            sidebarButtons.get(index).setSelected(true);
+        }
+        if (index == 1) {
+            refreshBookmarkList();
+        } else if (index == 2) {
+            refreshHistoryList();
+        }
+    }
+
+    int sidebarPaneForTest() {
+        for (int i = 0; sidebarPanes != null && i < sidebarPanes.length; i++) {
+            if (sidebarPanes[i].isVisible()) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private void buildArticleLists() {
+        for (ListView<ArticleRef> list : List.of(bookmarkList, historyList)) {
+            list.setCellFactory(view -> new ListCell<>() {
+                @Override
+                protected void updateItem(ArticleRef item, boolean empty) {
+                    super.updateItem(item, empty);
+                    if (empty || item == null) {
+                        setGraphic(null);
+                        return;
+                    }
+                    Label title = new Label(item.title());
+                    Label source = new Label(item.bookTitle());
+                    source.setStyle("-fx-opacity: 0.6; -fx-font-size: 0.85em;");
+                    setGraphic(new VBox(1, title, source));
+                }
+            });
+            list.setOnMouseClicked(e -> {
+                if (e.getClickCount() == 2) {
+                    openRef(list.getSelectionModel().getSelectedItem(), false);
+                }
+            });
+            list.setOnKeyPressed(e -> {
+                if (e.getCode() == KeyCode.ENTER) {
+                    openRef(list.getSelectionModel().getSelectedItem(), false);
+                } else if (e.getCode() == KeyCode.DELETE && list == bookmarkList) {
+                    removeBookmark(list.getSelectionModel().getSelectedItem());
+                }
+            });
+        }
+    }
+
+    private void refreshBookmarkList() {
+        bookmarkList.getItems().setAll(bookmarks.entries());
+    }
+
+    private void refreshHistoryList() {
+        historyList.getItems().setAll(history.entries());
+    }
+
+    /** The article currently showing, or null when nothing is open. */
+    private ArticleRef currentRef() {
+        if (archive == null || currentArchiveFile == null || lastArticlePath == null) {
+            return null;
+        }
+        int slash = lastArticlePath.indexOf('/');
+        String path = slash < 0 ? lastArticlePath : lastArticlePath.substring(slash + 1);
+        return new ArticleRef(currentArchiveFile, path, articleTitle(path), bookTitle);
+    }
+
+    /** The archive's own title for an entry, which is better than the path and costs one lookup. */
+    private String articleTitle(String path) {
+        try {
+            var entry = archive.entryByUrl(path);
+            if (entry.isPresent()) {
+                String title = archive.resolve(entry.get()).title();
+                if (title != null && !title.isBlank()) {
+                    return title;
+                }
+            }
+        } catch (IOException | RuntimeException e) {
+            // fall through to the path, which is always usable
+        }
+        return path;
+    }
+
+    /** Opens a stored reference, switching archives when it belongs to another book. */
+    private void openRef(ArticleRef ref, boolean inNewTab) {
+        if (ref == null) {
+            return;
+        }
+        if (!java.nio.file.Files.isRegularFile(ref.archiveFile())) {
+            status.setText("That archive is no longer on this device: "
+                    + ref.archiveFile().getFileName());
+            return;
+        }
+        showReader();
+        if (inNewTab) {
+            openTabFor(ref);
+            return;
+        }
+        if (archive == null || !ref.archiveFile().equals(currentArchiveFile)) {
+            openZim(ref.archiveFile());
+        }
+        if (archive != null) {
+            renderer.load(server.urlFor(token, ref.articlePath()));
+        }
+    }
+
+    // ---- tab plumbing: the model decides, the strip follows ----
+
+    private void openTabFor(ArticleRef ref) {
+        ReaderTabs.Tab tab = tabs.open(ref, true);
+        syncTabBar();
+        activateTab(tab);
+    }
+
+    /**
+     * A new tab starts at the archive's main page, not at a copy of the current article — with no
+     * address bar, the front of the book is the only meaningful fresh start.
+     */
+    private void newTab() {
+        ArticleRef ref = mainPageRef();
+        if (ref == null) {
+            showLibrary(); // nothing to put in a tab yet; the library is where one gets filled
+            return;
+        }
+        openTabFor(ref);
+    }
+
+    private ArticleRef mainPageRef() {
+        if (archive == null || currentArchiveFile == null) {
+            return null;
+        }
+        try {
+            Optional<Dirent> main = archive.mainPage();
+            if (main.isPresent()) {
+                String path = main.get().fullPath();
+                return new ArticleRef(currentArchiveFile, path, articleTitle(path), bookTitle);
+            }
+        } catch (IOException e) {
+            // fall through: an archive with no readable main page still gets a tab below
+        }
+        return currentRef();
+    }
+
+    private void closeActiveTab() {
+        if (tabs.count() == 0) {
+            return;
+        }
+        ReaderTabs.Tab next = tabs.closeActive();
+        syncTabBar();
+        if (next == null) {
+            showLibrary();
+        } else {
+            activateTab(next);
+        }
+    }
+
+    private void cycleTab(int delta) {
+        ReaderTabs.Tab tab = delta > 0 ? tabs.next() : tabs.previous();
+        if (tab != null) {
+            syncTabBar();
+            activateTab(tab);
+        }
+    }
+
+    /** Rebuilds the strip from the model. The guard stops the rebuild firing selection events. */
+    private void syncTabBar() {
+        syncingTabs = true;
+        try {
+            tabModel.clear();
+            tabBar.getTabs().clear();
+            for (ReaderTabs.Tab tab : tabs.tabs()) {
+                javafx.scene.control.Tab uiTab = new javafx.scene.control.Tab(tab.label());
+                tabModel.put(uiTab, tab);
+                tabBar.getTabs().add(uiTab);
+            }
+            if (tabs.activeIndex() >= 0 && tabs.activeIndex() < tabBar.getTabs().size()) {
+                javafx.scene.control.Tab selected = tabBar.getTabs().get(tabs.activeIndex());
+                selected.setContent(renderer.node());
+                tabBar.getSelectionModel().select(selected);
+            }
+        } finally {
+            syncingTabs = false;
+        }
+    }
+
+    private void onTabSelected(javafx.scene.control.Tab uiTab) {
+        ReaderTabs.Tab tab = tabModel.get(uiTab);
+        if (tab == null || tab == tabs.active()) {
+            return;
+        }
+        rememberScrollForActiveTab();
+        tabs.selectTab(tab);
+        moveRendererInto(uiTab);
+        activateTab(tab);
+    }
+
+    private void onTabClosedByUser(javafx.scene.control.Tab uiTab) {
+        if (syncingTabs) {
+            return;
+        }
+        ReaderTabs.Tab tab = tabModel.remove(uiTab);
+        if (tab == null) {
+            return;
+        }
+        int index = tabs.tabs().indexOf(tab);
+        ReaderTabs.Tab next = tabs.close(index);
+        syncTabBar();
+        if (next == null) {
+            showLibrary();
+        } else {
+            activateTab(next);
+        }
+    }
+
+    /** All tabs share one engine, so the renderer node moves to whichever tab is showing. */
+    private void moveRendererInto(javafx.scene.control.Tab uiTab) {
+        for (javafx.scene.control.Tab other : tabBar.getTabs()) {
+            if (other != uiTab && other.getContent() == renderer.node()) {
+                other.setContent(null);
+            }
+        }
+        uiTab.setContent(renderer.node());
+    }
+
+    /** Loads the tab's article and restores the scroll it recorded. */
+    private void activateTab(ReaderTabs.Tab tab) {
+        if (tab == null || tab.article() == null) {
+            return;
+        }
+        ArticleRef ref = tab.article();
+        if (archive == null || !ref.archiveFile().equals(currentArchiveFile)) {
+            openZim(ref.archiveFile());
+        }
+        if (archive == null) {
+            return;
+        }
+        renderer.load(server.urlFor(token, ref.articlePath()));
+        double scroll = tab.scroll();
+        if (scroll > 0) {
+            PauseTransition settle = new PauseTransition(Duration.millis(200));
+            settle.setOnFinished(e -> renderer.scrollTo(scroll));
+            settle.play();
+        }
+    }
+
+    /**
+     * Following a link inside a tab changes what that tab holds; without this the strip would keep
+     * showing the title the tab was opened with and a switch back would reload the wrong article.
+     */
+    private void syncActiveTabToCurrentArticle() {
+        ArticleRef ref = currentRef();
+        if (ref == null) {
+            return;
+        }
+        ReaderTabs.Tab active = tabs.active();
+        if (active == null) {
+            active = tabs.open(ref, true);
+            syncTabBar();
+            return;
+        }
+        active.setArticle(ref);
+        active.setScroll(0);
+        int index = tabs.activeIndex();
+        if (index >= 0 && index < tabBar.getTabs().size()) {
+            tabBar.getTabs().get(index).setText(ref.title());
+        }
+    }
+
+    private void rememberScrollForActiveTab() {
+        ReaderTabs.Tab active = tabs.active();
+        if (active != null && surface == Surface.READER) {
+            active.setScroll(renderer.scrollPosition());
+        }
+    }
+
+    ReaderTabs tabsForTest() {
+        return tabs;
+    }
+
+    // ---------------------------------------------------------------- bookmarks and history
+
+    ArticleStore bookmarksForTest() {
+        return bookmarks;
+    }
+
+    ArticleStore historyForTest() {
+        return history;
+    }
+
+    private void toggleBookmark() {
+        ArticleRef ref = currentRef();
+        if (ref == null) {
+            status.setText("Open an article first");
+            return;
+        }
+        if (bookmarks.contains(ref)) {
+            bookmarks.remove(ref);
+            status.setText("Removed bookmark");
+        } else {
+            bookmarks.addLast(ref);
+            status.setText("Bookmarked " + ref.title());
+        }
+        bookmarks.save();
+        refreshBookmarkList();
+        updateBookmarkButton();
+    }
+
+    private void removeBookmark(ArticleRef ref) {
+        if (ref != null && bookmarks.remove(ref)) {
+            bookmarks.save();
+            refreshBookmarkList();
+            updateBookmarkButton();
+            status.setText("Removed bookmark");
+        }
+    }
+
+    /** A filled star means "this article is saved" — the one piece of state the toolbar shows. */
+    private void updateBookmarkButton() {
+        ArticleRef ref = currentRef();
+        boolean saved = ref != null && bookmarks.contains(ref);
+        bookmarkButton.setText(saved ? "★" : "☆");
+        bookmarkButton.setDisable(ref == null);
+    }
+
+    private void recordHistory() {
+        ArticleRef ref = currentRef();
+        if (ref != null) {
+            history.addFirst(ref);
+            if (sidebarPaneForTest() == 2) {
+                refreshHistoryList();
+            }
+        }
+    }
+
+    private void clearHistory() {
+        history.clear();
+        history.save();
+        refreshHistoryList();
+        status.setText("History cleared");
     }
 
     // ---------------------------------------------------------------- library / downloads
@@ -1133,6 +1579,9 @@ final class ReaderController {
             lastArticlePath = decoded;
             resetReaderViewForNavigation();
             onArticleShown(decoded);
+            recordHistory();
+            updateBookmarkButton();
+            syncActiveTabToCurrentArticle();
         }
     }
 
@@ -1530,6 +1979,13 @@ final class ReaderController {
             stopLanSharing();
         }
         transcodes.shutdown();
+        try {
+            rememberScrollForActiveTab();
+            bookmarks.save();
+            history.save();
+        } catch (RuntimeException e) {
+            // a failed store write must never block shutdown, as with reading positions
+        }
         downloads.close();
         catalogCache.close();
         iconCache.close();

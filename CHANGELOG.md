@@ -104,6 +104,25 @@ Everything below is in `main` and unreleased; there has been no tagged version y
   recovery sidecar written beside every download also lets a quit-during-verification resume at
   the next launch instead of stranding the file.
 
+**Tabs, bookmarks and history**
+
+- **Tabs.** Several articles open at once, with a tab strip over the reader: `Ctrl+T` opens the
+  archive's front page in a new tab, `Ctrl+W` closes one, `Ctrl+Tab` cycles. Tabs share a single
+  rendering engine rather than holding one per tab — a WebView each would keep an engine, a scene
+  graph and GPU textures per open article, which is the memory shape this project avoids
+  everywhere else; loads out of a local archive are sub-second, so switching reloads and restores
+  the scroll that tab recorded. Closing the active tab moves right, then falls back left at the
+  end of the strip, and closing the last one returns to the Library rather than leaving a blank
+  screen.
+- **Bookmarks.** `Ctrl+D` (or the toolbar star, which fills in when the article is saved) keeps an
+  article for later. Bookmarks record the archive and its title alongside the article's, so the
+  list is readable — and openable — without opening a 20 GB archive to find out what an entry was.
+- **History.** Every article visited is recorded, most recent first, bounded and de-duplicated so
+  revisiting a page moves it up rather than filling the list with copies. `history.clear` empties
+  it.
+- The sidebar now switches between **Search / Bookmarks / History** (`Ctrl+Shift+B`,
+  `Ctrl+Shift+H`); both lists open on Enter or double-click, and Delete removes a bookmark.
+
 **Reader View**
 
 - A Firefox-style Reader View (`Ctrl+Alt+R`, or the toolbar Reader button): the article is
