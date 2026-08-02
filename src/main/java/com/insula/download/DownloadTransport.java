@@ -14,6 +14,20 @@ public interface DownloadTransport {
     /** Stable id, e.g. {@code "http-multisource"} or {@code "torrent"}. */
     String id();
 
+    /**
+     * The protocol as a user would name it ("HTTP", "BitTorrent"). Shown on the download row —
+     * which transport actually moved the bytes is not an implementation detail to a user deciding
+     * whether to leave BitTorrent on.
+     */
+    default String displayName() {
+        return id();
+    }
+
+    /** What this transport's {@code connectedSources} are called: "mirrors" for HTTP, "peers". */
+    default String sourceNoun() {
+        return "sources";
+    }
+
     /** Whether this transport can serve the entry (sidecar availability, network reachability). */
     boolean canHandle(ZimEntry entry);
 

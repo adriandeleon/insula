@@ -82,6 +82,16 @@ public final class TorrentTransport implements DownloadTransport {
         return ID;
     }
 
+    @Override
+    public String displayName() {
+        return "BitTorrent";
+    }
+
+    @Override
+    public String sourceNoun() {
+        return "peers";
+    }
+
     /** Whether the native library is present and loadable; false makes the selector skip us. */
     public static boolean isAvailable() {
         try {

@@ -87,6 +87,16 @@ public final class HttpMultiSourceTransport implements DownloadTransport {
     }
 
     @Override
+    public String displayName() {
+        return "HTTP";
+    }
+
+    @Override
+    public String sourceNoun() {
+        return "mirrors";
+    }
+
+    @Override
     public boolean canHandle(ZimEntry entry) {
         // HTTP is the guaranteed path: any entry with a URL can be fetched, worst case single-stream.
         return entry != null && !entry.zimUrl().isBlank();

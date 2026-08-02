@@ -86,7 +86,7 @@ final class DownloadRow extends VBox {
         ProgressSnapshot s = job.snapshot();
         double fraction = s.fraction();
         bar.setProgress(fraction < 0 ? ProgressBar.INDETERMINATE_PROGRESS : fraction);
-        facts.setText(Formats.progressLine(s));
+        facts.setText(Formats.progressLine(s, job.transportName(), job.sourceNoun()));
 
         boolean active = !s.state().isTerminal();
         boolean verifying = s.state() == DownloadState.VERIFYING;

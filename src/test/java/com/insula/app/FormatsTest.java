@@ -5,6 +5,7 @@ import com.insula.download.ProgressSnapshot;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class FormatsTest {
@@ -61,5 +62,30 @@ class FormatsTest {
                 new ProgressSnapshot(DownloadState.QUARANTINED, 5, 100, 0, 0, "Checksum mismatch"));
         assertTrue(line.contains("Quarantined"), line);
         assertTrue(line.contains("Checksum mismatch"), line);
+    }
+
+    @Test
+    void progressLineNamesTheProtocolAndItsOwnSourceNoun() {
+        ProgressSnapshot downloading = new ProgressSnapshot(DownloadState.DOWNLOADING, 500, 1000, 100, 4, "");
+        String http = Formats.progressLine(downloading, "HTTP", "mirrors");
+        assertTrue(http.contains("via HTTP"), http);
+        assertTrue(http.contains("4 mirrors"), http);
+
+        String torrent = Formats.progressLine(downloading, "BitTorrent", "peers");
+        assertTrue(torrent.contains("via BitTorrent"), torrent);
+        assertTrue(torrent.contains("4 peers"), torrent);
+
+        // Connecting says it too — that is when a user is asking "which one did it pick?"
+        ProgressSnapshot connecting = new ProgressSnapshot(DownloadState.CONNECTING, 0, 0, 0, 0, "");
+        assertTrue(Formats.progressLine(connecting, "BitTorrent", "peers").contains("via BitTorrent"));
+    }
+
+    @Test
+    void progressLineOmitsTheProtocolBeforeOneIsChosen() {
+        ProgressSnapshot downloading = new ProgressSnapshot(DownloadState.DOWNLOADING, 500, 1000, 100, 2, "");
+        String line = Formats.progressLine(downloading, "", "sources");
+        assertFalse(line.contains("via"), line);
+        assertTrue(line.contains("2 sources"), line);
+        assertEquals(line, Formats.progressLine(downloading), "the one-arg overload is the unlabelled form");
     }
 }

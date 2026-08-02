@@ -119,6 +119,14 @@ Everything below is in `main` and unreleased; there has been no tagged version y
 
 ### Fixed
 
+- The Downloads settings page claimed "no torrent transport is installed yet, so downloads use
+  HTTP either way" — stale since the BitTorrent transport landed. It now states what actually
+  governs the choice (only archives above the 5 GB threshold, only when the native library
+  loaded, HTTP always the fallback) and shows live whether BitTorrent is available on this
+  machine, disabling the checkbox when it is not.
+- Download rows now name the protocol moving the bytes ("via HTTP · 4 mirrors", "via BitTorrent ·
+  12 peers"), and relabel themselves when a stalled torrent falls back to HTTP mid-download.
+
 - A download no longer reports itself finished before verification runs. The transport's
   "complete" signal means the bytes landed, not that the archive is usable; treating it as
   terminal caused an unverified file to be presented as ready, and a shutdown at that moment

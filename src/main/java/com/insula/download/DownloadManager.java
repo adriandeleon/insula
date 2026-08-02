@@ -43,6 +43,8 @@ public final class DownloadManager implements AutoCloseable {
         private volatile ProgressSnapshot snapshot;
         private volatile DownloadHandle handle;
         private final AtomicBoolean cancelled = new AtomicBoolean();
+        private volatile String transportName = "";
+        private volatile String sourceNoun = "sources";
 
         Job(ZimEntry entry, Path destination) {
             this.entry = entry;
@@ -60,6 +62,20 @@ public final class DownloadManager implements AutoCloseable {
 
         public ProgressSnapshot snapshot() {
             return snapshot;
+        }
+
+        /**
+         * The protocol actually moving these bytes ("HTTP", "BitTorrent"), or {@code ""} before
+         * one is chosen. It changes mid-download when a preferred transport stalls and the
+         * pipeline falls back, which is precisely when a user wants to be told.
+         */
+        public String transportName() {
+            return transportName;
+        }
+
+        /** What {@link ProgressSnapshot#connectedSources()} counts for the active transport. */
+        public String sourceNoun() {
+            return sourceNoun;
         }
 
         public void cancel() {
@@ -178,6 +194,8 @@ public final class DownloadManager implements AutoCloseable {
     }
 
     private DownloadResult download(Job job, DownloadTransport transport) throws Exception {
+        job.transportName = transport.displayName();
+        job.sourceNoun = transport.sourceNoun();
         // The transport's COMPLETED means "the bytes landed", not "this archive is usable" — the
         // checksum still has to pass. Publishing it verbatim would make the job look terminal, so
         // a UI polling for a terminal state shows "Ready" on an unverified (possibly corrupt)

@@ -45,9 +45,23 @@ public final class Formats {
 
     /** The one-line status under a download row. */
     public static String progressLine(ProgressSnapshot s) {
+        return progressLine(s, "", "sources");
+    }
+
+    /**
+     * The progress line, naming the protocol that is actually moving the bytes. Which transport
+     * won is user-visible on purpose: BitTorrent only applies above a size threshold and silently
+     * falls back to HTTP, so without saying so the preference looks broken.
+     *
+     * @param transportName "HTTP"/"BitTorrent", or blank before a transport is chosen
+     * @param sourceNoun what {@code connectedSources} counts — "mirrors" or "peers"
+     */
+    public static String progressLine(ProgressSnapshot s, String transportName, String sourceNoun) {
+        String via = transportName == null || transportName.isBlank() ? "" : " · via " + transportName;
+        String noun = sourceNoun == null || sourceNoun.isBlank() ? "sources" : sourceNoun;
         return switch (s.state()) {
             case QUEUED -> "Queued";
-            case CONNECTING -> s.detail().isBlank() ? "Connecting…" : s.detail();
+            case CONNECTING -> (s.detail().isBlank() ? "Connecting…" : s.detail()) + via;
             case DOWNLOADING -> {
                 StringBuilder sb = new StringBuilder(bytes(s.bytesCompleted()));
                 if (s.bytesTotal() > 0) {
@@ -60,8 +74,9 @@ public final class Formats {
                 if (eta > 0) {
                     sb.append(" · ").append(duration(eta)).append(" left");
                 }
+                sb.append(via);
                 if (s.connectedSources() > 0) {
-                    sb.append(" · ").append(s.connectedSources()).append(" sources");
+                    sb.append(" · ").append(s.connectedSources()).append(" ").append(noun);
                 }
                 yield sb.toString();
             }

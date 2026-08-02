@@ -264,6 +264,90 @@ class DownloadManagerTest {
         }
     }
 
+    @Test
+    void theJobNamesTheProtocolThatActuallyMovedTheBytes(@TempDir Path dir) throws Exception {
+        byte[] data = payload();
+        try (Origin origin = new Origin(data, sha256(data))) {
+            Library library = Library.load(dir.resolve("library.properties"));
+            try (DownloadManager manager = manager(library, dir.resolve("zims"))) {
+                DownloadManager.Job job = manager.enqueue(origin.entry());
+                awaitTerminal(job);
+                assertEquals("HTTP", job.transportName());
+                assertEquals("mirrors", job.sourceNoun());
+            }
+        }
+    }
+
+    @Test
+    void aFallbackRelabelsTheJobFromThePreferredTransportToHttp(@TempDir Path dir) throws Exception {
+        // A preferred transport that cannot deliver hands over to HTTP mid-download. The row must
+        // then say HTTP: claiming BitTorrent for bytes HTTP fetched is exactly the confusion the
+        // protocol label exists to remove.
+        byte[] data = payload();
+        try (Origin origin = new Origin(data, sha256(data))) {
+            DownloadTransport dud = new DownloadTransport() {
+                @Override
+                public String id() {
+                    return "dud";
+                }
+
+                @Override
+                public String displayName() {
+                    return "BitTorrent";
+                }
+
+                @Override
+                public String sourceNoun() {
+                    return "peers";
+                }
+
+                @Override
+                public boolean canHandle(ZimEntry entry) {
+                    return true;
+                }
+
+                @Override
+                public DownloadHandle start(ZimEntry entry, Path destination, ProgressListener listener) {
+                    return new DownloadHandle() {
+                        @Override
+                        public java.util.concurrent.CompletableFuture<DownloadResult> completion() {
+                            return java.util.concurrent.CompletableFuture.completedFuture(
+                                    DownloadResult.failure(destination, 0, "no peers", null));
+                        }
+
+                        @Override
+                        public ProgressSnapshot snapshot() {
+                            return ProgressSnapshot.of(DownloadState.FAILED, 0, entry.sizeBytes());
+                        }
+
+                        @Override
+                        public void cancel() {}
+
+                        @Override
+                        public void pause() {}
+
+                        @Override
+                        public void resume() {}
+                    };
+                }
+            };
+            TransportSelector selector = new TransportSelector(new HttpMultiSourceTransport());
+            selector.register(dud);
+            selector.setTorrentThreshold(0); // make the preferred transport win the first pick
+            Library library = Library.load(dir.resolve("library.properties"));
+            try (DownloadManager manager = new DownloadManager(selector, library, dir.resolve("zims"))) {
+                DownloadManager.Job job = manager.enqueue(origin.entry());
+                awaitTerminal(job);
+                assertEquals(
+                        DownloadState.COMPLETED,
+                        job.snapshot().state(),
+                        job.snapshot().detail());
+                assertEquals("HTTP", job.transportName(), "the label follows the transport that finished");
+                assertEquals("mirrors", job.sourceNoun());
+            }
+        }
+    }
+
     private static void assertArrayEqualsOnDisk(byte[] expected, Path file) throws IOException {
         org.junit.jupiter.api.Assertions.assertArrayEquals(expected, Files.readAllBytes(file));
     }

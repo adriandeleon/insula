@@ -22,6 +22,8 @@ import javafx.stage.Stage;
 import javafx.stage.Window;
 
 import com.insula.config.Settings;
+import com.insula.download.TorrentTransport;
+import com.insula.download.TransportSelector;
 import com.insula.reader.ReaderTheme;
 
 /**
@@ -44,7 +46,8 @@ final class SettingsDialog {
     private final Spinner<Integer> readerWidthSpinner =
             new Spinner<>(ReaderTheme.MIN_WIDTH, ReaderTheme.MAX_WIDTH, 900, 50);
     private final CheckBox rememberPositionCheck = new CheckBox("Return to where I left off in an article");
-    private final CheckBox torrentCheck = new CheckBox("Prefer BitTorrent for large archives");
+    private final CheckBox torrentCheck = new CheckBox(
+            "Prefer BitTorrent for archives over " + Formats.bytes(TransportSelector.DEFAULT_TORRENT_THRESHOLD));
     private final CheckBox seedingCheck = new CheckBox("Share downloaded archives with others (seeding)");
 
     /** Guards control listeners while the dialog is being populated from settings. */
@@ -181,16 +184,30 @@ final class SettingsDialog {
             }
         });
 
-        Label torrentNote = note("Large archives can be fetched over BitTorrent, which spreads load off the "
-                + "donated mirrors. No torrent transport is installed yet, so downloads use HTTP either way. "
-                + "HTTP always remains available as a fallback — BitTorrent is blocked on many school and "
-                + "office networks.");
+        // What the user needs to predict their own downloads: BitTorrent applies only above the
+        // size threshold, only when the native library loaded, and silently yields to HTTP when it
+        // cannot get moving. Saying only "prefer BitTorrent" makes the setting look broken on the
+        // (common) small archive that quietly went over HTTP.
+        boolean torrentAvailable = TorrentTransport.isAvailable();
+        Label torrentStatus = new Label(
+                torrentAvailable
+                        ? "BitTorrent support: available on this machine"
+                        : "BitTorrent support: unavailable on this platform — downloads use HTTP");
+        torrentStatus.setStyle(
+                torrentAvailable ? "-fx-text-fill: -color-success-fg;" : "-fx-text-fill: -color-fg-muted;");
+        torrentCheck.setDisable(!torrentAvailable);
+
+        Label torrentNote = note("BitTorrent spreads load off the donated mirrors, and is used only for "
+                + "archives larger than " + Formats.bytes(TransportSelector.DEFAULT_TORRENT_THRESHOLD)
+                + " — smaller ones always download over HTTP, where the mirror list makes it faster anyway. "
+                + "If a torrent cannot get moving, the download switches to HTTP by itself. Each download row "
+                + "names the protocol it is actually using.");
         Label seedingNote = note("Seeding shares what you have downloaded with others. It is off by default "
                 + "because it can consume a lot of upload bandwidth, which is costly on metered connections.");
         Label verifyNote = note("Every download is checked against the publisher's SHA-256. A file that fails "
                 + "is kept aside rather than deleted, so you can retry without downloading it all again.");
 
-        VBox box = new VBox(10, torrentCheck, torrentNote, seedingCheck, seedingNote, verifyNote);
+        VBox box = new VBox(10, torrentCheck, torrentStatus, torrentNote, seedingCheck, seedingNote, verifyNote);
         return page("Downloads", box);
     }
 

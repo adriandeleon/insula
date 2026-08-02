@@ -34,9 +34,10 @@ public final class Settings {
     private int searchLimit = 40;
 
     /**
-     * Prefer BitTorrent for large archives when a torrent transport is installed. Off by default:
-     * the transport is not implemented yet, and on the restricted networks this app targets
-     * (schools, NGOs) BitTorrent is frequently blocked, so HTTP stays the guaranteed path.
+     * Prefer BitTorrent for archives above {@code TransportSelector.DEFAULT_TORRENT_THRESHOLD}
+     * when the native library loaded. Off by default: on the restricted networks this app targets
+     * (schools, NGOs) BitTorrent is frequently blocked, so HTTP stays the guaranteed path — and it
+     * remains the fallback even when this is on.
      */
     private boolean torrentEnabled = false;
     /**
