@@ -66,6 +66,11 @@ public final class Settings {
     /** How many downloads may run at once. */
     private int maxConcurrentDownloads = DEFAULT_CONCURRENT_DOWNLOADS;
 
+    /** Reader sidebar: whether it is showing, and which edge it lives on. */
+    private boolean sidebarVisible = true;
+
+    private String sidebarSide = "left";
+
     private String libraryGroupBy = "THEME";
 
     private String librarySortBy = "CUSTOM";
@@ -117,6 +122,8 @@ public final class Settings {
             settings.seedingEnabled = Boolean.parseBoolean(props.getProperty("seedingEnabled", "false"));
             settings.lanPort = clamp(parseInt(props.getProperty("lanPort"), settings.lanPort), 0, 65535);
             settings.recentArchives = props.getProperty("recentArchives", settings.recentArchives);
+            settings.sidebarVisible = Boolean.parseBoolean(props.getProperty("sidebarVisible", "true"));
+            settings.sidebarSide = props.getProperty("sidebarSide", settings.sidebarSide);
             settings.updatePolicy = props.getProperty("updatePolicy", settings.updatePolicy);
             settings.maxConcurrentDownloads = clamp(
                     parseInt(props.getProperty("maxConcurrentDownloads"), settings.maxConcurrentDownloads),
@@ -152,6 +159,8 @@ public final class Settings {
         props.setProperty("seedingEnabled", String.valueOf(seedingEnabled));
         props.setProperty("lanPort", String.valueOf(lanPort));
         props.setProperty("recentArchives", recentArchives);
+        props.setProperty("sidebarVisible", String.valueOf(sidebarVisible));
+        props.setProperty("sidebarSide", sidebarSide);
         props.setProperty("updatePolicy", updatePolicy);
         props.setProperty("maxConcurrentDownloads", String.valueOf(maxConcurrentDownloads));
         props.setProperty("libraryGroupBy", libraryGroupBy);
@@ -374,6 +383,23 @@ public final class Settings {
     public static final int MAX_CONCURRENT_DOWNLOADS = 6;
 
     public static final int DEFAULT_CONCURRENT_DOWNLOADS = 2;
+
+    public boolean isSidebarVisible() {
+        return sidebarVisible;
+    }
+
+    public void setSidebarVisible(boolean visible) {
+        this.sidebarVisible = visible;
+    }
+
+    /** {@code "right"} or {@code "left"}; anything else means left. */
+    public boolean isSidebarOnRight() {
+        return "right".equalsIgnoreCase(sidebarSide);
+    }
+
+    public void setSidebarOnRight(boolean right) {
+        this.sidebarSide = right ? "right" : "left";
+    }
 
     public java.util.List<String> getRecentArchives() {
         return RecentList.decode(recentArchives);

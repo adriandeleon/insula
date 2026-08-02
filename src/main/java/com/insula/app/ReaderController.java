@@ -23,7 +23,6 @@ import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
-import javafx.scene.control.Separator;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.TextField;
 import javafx.scene.control.ToolBar;
@@ -98,7 +97,6 @@ final class ReaderController {
     private final WebViewRenderer renderer = new WebViewRenderer();
     private final Button backButton = new Button("←");
     private final Button forwardButton = new Button("→");
-    private final Button homeButton = new Button("Home");
     private final Button readerViewButton = new Button("Reader View");
     private final Button typePanelButton = new Button("Aa");
     private javafx.stage.Popup typePanel;
@@ -134,6 +132,7 @@ final class ReaderController {
 
     private final ReaderTabs tabs = new ReaderTabs();
     private javafx.scene.control.MenuBar menuBar;
+    private Region readerPane;
     private final javafx.scene.control.TabPane tabBar = new javafx.scene.control.TabPane();
     private final HBox restoredBar = new HBox(10);
     private final Label restoredLabel = new Label();
@@ -274,6 +273,14 @@ final class ReaderController {
         return downloads;
     }
 
+    SplitPane readerSplitForTest() {
+        return readerSplit;
+    }
+
+    Region sidebarHostForTest() {
+        return sidebarHost;
+    }
+
     javafx.scene.control.MenuBar menuBarForTest() {
         return menuBar;
     }
@@ -400,6 +407,8 @@ final class ReaderController {
                 "download.resumeAll",
                 "Resume All Downloads",
                 () -> eachActiveDownload(DownloadManager.Job::resume, "Resumed all downloads"));
+        commands.register("view.toggleSidebar", "Show/Hide Sidebar", this::toggleSidebar);
+        commands.register("view.sidebarSide", "Move Sidebar Left/Right", this::toggleSidebarSide);
         commands.register("library.import", "Import Archive into Library…", this::importArchive);
         commands.register("catalog.starterPicks", "Starter Picks", this::showStarterPicks);
         commands.register("help.zimFormat", "What's in a ZIM File?", this::showZimExplainer);
@@ -461,6 +470,7 @@ final class ReaderController {
         keys.bind("lan.share", new KeyCodeCombination(KeyCode.L, KeyCombination.SHORTCUT_DOWN));
         keys.bind("app.quit", new KeyCodeCombination(KeyCode.Q, KeyCombination.SHORTCUT_DOWN));
         keys.bind("help.shortcuts", new KeyCodeCombination(KeyCode.SLASH, KeyCombination.SHORTCUT_DOWN));
+        keys.bind("view.toggleSidebar", new KeyCodeCombination(KeyCode.BACK_SLASH, KeyCombination.SHORTCUT_DOWN));
         keys.bind(
                 "tab.reopen",
                 new KeyCodeCombination(KeyCode.T, KeyCombination.SHORTCUT_DOWN, KeyCombination.SHIFT_DOWN));
@@ -493,14 +503,10 @@ final class ReaderController {
 
     private void buildUi() {
         readerView = new ReaderViewSession(renderer::runScript);
-        Button openButton = new Button("Open…");
-        openButton.setOnAction(e -> commands.run("file.open"));
         backButton.setOnAction(e -> commands.run("nav.back"));
         forwardButton.setOnAction(e -> commands.run("nav.forward"));
-        homeButton.setOnAction(e -> commands.run("nav.home"));
         backButton.setDisable(true);
         forwardButton.setDisable(true);
-        homeButton.setDisable(true);
 
         bookmarkButton.setOnAction(e -> commands.run("bookmark.toggle"));
         bookmarkButton.setTooltip(new javafx.scene.control.Tooltip("Bookmark this article (Ctrl+D)"));
@@ -532,8 +538,6 @@ final class ReaderController {
         Button paletteButton = new Button("⌘K");
         paletteButton.setTooltip(new javafx.scene.control.Tooltip("Command palette"));
         paletteButton.setOnAction(e -> commands.run("view.commandPalette"));
-        Button settingsButton = new Button("Settings");
-        settingsButton.setOnAction(e -> commands.run("view.settings"));
 
         // One omnibox, whose placeholder states the scope and the count of what it searches.
         omniField.setPromptText("Search");
@@ -552,13 +556,10 @@ final class ReaderController {
         Region rightGap = new Region();
         HBox.setHgrow(leftGap, Priority.ALWAYS);
         HBox.setHgrow(rightGap, Priority.ALWAYS);
+        // Open, Home and Settings are gone: the File menu opens archives and Settings, the
+        // surface switcher already carries Home, and back/forward moved onto the tab strip where
+        // they belong — they are that tab's history, not the window's.
         ToolBar toolbar = new ToolBar(
-                openButton,
-                new Separator(),
-                backButton,
-                forwardButton,
-                homeButton,
-                new Separator(),
                 surfaces,
                 leftGap,
                 omniField,
@@ -566,8 +567,7 @@ final class ReaderController {
                 readerViewButton,
                 typePanelButton,
                 bookmarkButton,
-                paletteButton,
-                settingsButton);
+                paletteButton);
 
         searchField.setPromptText("Search titles (Ctrl+L)");
         searchField.textProperty().addListener((obs, old, text) -> {
@@ -652,12 +652,25 @@ final class ReaderController {
         });
 
         buildRestoredBar();
-        javafx.scene.layout.BorderPane readerSide = new javafx.scene.layout.BorderPane(tabBar);
+        // Back/forward ride the tab strip rather than the window toolbar: they are *this tab's*
+        // history, and a browser puts them beside the tab for the same reason. Aligned to the top
+        // of the row so they sit on the strip's line rather than floating beside the article.
+        for (Button nav : List.of(backButton, forwardButton)) {
+            nav.getStyleClass().add("tab-nav");
+        }
+        HBox tabNav = new HBox(2, backButton, forwardButton);
+        tabNav.setAlignment(Pos.TOP_LEFT);
+        tabNav.setPadding(new Insets(6, 4, 0, 6));
+        HBox tabRow = new HBox(tabNav, tabBar);
+        HBox.setHgrow(tabBar, Priority.ALWAYS);
+
+        javafx.scene.layout.BorderPane readerSide = new javafx.scene.layout.BorderPane(tabRow);
         readerSide.setTop(restoredBar);
-        readerSplit = new SplitPane(sidebar, readerSide);
+        readerPane = readerSide;
+        readerSplit = new SplitPane();
         readerSplit.setOrientation(Orientation.HORIZONTAL);
-        readerSplit.setDividerPositions(0.24);
         SplitPane.setResizableWithParent(sidebar, false);
+        applySidebarLayout();
 
         renderer.setOnLocationChanged(location -> {
             onLocationChanged(location);
@@ -934,7 +947,22 @@ final class ReaderController {
             row.getChildren().add(button);
             sidebarButtons.add(button);
         }
-        return row;
+        HBox.setHgrow(row, Priority.ALWAYS);
+
+        // The panel's own controls sit on the panel: a pane you can only close from a menu you
+        // have to go looking for is one most people never close.
+        Button side = new Button("⇄");
+        side.getStyleClass().add("sidebar-control");
+        side.setTooltip(new javafx.scene.control.Tooltip("Move the sidebar to the other side"));
+        side.setOnAction(e -> commands.run("view.sidebarSide"));
+        Button close = new Button("✕");
+        close.getStyleClass().add("sidebar-control");
+        close.setTooltip(new javafx.scene.control.Tooltip("Hide the sidebar (Ctrl+\\)"));
+        close.setOnAction(e -> commands.run("view.toggleSidebar"));
+
+        HBox header = new HBox(4, row, side, close);
+        header.setAlignment(Pos.CENTER_LEFT);
+        return header;
     }
 
     private final List<javafx.scene.control.ToggleButton> sidebarButtons = new java.util.ArrayList<>();
@@ -2236,6 +2264,45 @@ final class ReaderController {
     /** Enough to be a shortcut, few enough that the full panel still has a reason to exist. */
     private static final int MENU_BOOKMARKS = 8;
 
+    /**
+     * Puts the sidebar where the settings say — or removes it entirely.
+     *
+     * <p>Rebuilt rather than hidden: a {@code SplitPane} keeps a divider for an invisible item, so
+     * hiding the node leaves a dead strip and a draggable divider that moves nothing.
+     */
+    private void applySidebarLayout() {
+        if (readerSplit == null || readerPane == null) {
+            return;
+        }
+        boolean right = settings.isSidebarOnRight();
+        if (!settings.isSidebarVisible()) {
+            readerSplit.getItems().setAll(readerPane);
+            return;
+        }
+        readerSplit.getItems().setAll(right ? List.of(readerPane, sidebarHost) : List.of(sidebarHost, readerPane));
+        // The divider is a fraction of the whole, so the sidebar's share is mirrored when it
+        // changes sides — otherwise moving it right leaves a quarter-width article.
+        readerSplit.setDividerPositions(right ? 1 - SIDEBAR_FRACTION : SIDEBAR_FRACTION);
+    }
+
+    private static final double SIDEBAR_FRACTION = 0.24;
+
+    private void toggleSidebar() {
+        settings.setSidebarVisible(!settings.isSidebarVisible());
+        settings.save();
+        applySidebarLayout();
+        status.setText(settings.isSidebarVisible() ? "Sidebar shown" : "Sidebar hidden");
+    }
+
+    private void toggleSidebarSide() {
+        settings.setSidebarOnRight(!settings.isSidebarOnRight());
+        // Moving a hidden sidebar would be a silent no-op, so the move reveals it.
+        settings.setSidebarVisible(true);
+        settings.save();
+        applySidebarLayout();
+        status.setText("Sidebar moved to the " + (settings.isSidebarOnRight() ? "right" : "left"));
+    }
+
     private void toggleTheme() {
         settings.setTheme(settings.isDark() ? Settings.THEME_LIGHT : Settings.THEME_DARK);
         saveAndApply();
@@ -2326,7 +2393,6 @@ final class ReaderController {
             bookTitle = archive.metadata("Title").orElse(file.getFileName().toString());
             stage.setTitle(bookTitle + " — Insula");
             status.setText(bookTitle + " · " + archive.entryCount() + " entries · " + file);
-            homeButton.setDisable(false);
             results.getItems().clear();
             searchField.clear();
             currentArchiveFile = file.toAbsolutePath();

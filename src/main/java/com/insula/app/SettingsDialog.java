@@ -415,10 +415,13 @@ final class SettingsDialog {
         // cannot get moving. Saying only "prefer BitTorrent" makes the setting look broken on the
         // (common) small archive that quietly went over HTTP.
         boolean torrentAvailable = TorrentTransport.isAvailable();
+        // Not "unavailable on this platform": the native either loaded or it did not, and for a
+        // long time it did not — because of how it was packaged, on every platform equally. A
+        // message that blames the OS for a build problem sends anyone reading it the wrong way.
         torrentStatus.setText(
                 torrentAvailable
                         ? "BitTorrent support: available on this machine"
-                        : "BitTorrent support: unavailable on this platform — downloads use HTTP");
+                        : "BitTorrent support: the native library did not load — downloads use HTTP");
         torrentStatus.getStyleClass().add(torrentAvailable ? "srow-status-ok" : "srow-status-muted");
         torrentSwitch.setDisable(!torrentAvailable);
 

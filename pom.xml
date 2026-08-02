@@ -33,6 +33,24 @@
         <spotless.version>3.6.0</spotless.version>
         <palantir.version>2.92.0</palantir.version>
         <jlibtorrent.version>2.0.12.9</jlibtorrent.version>
+        <!--
+          Where the BitTorrent native ends up, and how the loader is told about it.
+
+          The native ships in its own resource-only jar whose automatic module name cannot even be
+          derived ("jlibtorrent.linux.x86_64" fails on the trailing "64"), so it can never sit on
+          the module path — and the javafx plugin drops it rather than putting it anywhere else.
+          It is therefore on NEITHER path at runtime, which is why jlibtorrent's own
+          load-from-classpath step could never find it and BitTorrent was dead in the real app on
+          every platform while passing every test (surefire runs on the classpath, where it works).
+
+          So the native is unpacked at build time and handed to jlibtorrent's own documented hook,
+          -Djlibtorrent.jni.path, which goes straight to System.load(). Blank here so a build with
+          no matching OS profile is simply inert rather than broken.
+        -->
+        <jlibtorrent.native.skip>true</jlibtorrent.native.skip>
+        <jlibtorrent.native.artifact></jlibtorrent.native.artifact>
+        <jlibtorrent.native.path></jlibtorrent.native.path>
+        <jlibtorrent.natives.dir>${project.build.directory}/natives</jlibtorrent.natives.dir>
         <twelvemonkeys.version>3.12.0</twelvemonkeys.version>
         <!-- Overridden per OS below; -Djpackage.type=app-image gives an unpackaged bundle. -->
         <jpackage.type>app-image</jpackage.type>
@@ -126,6 +144,11 @@
         -->
         <profile>
             <id>native-linux-x86_64</id>
+            <properties>
+                <jlibtorrent.native.skip>false</jlibtorrent.native.skip>
+                <jlibtorrent.native.artifact>jlibtorrent-linux-x86_64</jlibtorrent.native.artifact>
+                <jlibtorrent.native.path>lib/x86_64/libjlibtorrent-${jlibtorrent.version}.so</jlibtorrent.native.path>
+            </properties>
             <activation>
                 <os><family>unix</family><name>linux</name><arch>amd64</arch></os>
             </activation>
@@ -139,6 +162,11 @@
         </profile>
         <profile>
             <id>native-linux-arm64</id>
+            <properties>
+                <jlibtorrent.native.skip>false</jlibtorrent.native.skip>
+                <jlibtorrent.native.artifact>jlibtorrent-linux-arm64</jlibtorrent.native.artifact>
+                <jlibtorrent.native.path>lib/arm64/libjlibtorrent-${jlibtorrent.version}.so</jlibtorrent.native.path>
+            </properties>
             <activation>
                 <os><family>unix</family><name>linux</name><arch>aarch64</arch></os>
             </activation>
@@ -152,6 +180,11 @@
         </profile>
         <profile>
             <id>native-macos-x86_64</id>
+            <properties>
+                <jlibtorrent.native.skip>false</jlibtorrent.native.skip>
+                <jlibtorrent.native.artifact>jlibtorrent-macosx-x86_64</jlibtorrent.native.artifact>
+                <jlibtorrent.native.path>lib/x86_64/libjlibtorrent.x86_64-${jlibtorrent.version}.dylib</jlibtorrent.native.path>
+            </properties>
             <activation>
                 <os><family>mac</family><arch>x86_64</arch></os>
             </activation>
@@ -165,6 +198,11 @@
         </profile>
         <profile>
             <id>native-macos-arm64</id>
+            <properties>
+                <jlibtorrent.native.skip>false</jlibtorrent.native.skip>
+                <jlibtorrent.native.artifact>jlibtorrent-macosx-arm64</jlibtorrent.native.artifact>
+                <jlibtorrent.native.path>lib/arm64/libjlibtorrent.arm64-${jlibtorrent.version}.dylib</jlibtorrent.native.path>
+            </properties>
             <activation>
                 <os><family>mac</family><arch>aarch64</arch></os>
             </activation>
@@ -178,6 +216,11 @@
         </profile>
         <profile>
             <id>native-windows</id>
+            <properties>
+                <jlibtorrent.native.skip>false</jlibtorrent.native.skip>
+                <jlibtorrent.native.artifact>jlibtorrent-windows</jlibtorrent.native.artifact>
+                <jlibtorrent.native.path>lib/x86_64/jlibtorrent-${jlibtorrent.version}.dll</jlibtorrent.native.path>
+            </properties>
             <activation>
                 <os><family>windows</family></os>
             </activation>
@@ -377,6 +420,34 @@
                 </configuration>
             </plugin>
             <plugin>
+                <!--
+                  Unpacks the BitTorrent native so jlibtorrent's -Djlibtorrent.jni.path hook has
+                  a real file to System.load(). Skipped when no OS profile matched, so an
+                  unrecognised host builds and runs with BitTorrent simply absent.
+                -->
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.8.1</version>
+                <executions>
+                    <execution>
+                        <id>unpack-torrent-native</id>
+                        <phase>generate-resources</phase>
+                        <goals><goal>unpack</goal></goals>
+                        <configuration>
+                            <skip>${jlibtorrent.native.skip}</skip>
+                            <artifactItems>
+                                <artifactItem>
+                                    <groupId>com.frostwire</groupId>
+                                    <artifactId>${jlibtorrent.native.artifact}</artifactId>
+                                    <version>${jlibtorrent.version}</version>
+                                    <outputDirectory>${jlibtorrent.natives.dir}</outputDirectory>
+                                </artifactItem>
+                            </artifactItems>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
                 <groupId>org.openjfx</groupId>
                 <artifactId>javafx-maven-plugin</artifactId>
                 <version>${javafx.plugin.version}</version>
@@ -384,6 +455,7 @@
                     <mainClass>com.insula/com.insula.app.Main</mainClass>
                     <options>
                         <option>--enable-native-access=com.github.luben.zstd_jni</option>
+                        <option>-Djlibtorrent.jni.path=${jlibtorrent.natives.dir}/${jlibtorrent.native.path}</option>
                     </options>
                 </configuration>
             </plugin>

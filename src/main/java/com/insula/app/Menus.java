@@ -68,6 +68,8 @@ final class Menus {
                             SEPARATOR,
                             "file.closeArchive",
                             SEPARATOR,
+                            "view.settings",
+                            SEPARATOR,
                             "app.quit")),
             new MenuSpec(
                     "View",
@@ -77,6 +79,9 @@ final class Menus {
                             "catalog.open",
                             SEPARATOR,
                             "readerview.toggle",
+                            SEPARATOR,
+                            "view.toggleSidebar",
+                            "view.sidebarSide",
                             SEPARATOR,
                             "view.zoomIn",
                             "view.zoomOut",

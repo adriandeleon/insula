@@ -303,3 +303,22 @@
     -fx-padding: 0 0 0 8;
     -fx-border-color: transparent;
 }
+
+/* Back/forward on the tab strip: quiet, so they read as part of the strip rather than chrome. */
+.tab-nav {
+    -fx-background-color: transparent;
+    -fx-text-fill: -insula-muted;
+    -fx-padding: 2 7 2 7;
+    -fx-font-size: 13px;
+}
+.tab-nav:hover { -fx-background-color: -insula-surface2; -fx-background-radius: 6; }
+.tab-nav:disabled { -fx-opacity: 0.35; }
+
+/* The sidebar's own show/move controls. */
+.sidebar-control {
+    -fx-background-color: transparent;
+    -fx-text-fill: -insula-faint;
+    -fx-padding: 2 6 2 6;
+    -fx-font-size: 12px;
+}
+.sidebar-control:hover { -fx-background-color: -insula-surface2; -fx-background-radius: 6; -fx-text-fill: -insula-ink; }
