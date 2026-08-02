@@ -88,4 +88,21 @@ class LanServerTest {
         assertFalse(html.contains("<script>alert"), "titles are data, not markup");
         assertTrue(html.contains("&lt;script&gt;"));
     }
+
+    @Test
+    void phonesCanSeekBecauseRangesAreServed() throws Exception {
+        // A phone scrubbing a video is the reason this matters on the LAN side.
+        HttpResponse<String> full = get("/zim/wikibooks/C/s/bullet-icon.png");
+        assertEquals("bytes", full.headers().firstValue("accept-ranges").orElse(""));
+
+        HttpRequest ranged = HttpRequest.newBuilder(
+                        URI.create("http://127.0.0.1:" + server.port() + "/zim/wikibooks/C/s/bullet-icon.png"))
+                .header("Range", "bytes=0-9")
+                .GET()
+                .build();
+        HttpResponse<byte[]> slice = client.send(ranged, HttpResponse.BodyHandlers.ofByteArray());
+        assertEquals(206, slice.statusCode());
+        assertEquals(10, slice.body().length);
+        assertTrue(slice.headers().firstValue("content-range").orElse("").startsWith("bytes 0-9/"));
+    }
 }

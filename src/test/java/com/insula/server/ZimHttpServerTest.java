@@ -106,4 +106,75 @@ class ZimHttpServerTest {
             }
         }
     }
+
+    @Test
+    void aRangeRequestIsAnsweredWithExactlyThatSlice() throws Exception {
+        try (ZimArchive archive = ZimArchive.open(Path.of("src/test/resources/zim/nons-wikibooks.zim"));
+                ZimHttpServer server = new ZimHttpServer()) {
+            String token = server.register(archive);
+            byte[] whole = archive.content(
+                    archive.resolve(archive.entryByUrl("C/s/bullet-icon.png").orElseThrow()));
+
+            HttpURLConnection connection = (HttpURLConnection) URI.create(server.urlFor(token, "C/s/bullet-icon.png"))
+                    .toURL()
+                    .openConnection();
+            connection.setRequestProperty("Range", "bytes=10-19");
+            assertEquals(206, connection.getResponseCode());
+            assertEquals("bytes 10-19/" + whole.length, connection.getHeaderField("Content-Range"));
+            try (InputStream in = connection.getInputStream()) {
+                assertArrayEquals(java.util.Arrays.copyOfRange(whole, 10, 20), in.readAllBytes());
+            }
+        }
+    }
+
+    @Test
+    void afullResponseAdvertisesThatSeekingIsPossible() throws Exception {
+        // Without Accept-Ranges a player assumes the stream is not seekable and disables scrubbing.
+        try (ZimArchive archive = ZimArchive.open(Path.of("src/test/resources/zim/nons-wikibooks.zim"));
+                ZimHttpServer server = new ZimHttpServer()) {
+            String token = server.register(archive);
+            HttpURLConnection connection = (HttpURLConnection) URI.create(server.urlFor(token, "C/s/bullet-icon.png"))
+                    .toURL()
+                    .openConnection();
+            assertEquals(200, connection.getResponseCode());
+            assertEquals("bytes", connection.getHeaderField("Accept-Ranges"));
+        }
+    }
+
+    @Test
+    void aSeekPastTheEndIsRefusedWithTheTrueLength() throws Exception {
+        try (ZimArchive archive = ZimArchive.open(Path.of("src/test/resources/zim/nons-wikibooks.zim"));
+                ZimHttpServer server = new ZimHttpServer()) {
+            String token = server.register(archive);
+            long size = archive.contentLength(
+                    archive.entryByUrl("C/s/bullet-icon.png").orElseThrow());
+
+            HttpURLConnection connection = (HttpURLConnection) URI.create(server.urlFor(token, "C/s/bullet-icon.png"))
+                    .toURL()
+                    .openConnection();
+            connection.setRequestProperty("Range", "bytes=" + (size + 100) + "-");
+            assertEquals(416, connection.getResponseCode());
+            assertEquals("bytes */" + size, connection.getHeaderField("Content-Range"));
+        }
+    }
+
+    @Test
+    void aSuffixRangeReturnsTheTailWhichIsHowMp4PlayersStart() throws Exception {
+        try (ZimArchive archive = ZimArchive.open(Path.of("src/test/resources/zim/nons-wikibooks.zim"));
+                ZimHttpServer server = new ZimHttpServer()) {
+            String token = server.register(archive);
+            byte[] whole = archive.content(
+                    archive.resolve(archive.entryByUrl("C/s/bullet-icon.png").orElseThrow()));
+
+            HttpURLConnection connection = (HttpURLConnection) URI.create(server.urlFor(token, "C/s/bullet-icon.png"))
+                    .toURL()
+                    .openConnection();
+            connection.setRequestProperty("Range", "bytes=-16");
+            assertEquals(206, connection.getResponseCode());
+            try (InputStream in = connection.getInputStream()) {
+                assertArrayEquals(
+                        java.util.Arrays.copyOfRange(whole, whole.length - 16, whole.length), in.readAllBytes());
+            }
+        }
+    }
 }

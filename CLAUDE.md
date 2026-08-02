@@ -304,6 +304,15 @@ of ours, or an archive shipping MP4 would lose its working player); sources reso
 than using `loadContent`); and the script is **idempotent per document** via a window flag, since
 the load-succeeded event can fire more than once.
 
+**Seeking needs Range, and Range needs a ranged read.** Both servers honour a single `bytes=`
+range (`server/ByteRanges`, pure); multi-range deliberately falls back to the full body, which the
+spec allows and no player asks for. A seek past the end must answer **416**, never byte 0 — the
+player would read the start as a successful seek to the wrong place. The slice comes from
+`ZimArchive.contentRange`, not from slicing a materialized blob: `ClusterStore.blobRange` preads
+the window for an uncompressed cluster and copies out of the cached decompressed one otherwise, so
+a seek costs the window rather than the file (a TED video blob is 20.6 MB). Verified with ffmpeg:
+seek to 20:00 of a 25-minute talk decodes in 159 ms.
+
 The click comes back through `reader/MediaBridge`, the app's only JS→Java surface — one method
 taking one string, with `opens com.insula.reader to javafx.web` because `JSObject.setMember`
 dispatches reflectively, and `requires jdk.jsobject`. The binding belongs to the document, so it
@@ -314,7 +323,6 @@ is re-installed on every load.
 Full-text search (the Xapian index inside ZIMs needs native code — a Lucene re-index on first
 open is the likelier path); tabs, bookmarks and history; split archives (`.zimaa`…); jpackage
 installers; store polish (pagination past MAX_CARDS, locale-aware starter picks); LAN sharing
-extras (mDNS discovery, choosing which archives to share); HTTP Range support in the loopback
-server, so external video playback can seek rather than fetching from the start. Done since the original roadmap:
+extras (mDNS discovery, choosing which archives to share); in-app video playback (see below). Done since the original roadmap:
 BitTorrent transport, the card Store with facets, Library-as-home, update pills, starters,
 piece-level Repair, LAN serving + QR.

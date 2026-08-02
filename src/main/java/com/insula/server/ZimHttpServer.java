@@ -100,26 +100,65 @@ public final class ZimHttpServer implements AutoCloseable {
                 exchange.sendResponseHeaders(302, -1);
                 return;
             }
-            byte[] body = archive.content(d);
             String mime = archive.mimeType(d);
             if (WebpTranscoder.isWebp(mime)) {
                 // WebView cannot decode WebP, and every modern ZIM stores its images that way.
-                WebpTranscoder.Transcoded converted = transcoder.transcode(path, body, mime);
-                body = converted.bytes();
-                mime = converted.mimeType();
+                // Transcoding needs the whole image, so this branch serves from memory; images
+                // are small and no client range-requests them.
+                WebpTranscoder.Transcoded converted = transcoder.transcode(path, archive.content(d), mime);
+                sendBytes(exchange, converted.bytes(), converted.mimeType());
+                return;
             }
             if (mime.startsWith("text/")) {
                 mime = mime + "; charset=UTF-8";
             }
-            exchange.getResponseHeaders().set("Content-Type", mime);
-            exchange.sendResponseHeaders(200, body.length == 0 ? -1 : body.length);
-            if (body.length > 0) {
-                try (OutputStream out = exchange.getResponseBody()) {
-                    out.write(body);
-                }
-            }
+            sendEntry(exchange, archive, d, mime);
         } catch (URISyntaxException | RuntimeException e) {
             sendText(exchange, 500, "Error: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Serves an entry, honouring a {@code Range} request by reading only the window asked for.
+     *
+     * <p>Range support is what makes an external player usable: without it, seeking to the middle
+     * of a talk means re-reading from byte zero. Reading the slice out of the archive rather than
+     * the whole blob keeps a seek proportional to the request instead of to the file.
+     */
+    private static void sendEntry(HttpExchange exchange, ZimArchive archive, Dirent d, String mime) throws IOException {
+        long total = archive.contentLength(d);
+        exchange.getResponseHeaders().set("Content-Type", mime);
+        exchange.getResponseHeaders().set("Accept-Ranges", "bytes");
+
+        ByteRanges.Request request =
+                ByteRanges.parse(exchange.getRequestHeaders().getFirst("Range"), total);
+        if (request instanceof ByteRanges.Request.Unsatisfiable) {
+            exchange.getResponseHeaders().set("Content-Range", ByteRanges.unsatisfiedRange(total));
+            exchange.sendResponseHeaders(416, -1);
+            return;
+        }
+        if (request instanceof ByteRanges.Request.Partial partial) {
+            byte[] slice = archive.contentRange(d, partial.start(), Math.toIntExact(partial.length()));
+            exchange.getResponseHeaders().set("Content-Range", ByteRanges.contentRange(partial, total));
+            exchange.sendResponseHeaders(206, slice.length == 0 ? -1 : slice.length);
+            writeBody(exchange, slice);
+            return;
+        }
+        exchange.sendResponseHeaders(200, total == 0 ? -1 : total);
+        writeBody(exchange, archive.content(d));
+    }
+
+    private static void sendBytes(HttpExchange exchange, byte[] body, String mime) throws IOException {
+        exchange.getResponseHeaders().set("Content-Type", mime);
+        exchange.sendResponseHeaders(200, body.length == 0 ? -1 : body.length);
+        writeBody(exchange, body);
+    }
+
+    private static void writeBody(HttpExchange exchange, byte[] body) throws IOException {
+        if (body.length > 0) {
+            try (OutputStream out = exchange.getResponseBody()) {
+                out.write(body);
+            }
         }
     }
 

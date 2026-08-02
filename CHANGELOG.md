@@ -131,6 +131,14 @@ Everything below is in `main` and unreleased; there has been no tagged version y
 
 ### Fixed
 
+- **Seeking works: both servers honour HTTP Range.** An external player handed a video URL used
+  to have to read from byte zero to reach a seek point, which makes a 25-minute talk unusable.
+  Both the loopback reader server and the LAN server now advertise `Accept-Ranges`, answer a
+  single range with `206`/`Content-Range`, and refuse an out-of-range seek with `416` rather than
+  quietly serving the start. The slice is read straight out of the archive — `ZimArchive`
+  gained `contentLength`/`contentRange`, so a seek costs the window asked for instead of
+  materializing the whole blob (measured: 20.6 MB for one TED video). Measured end to end,
+  ffmpeg now seeks to 20:00 in that talk and decodes in 159 ms.
 - **Video in archives no longer dead-ends.** WebKit's "No compatible source was found for this
   media" is what an archive's WebM looks like in JavaFX: WebView plays only what JavaFX Media
   plays (in practice MP4/H.264), and every video in TED's archive is VP9 + Vorbis. Kiwix

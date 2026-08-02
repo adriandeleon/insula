@@ -10,6 +10,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -164,5 +165,58 @@ class ZimArchiveTest {
         Path bogus = dir.resolve("bogus.zim");
         Files.write(bogus, new byte[200]);
         assertThrows(ZimFormatException.class, () -> ZimArchive.open(bogus));
+    }
+
+    @Test
+    void aRangedReadReturnsTheSameBytesAsTheWholeContent() throws Exception {
+        // Range serving reads slices straight out of the archive so a seek in a 20 MB video costs
+        // the window asked for, not the file. That only holds if the slices agree with the whole.
+        try (ZimArchive archive = ZimArchive.open(fixture("nons-wikibooks.zim"))) {
+            Dirent entry =
+                    archive.resolve(archive.entryByUrl("C/s/bullet-icon.png").orElseThrow());
+            byte[] whole = archive.content(entry);
+            assertEquals(whole.length, archive.contentLength(entry), "the length must not require a read");
+
+            assertArrayEquals(java.util.Arrays.copyOfRange(whole, 0, 10), archive.contentRange(entry, 0, 10), "head");
+            assertArrayEquals(java.util.Arrays.copyOfRange(whole, 5, 25), archive.contentRange(entry, 5, 20), "middle");
+            assertArrayEquals(
+                    java.util.Arrays.copyOfRange(whole, whole.length - 8, whole.length),
+                    archive.contentRange(entry, whole.length - 8, 8),
+                    "tail");
+            // Asking past the end clamps rather than throwing: the server derives lengths from the
+            // same source, but a truncated archive must not become an exception storm.
+            assertArrayEquals(
+                    java.util.Arrays.copyOfRange(whole, whole.length - 4, whole.length),
+                    archive.contentRange(entry, whole.length - 4, 999),
+                    "clamped");
+            assertEquals(0, archive.contentRange(entry, whole.length, 10).length, "at EOF");
+        }
+    }
+
+    @Test
+    void rangedReadsAgreeWithWholeReadsForEveryEntryInAnArchive() throws Exception {
+        // Both cluster kinds matter here: uncompressed blobs are pread directly while compressed
+        // ones are sliced out of the decoded cluster, and only one of those paths is exercised by
+        // a single hand-picked entry.
+        try (ZimArchive archive = ZimArchive.open(fixture("nons-small.zim"))) {
+            int checked = 0;
+            for (long i = 0; i < archive.entryCount(); i++) {
+                Dirent d = archive.direntAt(i);
+                if (d.isRedirect() || !d.hasContent()) {
+                    continue;
+                }
+                byte[] whole = archive.content(d);
+                if (whole.length < 4) {
+                    continue;
+                }
+                int mid = whole.length / 2;
+                assertArrayEquals(
+                        java.util.Arrays.copyOfRange(whole, mid, whole.length),
+                        archive.contentRange(d, mid, whole.length - mid),
+                        d.fullPath());
+                checked++;
+            }
+            assertTrue(checked > 0, "the fixture must contain readable entries");
+        }
     }
 }

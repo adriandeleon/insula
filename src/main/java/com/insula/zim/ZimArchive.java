@@ -143,6 +143,27 @@ public final class ZimArchive implements AutoCloseable {
         return clusters.blob(d.clusterNumber(), d.blobNumber());
     }
 
+    /** The entry's byte length, without reading its content. */
+    public long contentLength(Dirent dirent) throws IOException {
+        Dirent d = resolve(dirent);
+        if (!d.hasContent()) {
+            throw new ZimFormatException("Entry has no content: " + d.fullPath());
+        }
+        return clusters.blobSize(d.clusterNumber(), d.blobNumber());
+    }
+
+    /**
+     * A window of the entry's content. Serving an HTTP range through this keeps a seek in a large
+     * video proportional to what was asked for rather than to the size of the file.
+     */
+    public byte[] contentRange(Dirent dirent, long offset, int length) throws IOException {
+        Dirent d = resolve(dirent);
+        if (!d.hasContent()) {
+            throw new ZimFormatException("Entry has no content: " + d.fullPath());
+        }
+        return clusters.blobRange(d.clusterNumber(), d.blobNumber(), offset, length);
+    }
+
     public String mimeType(Dirent dirent) {
         return mimeList.byIndex(dirent.mimeType());
     }

@@ -90,6 +90,69 @@ final class ClusterStore {
         return Arrays.copyOfRange(decoded.data(), from, to);
     }
 
+    /**
+     * The blob's length without materializing it — needed for a {@code Content-Range} header.
+     * Cheap for an uncompressed cluster (two offset reads); a compressed one must be decoded, but
+     * that result is cached and the caller is about to read from it anyway.
+     */
+    long blobSize(long clusterNumber, long blobNumber) throws IOException {
+        Located located = locate(clusterNumber, blobNumber);
+        return located.end() - located.start();
+    }
+
+    /**
+     * A slice of a blob, without ever holding the whole blob.
+     *
+     * <p>This is what lets a seek in a 20 MB video cost the bytes actually asked for. The
+     * uncompressed path preads exactly the requested window; the compressed path copies out of the
+     * already-cached decompressed cluster.
+     */
+    byte[] blobRange(long clusterNumber, long blobNumber, long offset, int length) throws IOException {
+        Located located = locate(clusterNumber, blobNumber);
+        long size = located.end() - located.start();
+        if (offset < 0 || offset > size) {
+            throw new ZimFormatException("Range offset " + offset + " outside blob of " + size);
+        }
+        int take = (int) Math.min(length, size - offset);
+        if (take <= 0) {
+            return new byte[0];
+        }
+        if (located.data() == null) {
+            return in.bytes(located.base() + located.start() + offset, take);
+        }
+        int from = Math.toIntExact(located.start() + offset);
+        return Arrays.copyOfRange(located.data(), from, from + take);
+    }
+
+    /**
+     * Where a blob lives. {@code data} is null for an uncompressed cluster, in which case the
+     * offsets are relative to {@code base} within the file; otherwise they index {@code data}.
+     */
+    private record Located(byte[] data, long base, long start, long end) {}
+
+    private Located locate(long clusterNumber, long blobNumber) throws IOException {
+        if (clusterNumber < 0 || clusterNumber >= header.clusterCount()) {
+            throw new ZimFormatException("Cluster " + clusterNumber + " out of range");
+        }
+        long start = in.u64(header.clusterPtrPos() + 8 * clusterNumber);
+        int info = in.u8(start);
+        int compression = info & 0x0F;
+        boolean extended = (info & 0x10) != 0;
+        int offSize = extended ? 8 : 4;
+        long body = start + 1;
+
+        if (compression == COMP_DEFAULT || compression == COMP_NONE) {
+            long first = offsetAt(body, 0, extended);
+            checkBlobIndex(blobNumber, first / offSize - 1, clusterNumber);
+            return new Located(
+                    null, body, offsetAt(body, blobNumber, extended), offsetAt(body, blobNumber + 1, extended));
+        }
+        Decoded decoded = decodedCluster(clusterNumber, start, compression, extended);
+        checkBlobIndex(blobNumber, decoded.offsets().length - 1, clusterNumber);
+        return new Located(
+                decoded.data(), 0, decoded.offsets()[(int) blobNumber], decoded.offsets()[(int) blobNumber + 1]);
+    }
+
     private long offsetAt(long body, long index, boolean extended) throws IOException {
         return extended ? in.u64(body + 8 * index) : in.u32(body + 4 * index);
     }

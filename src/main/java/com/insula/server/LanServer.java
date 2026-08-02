@@ -138,13 +138,31 @@ public final class LanServer implements AutoCloseable {
             redirect(exchange, "/zim/" + slug + "/" + archive.resolve(d).fullPath());
             return;
         }
-        byte[] body = archive.content(d);
         String mime = archive.mimeType(d);
         if (mime.startsWith("text/")) {
             mime = mime + "; charset=UTF-8";
         }
+        long total = archive.contentLength(d);
         exchange.getResponseHeaders().set("Content-Type", mime);
-        exchange.sendResponseHeaders(200, body.length == 0 ? -1 : body.length);
+        // Phones seek video; without this a scrub bar re-fetches from the start.
+        exchange.getResponseHeaders().set("Accept-Ranges", "bytes");
+
+        ByteRanges.Request request =
+                ByteRanges.parse(exchange.getRequestHeaders().getFirst("Range"), total);
+        if (request instanceof ByteRanges.Request.Unsatisfiable) {
+            exchange.getResponseHeaders().set("Content-Range", ByteRanges.unsatisfiedRange(total));
+            exchange.sendResponseHeaders(416, -1);
+            return;
+        }
+        byte[] body;
+        if (request instanceof ByteRanges.Request.Partial partial) {
+            body = archive.contentRange(d, partial.start(), Math.toIntExact(partial.length()));
+            exchange.getResponseHeaders().set("Content-Range", ByteRanges.contentRange(partial, total));
+            exchange.sendResponseHeaders(206, body.length == 0 ? -1 : body.length);
+        } else {
+            body = archive.content(d);
+            exchange.sendResponseHeaders(200, body.length == 0 ? -1 : body.length);
+        }
         if (body.length > 0) {
             try (OutputStream out = exchange.getResponseBody()) {
                 out.write(body);
