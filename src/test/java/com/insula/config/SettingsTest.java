@@ -92,4 +92,27 @@ class SettingsTest {
                     entries.map(p -> p.getFileName().toString()).sorted().toList());
         }
     }
+
+    @Test
+    void readerViewPreferencesRoundTrip(@TempDir Path dir) {
+        Path file = dir.resolve("settings.properties");
+        Settings settings = Settings.load(file);
+        assertEquals("serif", settings.getReaderViewFont(), "Firefox's default is serif");
+        assertEquals(20, settings.getReaderViewFontSize());
+        assertEquals("light", settings.getReaderViewTheme());
+
+        settings.setReaderViewFont("sans");
+        settings.setReaderViewFontSize(24);
+        settings.setReaderViewWidth(760);
+        settings.setReaderViewLineHeight(1.8);
+        settings.setReaderViewTheme("sepia");
+        settings.save();
+
+        Settings reloaded = Settings.load(file);
+        assertEquals("sans", reloaded.getReaderViewFont());
+        assertEquals(24, reloaded.getReaderViewFontSize());
+        assertEquals(760, reloaded.getReaderViewWidth());
+        assertEquals(1.8, reloaded.getReaderViewLineHeight());
+        assertEquals("sepia", reloaded.getReaderViewTheme());
+    }
 }

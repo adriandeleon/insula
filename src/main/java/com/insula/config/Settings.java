@@ -57,6 +57,14 @@ public final class Settings {
     /** Port for "Share on local network"; 0 = pick an ephemeral port. Sharing itself is session-only. */
     private int lanPort = 8181;
 
+    // Reader View (the Firefox-style distilled page) typography. Defaults mirror Firefox's:
+    // serif at 20px in a ~680px column with 1.6 line height, light background.
+    private String readerViewFont = "serif";
+    private int readerViewFontSize = 20;
+    private int readerViewWidth = 680;
+    private double readerViewLineHeight = 1.6;
+    private String readerViewTheme = "light";
+
     private Settings(Path file) {
         this.file = file;
     }
@@ -86,6 +94,13 @@ public final class Settings {
             settings.torrentEnabled = Boolean.parseBoolean(props.getProperty("torrentEnabled", "false"));
             settings.seedingEnabled = Boolean.parseBoolean(props.getProperty("seedingEnabled", "false"));
             settings.lanPort = clamp(parseInt(props.getProperty("lanPort"), settings.lanPort), 0, 65535);
+            settings.readerViewFont = props.getProperty("readerViewFont", settings.readerViewFont);
+            settings.readerViewFontSize =
+                    parseInt(props.getProperty("readerViewFontSize"), settings.readerViewFontSize);
+            settings.readerViewWidth = parseInt(props.getProperty("readerViewWidth"), settings.readerViewWidth);
+            settings.readerViewLineHeight =
+                    parseDouble(props.getProperty("readerViewLineHeight"), settings.readerViewLineHeight);
+            settings.readerViewTheme = props.getProperty("readerViewTheme", settings.readerViewTheme);
         }
         return settings;
     }
@@ -103,6 +118,11 @@ public final class Settings {
         props.setProperty("torrentEnabled", String.valueOf(torrentEnabled));
         props.setProperty("seedingEnabled", String.valueOf(seedingEnabled));
         props.setProperty("lanPort", String.valueOf(lanPort));
+        props.setProperty("readerViewFont", readerViewFont);
+        props.setProperty("readerViewFontSize", String.valueOf(readerViewFontSize));
+        props.setProperty("readerViewWidth", String.valueOf(readerViewWidth));
+        props.setProperty("readerViewLineHeight", String.valueOf(readerViewLineHeight));
+        props.setProperty("readerViewTheme", readerViewTheme);
         try {
             Files.createDirectories(file.getParent());
             Path temp = file.resolveSibling(file.getFileName() + ".tmp");
@@ -136,6 +156,17 @@ public final class Settings {
 
     private static int clamp(int value, int min, int max) {
         return Math.max(min, Math.min(max, value));
+    }
+
+    private static double parseDouble(String value, double fallback) {
+        if (value == null) {
+            return fallback;
+        }
+        try {
+            return Double.parseDouble(value.strip());
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
     }
 
     public Path file() {
@@ -216,6 +247,49 @@ public final class Settings {
 
     public void setSeedingEnabled(boolean seedingEnabled) {
         this.seedingEnabled = seedingEnabled;
+    }
+
+    // Reader View typography. Range clamping lives in ReaderView.Prefs.normalized — the single
+    // authority — so these store what they are given and the reader normalizes on use.
+
+    public String getReaderViewFont() {
+        return readerViewFont;
+    }
+
+    public void setReaderViewFont(String font) {
+        this.readerViewFont = font == null ? "serif" : font;
+    }
+
+    public int getReaderViewFontSize() {
+        return readerViewFontSize;
+    }
+
+    public void setReaderViewFontSize(int px) {
+        this.readerViewFontSize = px;
+    }
+
+    public int getReaderViewWidth() {
+        return readerViewWidth;
+    }
+
+    public void setReaderViewWidth(int px) {
+        this.readerViewWidth = px;
+    }
+
+    public double getReaderViewLineHeight() {
+        return readerViewLineHeight;
+    }
+
+    public void setReaderViewLineHeight(double lineHeight) {
+        this.readerViewLineHeight = lineHeight;
+    }
+
+    public String getReaderViewTheme() {
+        return readerViewTheme;
+    }
+
+    public void setReaderViewTheme(String theme) {
+        this.readerViewTheme = theme == null ? "light" : theme;
     }
 
     public int getLanPort() {

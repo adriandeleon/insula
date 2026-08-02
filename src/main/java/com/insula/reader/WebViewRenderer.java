@@ -132,6 +132,14 @@ public final class WebViewRenderer implements ArticleRenderer {
         webView.getEngine().load(null);
     }
 
+    /**
+     * Runs a script against the current page, null on any failure. Public for the reader-view
+     * session, which is engine-bound by nature; everything else should stay on the interface.
+     */
+    public Object runScript(String script) {
+        return run(script);
+    }
+
     /** Scripts run against archived pages, so a failure must never propagate into the UI. */
     private Object run(String script) {
         try {

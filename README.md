@@ -93,6 +93,7 @@ with `sha256sum -c` against the published `.sha256`.
 | `Ctrl+B` | Library and downloads |
 | `Ctrl+1` / `Ctrl+2` | Library / Store |
 | `Ctrl+R` | Cycle reader mode (original / comfortable / dark) |
+| `Ctrl+Alt+R` | Reader View (extracted article, Firefox-style) |
 | `Ctrl+O` | Open an archive from disk |
 | `Ctrl+,` | Settings |
 | `Alt+←` / `Alt+→` | Back / forward |

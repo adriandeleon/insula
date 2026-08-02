@@ -58,7 +58,8 @@ class ReadingLayerFxTest {
                 "reader.modeDark",
                 "reader.widerColumn",
                 "reader.narrowerColumn",
-                "reader.toggleRememberPosition"
+                "reader.toggleRememberPosition",
+                "readerview.toggle" // with no archive open it reports rather than acting
             }) {
                 assertTrue(
                         controller.commandsForTest().all().stream().anyMatch(c -> c.id().equals(id)),

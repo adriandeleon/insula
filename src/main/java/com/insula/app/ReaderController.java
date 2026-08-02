@@ -57,6 +57,8 @@ import com.insula.download.TransportSelector;
 import com.insula.library.Library;
 import com.insula.library.LibraryEntry;
 import com.insula.reader.ReaderTheme;
+import com.insula.reader.ReaderView;
+import com.insula.reader.ReaderViewSession;
 import com.insula.reader.ReadingPositions;
 import com.insula.reader.WebViewRenderer;
 import com.insula.search.LibrarySearch;
@@ -87,6 +89,10 @@ final class ReaderController {
     private final Button backButton = new Button("←");
     private final Button forwardButton = new Button("→");
     private final Button homeButton = new Button("Home");
+    private final Button readerViewButton = new Button("Reader");
+    private final Button typePanelButton = new Button("Aa");
+    private javafx.stage.Popup typePanel;
+    private ReaderViewSession readerView;
     private final javafx.scene.control.ToggleButton libraryTab = new javafx.scene.control.ToggleButton("Library");
     private final javafx.scene.control.ToggleButton storeTab = new javafx.scene.control.ToggleButton("Store");
     private final Label status = new Label("Open a .zim archive to start reading");
@@ -252,6 +258,7 @@ final class ReaderController {
             saveAndApply();
             status.setText("Reopen last archive on startup: " + (settings.isReopenLastArchive() ? "on" : "off"));
         });
+        commands.register("readerview.toggle", "Toggle Reader View", this::toggleReaderView);
         commands.register("reader.cycleMode", "Reader Mode: Original / Comfortable / Dark", this::cycleReaderMode);
         commands.register(
                 "reader.modeOriginal", "Reader Mode: Original", () -> setReaderMode(ReaderTheme.Mode.ORIGINAL));
@@ -313,6 +320,9 @@ final class ReaderController {
         keys.bind("library.open", new KeyCodeCombination(KeyCode.DIGIT1, KeyCombination.SHORTCUT_DOWN));
         keys.bind("store.open", new KeyCodeCombination(KeyCode.DIGIT2, KeyCombination.SHORTCUT_DOWN));
         keys.bind("reader.cycleMode", new KeyCodeCombination(KeyCode.R, KeyCombination.SHORTCUT_DOWN));
+        keys.bind(
+                "readerview.toggle",
+                new KeyCodeCombination(KeyCode.R, KeyCombination.SHORTCUT_DOWN, KeyCombination.ALT_DOWN));
         keys.bind("catalog.refresh", new KeyCodeCombination(KeyCode.F5));
     }
 
@@ -324,6 +334,7 @@ final class ReaderController {
     // ---------------------------------------------------------------- UI
 
     private void buildUi() {
+        readerView = new ReaderViewSession(renderer::runScript);
         Button openButton = new Button("Open…");
         openButton.setOnAction(e -> commands.run("file.open"));
         backButton.setOnAction(e -> commands.run("nav.back"));
@@ -332,6 +343,14 @@ final class ReaderController {
         backButton.setDisable(true);
         forwardButton.setDisable(true);
         homeButton.setDisable(true);
+
+        readerViewButton.setOnAction(e -> commands.run("readerview.toggle"));
+        readerViewButton.setDisable(true);
+        readerViewButton.setTooltip(new javafx.scene.control.Tooltip("Reader View (Ctrl+Alt+R)"));
+        typePanelButton.setOnAction(e -> toggleTypePanel());
+        typePanelButton.setTooltip(new javafx.scene.control.Tooltip("Type and layout"));
+        typePanelButton.setVisible(false);
+        typePanelButton.setManaged(false);
 
         libraryTab.setOnAction(e -> commands.run("library.open"));
         storeTab.setOnAction(e -> commands.run("store.open"));
@@ -352,6 +371,9 @@ final class ReaderController {
                 backButton,
                 forwardButton,
                 homeButton,
+                new Separator(),
+                readerViewButton,
+                typePanelButton,
                 spacer,
                 paletteButton,
                 settingsButton);
@@ -415,6 +437,12 @@ final class ReaderController {
         renderer.setOnLocationChanged(location -> {
             onLocationChanged(location);
             updateNavButtons();
+        });
+        // The readerable probe needs a parsed document; locationProperty fires before that.
+        renderer.engine().getLoadWorker().stateProperty().addListener((obs, old, state) -> {
+            if (state == javafx.concurrent.Worker.State.SUCCEEDED) {
+                probeReaderable();
+            }
         });
 
         HBox statusBar = new HBox(status);
@@ -1077,6 +1105,7 @@ final class ReaderController {
                 hostServices.showDocument(location);
             });
         } else if (location.startsWith(server.baseUrl())) {
+            resetReaderViewForNavigation();
             String decoded = java.net.URLDecoder.decode(
                     location.substring(location.indexOf("/zim/") + 5), java.nio.charset.StandardCharsets.UTF_8);
             status.setText(bookTitle + " · " + decoded);
@@ -1102,6 +1131,202 @@ final class ReaderController {
         saveAndApply();
         status.setText(
                 width >= ReaderTheme.MAX_WIDTH ? "Reader column: unconstrained" : "Reader column: " + width + " px");
+    }
+
+    // ---------------------------------------------------------------- Reader View
+
+    ReaderViewSession readerViewForTest() {
+        return readerView;
+    }
+
+    private ReaderView.Prefs readerViewPrefs() {
+        return ReaderView.Prefs.normalized(
+                settings.getReaderViewFont(),
+                settings.getReaderViewFontSize(),
+                settings.getReaderViewWidth(),
+                settings.getReaderViewLineHeight(),
+                settings.getReaderViewTheme());
+    }
+
+    private void toggleReaderView() {
+        if (archive == null || surface != Surface.READER) {
+            status.setText("Open an article first");
+            return;
+        }
+        if (readerView.isActive()) {
+            exitReaderView();
+            return;
+        }
+        // Reader View owns the page's whole appearance, so the reader-theme user stylesheet is
+        // lifted while it is active — its !important rules sit higher in the cascade than any
+        // author style the shell could inject, and the two would otherwise fight over colors.
+        renderer.injectCss("");
+        if (readerView.enter(bookTitle, readerViewPrefs())) {
+            setReaderViewChrome(true);
+            status.setText("Reader View · " + ReaderView.readingTime(readerView.words()));
+        } else {
+            renderer.injectCss(
+                    ReaderTheme.css(ReaderTheme.modeOf(settings.getReaderMode()), settings.getReaderWidth(), 1.0));
+            status.setText("This page isn't suitable for Reader View");
+        }
+    }
+
+    private void exitReaderView() {
+        readerView.pageChanged();
+        setReaderViewChrome(false);
+        applyReaderTheme();
+        // Reload restores the original document; the URL never changed, so history is untouched.
+        renderer.engine().reload();
+    }
+
+    /**
+     * Runs when a document has actually finished loading: asks Mozilla's readerable probe
+     * whether the page is worth distilling and lights the toolbar button accordingly — the
+     * same gesture as Firefox's reader icon appearing in the URL bar.
+     */
+    private void probeReaderable() {
+        boolean readerable = readerView.probe();
+        readerViewButton.setDisable(!readerable);
+    }
+
+    /** A navigation happened: whatever reader state existed belongs to the previous document. */
+    private void resetReaderViewForNavigation() {
+        if (readerView.isActive()) {
+            readerView.pageChanged();
+            setReaderViewChrome(false);
+            applyReaderTheme();
+        }
+        readerViewButton.setDisable(true); // until the new page's probe says otherwise
+    }
+
+    private void setReaderViewChrome(boolean active) {
+        typePanelButton.setVisible(active);
+        typePanelButton.setManaged(active);
+        if (!active && typePanel != null) {
+            typePanel.hide();
+        }
+    }
+
+    private void applyReaderViewPrefs() {
+        settings.save();
+        readerView.applyPrefs(readerViewPrefs());
+    }
+
+    // ---- the Aa panel: Firefox's type controls, as JavaFX so every knob is a real control ----
+
+    private void toggleTypePanel() {
+        if (typePanel != null && typePanel.isShowing()) {
+            typePanel.hide();
+            return;
+        }
+        typePanel = buildTypePanel();
+        var bounds = typePanelButton.localToScreen(typePanelButton.getBoundsInLocal());
+        typePanel.show(typePanelButton, bounds.getMinX(), bounds.getMaxY() + 4);
+    }
+
+    private javafx.stage.Popup buildTypePanel() {
+        javafx.stage.Popup popup = new javafx.stage.Popup();
+        popup.setAutoHide(true);
+
+        var serif = new javafx.scene.control.ToggleButton("Serif");
+        serif.setStyle("-fx-font-family: 'Georgia', serif;");
+        var sans = new javafx.scene.control.ToggleButton("Sans");
+        var fontGroup = new javafx.scene.control.ToggleGroup();
+        serif.setToggleGroup(fontGroup);
+        sans.setToggleGroup(fontGroup);
+        boolean isSans = ReaderView.FONT_SANS.equals(readerViewPrefs().font());
+        (isSans ? sans : serif).setSelected(true);
+        serif.setOnAction(e -> {
+            settings.setReaderViewFont(ReaderView.FONT_SERIF);
+            applyReaderViewPrefs();
+        });
+        sans.setOnAction(e -> {
+            settings.setReaderViewFont(ReaderView.FONT_SANS);
+            applyReaderViewPrefs();
+        });
+        HBox fontRow = new HBox(6, serif, sans);
+
+        HBox sizeRow = stepperRow(
+                "A\u2212",
+                "A+",
+                "Text size",
+                () -> {
+                    settings.setReaderViewFontSize(settings.getReaderViewFontSize() - ReaderView.FONT_STEP_PX);
+                    applyReaderViewPrefs();
+                },
+                () -> {
+                    settings.setReaderViewFontSize(settings.getReaderViewFontSize() + ReaderView.FONT_STEP_PX);
+                    applyReaderViewPrefs();
+                });
+        HBox widthRow = stepperRow(
+                "\u2192\u2190",
+                "\u2190\u2192",
+                "Width",
+                () -> {
+                    settings.setReaderViewWidth(settings.getReaderViewWidth() - ReaderView.WIDTH_STEP_PX);
+                    applyReaderViewPrefs();
+                },
+                () -> {
+                    settings.setReaderViewWidth(settings.getReaderViewWidth() + ReaderView.WIDTH_STEP_PX);
+                    applyReaderViewPrefs();
+                });
+        HBox lineRow = stepperRow(
+                "\u2261\u2212",
+                "\u2261+",
+                "Line spacing",
+                () -> {
+                    settings.setReaderViewLineHeight(settings.getReaderViewLineHeight() - ReaderView.LINE_HEIGHT_STEP);
+                    applyReaderViewPrefs();
+                },
+                () -> {
+                    settings.setReaderViewLineHeight(settings.getReaderViewLineHeight() + ReaderView.LINE_HEIGHT_STEP);
+                    applyReaderViewPrefs();
+                });
+
+        var themeGroup = new javafx.scene.control.ToggleGroup();
+        HBox themeRow = new HBox(6);
+        for (String theme : new String[] {ReaderView.THEME_LIGHT, ReaderView.THEME_SEPIA, ReaderView.THEME_DARK}) {
+            var swatch = new javafx.scene.control.ToggleButton(
+                    theme.substring(0, 1).toUpperCase(java.util.Locale.ROOT) + theme.substring(1));
+            swatch.setToggleGroup(themeGroup);
+            String colors =
+                    switch (theme) {
+                        case ReaderView.THEME_SEPIA -> "-fx-base: #f4ecd8; -fx-text-fill: #5b4636;";
+                        case ReaderView.THEME_DARK -> "-fx-base: #1c1b22; -fx-text-fill: #fbfbfe;";
+                        default -> "-fx-base: #ffffff; -fx-text-fill: #15141a;";
+                    };
+            swatch.setStyle(colors);
+            if (theme.equals(readerViewPrefs().theme())) {
+                swatch.setSelected(true);
+            }
+            swatch.setOnAction(e -> {
+                settings.setReaderViewTheme(theme);
+                applyReaderViewPrefs();
+            });
+            themeRow.getChildren().add(swatch);
+        }
+
+        VBox box = new VBox(10, fontRow, sizeRow, widthRow, lineRow, themeRow);
+        box.setPadding(new Insets(14));
+        box.setStyle("-fx-background-color: -color-bg-default; -fx-border-color: -color-border-default;"
+                + " -fx-border-radius: 8; -fx-background-radius: 8;"
+                + " -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.25), 12, 0, 0, 3);");
+        popup.getContent().add(box);
+        return popup;
+    }
+
+    private HBox stepperRow(String lessLabel, String moreLabel, String caption, Runnable less, Runnable more) {
+        Button minus = new Button(lessLabel);
+        Button plus = new Button(moreLabel);
+        minus.setOnAction(e -> less.run());
+        plus.setOnAction(e -> more.run());
+        Label label = new Label(caption);
+        label.setStyle("-fx-opacity: 0.7;");
+        Region gap = new Region();
+        HBox.setHgrow(gap, Priority.ALWAYS);
+        HBox row = new HBox(6, label, gap, minus, plus);
+        row.setAlignment(Pos.CENTER_LEFT);
+        return row;
     }
 
     // ---------------------------------------------------------------- reading layer

@@ -67,6 +67,19 @@ download layer never import JavaFX**, and `app` is the only package that builds 
   over the archive's own; `ReadingPositions`, scroll positions per article stored as a fraction of
   document height so they survive a resize or font change. The reading layer talks to this, not to
   WebView.
+- **`reader/` (Reader View)** — the Firefox-style distilled page, distinct from `ReaderTheme`
+  (which styles the archive's page in place). `ReaderView` is the pure core: prefs record with
+  clamps, Firefox's palettes, and the injected scripts as pure functions. Extraction is Mozilla's
+  vendored Readability 0.6.0 run inside the WebView; the parsed article never crosses the JS↔Java
+  bridge (only a word count does — the enter script reads `window.__insulaArticle` in-page).
+  `ReaderViewSession` is the state machine over an injected script runner, so it unit-tests with
+  a fake and FX-tests against the real engine. Three traps, all hit: (1) the reader-theme user
+  stylesheet's `!important` rules outrank ANY author style, so it is lifted on enter and restored
+  on exit; (2) the old document's **inline `style` attribute on `<body>`** survives the swap and
+  outranks the shell stylesheet — proven by a background that refused to change while `html`
+  updated — so the enter script strips root-element attributes; (3) `locationProperty` fires
+  before the DOM is parsed, so the readerable probe hangs off the loadWorker SUCCEEDED state,
+  and an exit-by-reload fires no location event, so exit resets its own state.
 - **`app/`** — the JavaFX shell: `Main`, `ReaderController` (toolbar, search sidebar, WebView,
   and the three-surface switch: Reader / Library `Ctrl+1` / Store `Ctrl+2`, Library being home at
   startup when nothing reopens), `CommandPalette`, `SettingsDialog`, `LibraryPane` (disk gauge +

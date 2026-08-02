@@ -104,6 +104,18 @@ Everything below is in `main` and unreleased; there has been no tagged version y
   recovery sidecar written beside every download also lets a quit-during-verification resume at
   the next launch instead of stranding the file.
 
+**Reader View**
+
+- A Firefox-style Reader View (`Ctrl+Alt+R`, or the toolbar Reader button): the article is
+  extracted with Mozilla's Readability — the same engine behind Firefox's about:reader, vendored
+  at 0.6.0 — and the page is rebuilt as a clean column with the title, source archive, and a
+  reading-time estimate shown as a slow–fast range. An Aa panel controls serif/sans, text size,
+  column width, line spacing, and Light / Sepia / Dark themes (Firefox's palettes); every knob
+  applies live and persists. The toolbar button lights up only when Mozilla's readerable probe
+  says the page is worth distilling, exiting is a plain reload, and following a link leaves
+  Reader View exactly as Firefox does. This is distinct from the existing reader *themes*, which
+  style the archive's own page rather than extracting from it.
+
 **LAN sharing**
 
 - `lan.share` serves the verified library to other devices on the local network, kiwix-serve

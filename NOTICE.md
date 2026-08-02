@@ -23,6 +23,12 @@ its POM but is MIT upstream).
 The OpenJFX Classpath Exception is what allows an application to link against JavaFX without
 itself becoming GPL. It is worth being aware of if the licensing of Insula ever changes.
 
+## Vendored source
+
+| Component | Where | License |
+| --- | --- | --- |
+| [Readability](https://github.com/mozilla/readability) 0.6.0 (`Readability.js`, `Readability-readerable.js`) — the article extractor behind Firefox's Reader View | `src/main/resources/com/insula/reader/` | Apache-2.0 (originally Arc90 Inc) |
+
 ## Vendored binaries
 
 `m2-repo/` is an in-project Maven repository holding **jlibtorrent 2.0.12.9** — the API jar plus
