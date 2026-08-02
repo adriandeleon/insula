@@ -304,6 +304,26 @@ of ours, or an archive shipping MP4 would lose its working player); sources reso
 than using `loadContent`); and the script is **idempotent per document** via a window flag, since
 the load-succeeded event can fire more than once.
 
+**In-app playback is a transcode, and the streaming shapes were measured before choosing.** With
+ffmpeg present (optional, self-gating like the torrent transport), `media/Transcoder` +
+`TranscodeService` convert the video to H.264/AAC and the placeholder becomes a real inline
+`<video>`. Three measurements decided the design, none of them guessable:
+
+- VP9 → H.264 runs at **70× realtime** (a 25-minute talk in 21 s), and the bottleneck is VP9
+  **decoding** — `ultrafast` measured 72× and doubled the output, so `veryfast` wins.
+- **Live HLS does not work**: JavaFX's MediaPlayer reads the playlist **once, at load**. Pointed
+  at a growing playlist it reported the duration of the segments that existed at that instant
+  (14 s of a 25-minute talk), never re-read it, and clamped a later seek to that stale end. Do not
+  re-attempt streaming without solving that.
+- A finished MP4 played inline in WebView reaches `readyState 4` and seeks **exactly** (a seek to
+  1200 s lands at 1200.0) — but only because the server does Range.
+
+Two traps: ffmpeg infers its container from the output extension, so writing to a `.part` file
+(which is what keeps a killed encode from being served as complete) fails with "Unable to choose
+an output format" unless `-f mp4` is explicit. And the cache is LRU by **touching the modification
+time on a hit**, not by reading atime — most mounts are `relatime`/`noatime`, and an atime-driven
+eviction deleted the newest entry in a test with staggered timestamps.
+
 **Seeking needs Range, and Range needs a ranged read.** Both servers honour a single `bytes=`
 range (`server/ByteRanges`, pure); multi-range deliberately falls back to the full body, which the
 spec allows and no player asks for. A seek past the end must answer **416**, never byte 0 — the

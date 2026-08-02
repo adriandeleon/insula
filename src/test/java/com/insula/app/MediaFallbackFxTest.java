@@ -140,4 +140,57 @@ class MediaFallbackFxTest {
                 opened.getFirst().startsWith("http://127.0.0.1:"),
                 "an external player needs the absolute served URL, not the relative src: " + opened.getFirst());
     }
+
+    @Test
+    void progressAndPlayerSwapRunAgainstARealDocument() throws Exception {
+        load("<html><body><video poster=\"p.png\"><source src=\"v.webm\" type=\"video/webm\"></video></body></html>");
+        Object replaced = FxTestSupport.callOnFx(() -> renderer.runScript(
+                MediaFallback.installScript(MediaFallback.transcodeLabel(), "Open externally", "Play here")));
+        assertEquals(1, ((Number) replaced).intValue());
+
+        // Progress replaces the buttons in place rather than rebuilding the placeholder.
+        Object progressed = FxTestSupport.callOnFx(
+                () -> renderer.runScript(MediaFallback.progressScript("insula-media-0", 42, "Preparing…")));
+        assertEquals(Boolean.TRUE, progressed);
+        Object caption = FxTestSupport.callOnFx(() ->
+                renderer.runScript("document.querySelector('#insula-media-0 .insula-media-bar span').textContent"));
+        assertEquals("Preparing…", caption);
+
+        // Then the finished encode swaps in a real player.
+        Object played = FxTestSupport.callOnFx(
+                () -> renderer.runScript(MediaFallback.playScript("insula-media-0", "http://127.0.0.1:1/file/f1")));
+        assertEquals(Boolean.TRUE, played);
+        Object video = FxTestSupport.callOnFx(
+                () -> renderer.runScript("document.querySelectorAll('#insula-media-0 video').length"));
+        assertEquals(1, ((Number) video).intValue(), "the placeholder became a player");
+    }
+
+    @Test
+    void theInAppButtonIsPresentOnlyWhenATranscoderExists() throws Exception {
+        String page = "<html><body><video><source src=\"v.webm\" type=\"video/webm\"></video></body></html>";
+        load(page);
+        FxTestSupport.callOnFx(() -> renderer.runScript(MediaFallback.installScript("l", "Open externally", null)));
+        Object withoutFfmpeg = FxTestSupport.callOnFx(
+                () -> renderer.runScript("document.querySelectorAll('.insula-media-bar button').length"));
+        assertEquals(1, ((Number) withoutFfmpeg).intValue(), "only the external route is offered");
+
+        load(page);
+        FxTestSupport.callOnFx(
+                () -> renderer.runScript(MediaFallback.installScript("l", "Open externally", "Play here")));
+        Object withFfmpeg = FxTestSupport.callOnFx(
+                () -> renderer.runScript("document.querySelectorAll('.insula-media-bar button').length"));
+        assertEquals(2, ((Number) withFfmpeg).intValue(), "in-app play joins the external route");
+    }
+
+    @Test
+    void progressOnAMissingPlaceholderIsHarmless() throws Exception {
+        // A navigation can retire the box between the encode finishing and the callback landing.
+        load("<html><body><p>no media</p></body></html>");
+        assertEquals(
+                Boolean.FALSE,
+                FxTestSupport.callOnFx(() -> renderer.runScript(MediaFallback.progressScript("gone", 10, "x"))));
+        assertEquals(
+                Boolean.FALSE,
+                FxTestSupport.callOnFx(() -> renderer.runScript(MediaFallback.playScript("gone", "http://h/v.mp4"))));
+    }
 }

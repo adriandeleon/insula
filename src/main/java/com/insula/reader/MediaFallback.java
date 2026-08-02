@@ -36,6 +36,13 @@ public final class MediaFallback {
      * decode, and hardcoding "webm is bad" would also swallow the MP4 that a future archive ships.
      */
     public static String installScript(String label, String buttonText) {
+        return installScript(label, buttonText, null);
+    }
+
+    /**
+     * @param inAppText label for the in-app Play button, or null when no transcoder is available
+     */
+    public static String installScript(String label, String buttonText, String inAppText) {
         return """
                 (function() {
                   if (window.__insulaMediaDone) { return 0; }
@@ -82,7 +89,25 @@ public final class MediaFallback {
                     }
 
                     var bar = document.createElement('div');
+                    bar.className = 'insula-media-bar';
                     bar.setAttribute('style', 'display:flex;align-items:center;gap:12px;padding:12px 14px;');
+
+                    var boxId = 'insula-media-' + replaced;
+                    box.id = boxId;
+
+                    var inApp = %s;
+                    if (inApp) {
+                      var play = document.createElement('button');
+                      play.textContent = inApp;
+                      play.setAttribute('style', 'cursor:pointer;border:0;border-radius:6px;padding:8px 14px;'
+                        + 'font-size:14px;font-weight:600;background:#16a34a;color:#fff;');
+                      play.setAttribute('data-insula-src', url);
+                      play.onclick = function() {
+                        try { window.%s.playInApp(boxId, this.getAttribute('data-insula-src')); } catch (e) {}
+                        return false;
+                      };
+                      bar.appendChild(play);
+                    }
 
                     var button = document.createElement('button');
                     button.textContent = %s;
@@ -108,9 +133,55 @@ public final class MediaFallback {
                   return replaced;
                 })();
                 """.formatted(
+                        inAppText == null || inAppText.isBlank() ? "null" : WebViewRenderer.quote(inAppText),
+                        BRIDGE,
                         WebViewRenderer.quote(buttonText == null ? "Play" : buttonText),
                         BRIDGE,
                         WebViewRenderer.quote(label == null ? "" : label));
+    }
+
+    /** Replaces a placeholder's controls with a progress readout while the encode runs. */
+    public static String progressScript(String boxId, int percent, String caption) {
+        return """
+                (function() {
+                  var box = document.getElementById(%s);
+                  if (!box) { return false; }
+                  var bar = box.querySelector('.insula-media-bar');
+                  if (!bar) { return false; }
+                  bar.innerHTML = '';
+                  var text = document.createElement('span');
+                  text.textContent = %s;
+                  text.setAttribute('style', 'font-size:13px;');
+                  var track = document.createElement('div');
+                  track.setAttribute('style', 'flex:1;height:6px;border-radius:3px;background:rgba(255,255,255,0.2);');
+                  var fill = document.createElement('div');
+                  fill.setAttribute('style', 'height:6px;border-radius:3px;background:#16a34a;width:%d%%;');
+                  track.appendChild(fill);
+                  bar.appendChild(text);
+                  bar.appendChild(track);
+                  return true;
+                })();
+                """.formatted(
+                WebViewRenderer.quote(boxId), WebViewRenderer.quote(caption), Math.max(0, Math.min(100, percent)));
+    }
+
+    /** Swaps a finished placeholder for a real player. The URL is same-origin, so seeking works. */
+    public static String playScript(String boxId, String videoUrl) {
+        return """
+                (function() {
+                  var box = document.getElementById(%s);
+                  if (!box) { return false; }
+                  var video = document.createElement('video');
+                  video.setAttribute('controls', '');
+                  video.setAttribute('autoplay', '');
+                  video.setAttribute('style', 'display:block;width:100%%;height:auto;background:#000;');
+                  video.src = %s;
+                  box.innerHTML = '';
+                  box.setAttribute('style', 'display:block;max-width:100%%;');
+                  box.appendChild(video);
+                  return true;
+                })();
+                """.formatted(WebViewRenderer.quote(boxId), WebViewRenderer.quote(videoUrl));
     }
 
     /**
@@ -120,5 +191,10 @@ public final class MediaFallback {
      */
     public static String defaultLabel() {
         return "This video format can't play in Insula — opens outside the app";
+    }
+
+    /** Shown when ffmpeg is present, so playing here is genuinely on offer. */
+    public static String transcodeLabel() {
+        return "Needs converting before it can play — takes a few seconds";
     }
 }

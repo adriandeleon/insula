@@ -65,6 +65,12 @@ public final class Settings {
     private double readerViewLineHeight = 1.6;
     private String readerViewTheme = "light";
 
+    /** In-app video: transcode WebM to H.264 with ffmpeg. Inert until ffmpeg is found on PATH. */
+    private boolean videoTranscode = true;
+
+    private String ffmpegPath = "";
+    private String ffprobePath = "";
+
     private Settings(Path file) {
         this.file = file;
     }
@@ -101,6 +107,9 @@ public final class Settings {
             settings.readerViewLineHeight =
                     parseDouble(props.getProperty("readerViewLineHeight"), settings.readerViewLineHeight);
             settings.readerViewTheme = props.getProperty("readerViewTheme", settings.readerViewTheme);
+            settings.videoTranscode = Boolean.parseBoolean(props.getProperty("videoTranscode", "true"));
+            settings.ffmpegPath = props.getProperty("ffmpegPath", "");
+            settings.ffprobePath = props.getProperty("ffprobePath", "");
         }
         return settings;
     }
@@ -123,6 +132,9 @@ public final class Settings {
         props.setProperty("readerViewWidth", String.valueOf(readerViewWidth));
         props.setProperty("readerViewLineHeight", String.valueOf(readerViewLineHeight));
         props.setProperty("readerViewTheme", readerViewTheme);
+        props.setProperty("videoTranscode", String.valueOf(videoTranscode));
+        props.setProperty("ffmpegPath", ffmpegPath);
+        props.setProperty("ffprobePath", ffprobePath);
         try {
             Files.createDirectories(file.getParent());
             Path temp = file.resolveSibling(file.getFileName() + ".tmp");
@@ -290,6 +302,30 @@ public final class Settings {
 
     public void setReaderViewTheme(String theme) {
         this.readerViewTheme = theme == null ? "light" : theme;
+    }
+
+    public boolean isVideoTranscode() {
+        return videoTranscode;
+    }
+
+    public void setVideoTranscode(boolean videoTranscode) {
+        this.videoTranscode = videoTranscode;
+    }
+
+    public String getFfmpegPath() {
+        return ffmpegPath;
+    }
+
+    public void setFfmpegPath(String ffmpegPath) {
+        this.ffmpegPath = ffmpegPath == null ? "" : ffmpegPath;
+    }
+
+    public String getFfprobePath() {
+        return ffprobePath;
+    }
+
+    public void setFfprobePath(String ffprobePath) {
+        this.ffprobePath = ffprobePath == null ? "" : ffprobePath;
     }
 
     public int getLanPort() {

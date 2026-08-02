@@ -46,12 +46,21 @@ final class SettingsDialog {
     private final Spinner<Integer> readerWidthSpinner =
             new Spinner<>(ReaderTheme.MIN_WIDTH, ReaderTheme.MAX_WIDTH, 900, 50);
     private final CheckBox rememberPositionCheck = new CheckBox("Return to where I left off in an article");
+    private final CheckBox videoTranscodeCheck = new CheckBox("Play videos in the app (converts with ffmpeg)");
+    private final Label videoStatus = new Label();
     private final CheckBox torrentCheck = new CheckBox(
             "Prefer BitTorrent for archives over " + Formats.bytes(TransportSelector.DEFAULT_TORRENT_THRESHOLD));
     private final CheckBox seedingCheck = new CheckBox("Share downloaded archives with others (seeding)");
 
     /** Guards control listeners while the dialog is being populated from settings. */
     private boolean loading;
+
+    /** Reports whether ffmpeg was actually found, so the checkbox is not a promise nothing keeps. */
+    void setVideoToolStatus(boolean found) {
+        videoStatus.setText(
+                found ? "ffmpeg found — videos can play in the app" : "ffmpeg not found — videos open externally");
+        videoStatus.setStyle(found ? "-fx-text-fill: -color-success-fg;" : "-fx-opacity: 0.7;");
+    }
 
     SettingsDialog(Window owner, Settings settings, Runnable onApply) {
         this.settings = settings;
@@ -156,6 +165,12 @@ final class SettingsDialog {
                 applyAndSave();
             }
         });
+        videoTranscodeCheck.selectedProperty().addListener((obs, old, selected) -> {
+            if (!loading) {
+                settings.setVideoTranscode(selected);
+                applyAndSave();
+            }
+        });
 
         GridPane grid = grid();
         grid.addRow(0, new Label("Reader mode"), readerModeCombo);
@@ -166,7 +181,13 @@ final class SettingsDialog {
                 note("Dark mode restyles the article over whatever the archive shipped, including its "
                         + "tables and inline colours. Images are dimmed rather than inverted, so photographs "
                         + "and maps still look right."),
-                rememberPositionCheck);
+                rememberPositionCheck,
+                new javafx.scene.control.Separator(),
+                videoTranscodeCheck,
+                videoStatus,
+                note("Archives store video as WebM, which this app cannot decode directly. With ffmpeg "
+                        + "installed, a video is converted once (about 20 seconds for a 25-minute talk, then "
+                        + "cached) and plays in the page. Without it, videos open in your usual player instead."));
         return page("Reading view", box);
     }
 
@@ -250,6 +271,7 @@ final class SettingsDialog {
                     + settings.getReaderMode().substring(1));
             readerWidthSpinner.getValueFactory().setValue(ReaderTheme.clampWidth(settings.getReaderWidth()));
             rememberPositionCheck.setSelected(settings.isRememberPosition());
+            videoTranscodeCheck.setSelected(settings.isVideoTranscode());
             torrentCheck.setSelected(settings.isTorrentEnabled());
             seedingCheck.setSelected(settings.isSeedingEnabled());
         } finally {

@@ -56,6 +56,9 @@ import com.insula.download.TorrentTransport;
 import com.insula.download.TransportSelector;
 import com.insula.library.Library;
 import com.insula.library.LibraryEntry;
+import com.insula.media.MediaCache;
+import com.insula.media.TranscodeService;
+import com.insula.media.Transcoder;
 import com.insula.reader.MediaBridge;
 import com.insula.reader.MediaFallback;
 import com.insula.reader.ReaderTheme;
@@ -119,6 +122,8 @@ final class ReaderController {
     private String bookTitle = "";
 
     private final CatalogCache catalogCache;
+    private final TranscodeService transcodes;
+    private boolean transcodeAvailable;
     private final IconCache iconCache;
     private final StorePane storePane;
     private final Library library;
@@ -161,6 +166,7 @@ final class ReaderController {
         }
         this.downloads = new DownloadManager(transports, library, dataDir.resolve("archives"));
         downloads.setOnAdmitted(job -> Platform.runLater(() -> afterArchiveAdmitted(job)));
+        this.transcodes = new TranscodeService(new MediaCache(dataDir.resolve("media-cache")));
         this.catalogCache = new CatalogCache(dataDir.resolve("catalog"));
         this.iconCache = new IconCache(dataDir.resolve("catalog/icons"));
         this.storePane = new StorePane(
@@ -906,6 +912,7 @@ final class ReaderController {
         renderer.setZoom(settings.getZoomPercent() / 100.0);
         applyReaderTheme();
         transports.setTorrentEnabled(settings.isTorrentEnabled());
+        applyTranscodeSupport();
         if (settingsDialog != null) {
             settingsDialog.sync();
         }
@@ -1146,9 +1153,12 @@ final class ReaderController {
      * this costs one {@code querySelectorAll} on a page with no media at all.
      */
     private void installMediaFallback() {
-        renderer.installBridge(MediaFallback.BRIDGE, new MediaBridge(this::playExternally));
-        Object replaced =
-                renderer.runScript(MediaFallback.installScript(MediaFallback.defaultLabel(), "▶  Play video"));
+        renderer.installBridge(MediaFallback.BRIDGE, new MediaBridge(this::playExternally, this::playInApp));
+        boolean inApp = settings.isVideoTranscode() && transcodeAvailable;
+        Object replaced = renderer.runScript(MediaFallback.installScript(
+                inApp ? MediaFallback.transcodeLabel() : MediaFallback.defaultLabel(),
+                "Open externally",
+                inApp ? "▶  Play here" : null));
         if (replaced instanceof Number n && n.intValue() > 0) {
             lastUnplayableCount = n.intValue();
         } else {
@@ -1173,6 +1183,70 @@ final class ReaderController {
         }
         status.setText("Opening the video outside Insula…");
         hostServices.showDocument(url);
+    }
+
+    /**
+     * Detects ffmpeg off-thread and re-renders any placeholder already on screen, so enabling the
+     * feature (or installing ffmpeg) takes effect without reopening the article.
+     */
+    private void applyTranscodeSupport() {
+        transcodes.configure(settings.getFfmpegPath(), settings.getFfprobePath());
+        if (!settings.isVideoTranscode()) {
+            transcodeAvailable = false;
+            return;
+        }
+        transcodes.detect(found -> {
+            boolean changed = found != transcodeAvailable;
+            transcodeAvailable = found;
+            if (settingsDialog != null) {
+                settingsDialog.setVideoToolStatus(found);
+            }
+            if (changed && archive != null) {
+                // The placeholder was built for the old answer; rebuild it against the new one.
+                renderer.runScript("window.__insulaMediaDone = false;");
+                installMediaFallback();
+            }
+        });
+    }
+
+    boolean transcodeAvailableForTest() {
+        return transcodeAvailable;
+    }
+
+    /**
+     * Transcodes a video the engine cannot decode and plays it in place.
+     *
+     * <p>ffmpeg reads the source straight from the loopback server, so the original WebM is never
+     * copied to disk; the result is cached, which makes a rewatch instant.
+     */
+    private void playInApp(String boxId, String sourceUrl) {
+        String cacheName = Transcoder.cacheName(
+                currentArchiveFile == null ? "" : currentArchiveFile.toString(), sourceUrl, archiveSizeForCache());
+        renderer.runScript(MediaFallback.progressScript(boxId, 0, "Preparing video…"));
+        status.setText("Preparing video…");
+        transcodes.transcode(
+                sourceUrl,
+                cacheName,
+                percent -> renderer.runScript(
+                        MediaFallback.progressScript(boxId, percent, "Preparing video… " + percent + "%")),
+                result -> {
+                    if (result.ok() && server != null) {
+                        String token = server.registerFile(result.file());
+                        renderer.runScript(MediaFallback.playScript(boxId, server.fileUrl(token)));
+                        status.setText("Playing");
+                    } else {
+                        renderer.runScript(MediaFallback.progressScript(boxId, 0, "Could not prepare this video"));
+                        status.setText("Could not prepare the video: " + result.message());
+                    }
+                });
+    }
+
+    private long archiveSizeForCache() {
+        try {
+            return currentArchiveFile == null ? 0 : java.nio.file.Files.size(currentArchiveFile);
+        } catch (IOException e) {
+            return 0;
+        }
     }
 
     // ---------------------------------------------------------------- Reader View
@@ -1438,6 +1512,7 @@ final class ReaderController {
         if (lanServer != null) {
             stopLanSharing();
         }
+        transcodes.shutdown();
         downloads.close();
         catalogCache.close();
         iconCache.close();

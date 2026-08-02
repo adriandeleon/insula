@@ -131,6 +131,15 @@ Everything below is in `main` and unreleased; there has been no tagged version y
 
 ### Fixed
 
+- **Videos can now play inside the app.** With ffmpeg installed, the placeholder offers
+  **Play here**: the video is converted once to H.264/AAC — read straight off the loopback server,
+  so the original is never copied to disk — and then plays inline in the article with working
+  controls and seeking. Progress is shown while it converts, and the result is cached, so a
+  rewatch is instant. Measured on a 25-minute TED talk: 21 seconds to convert (VP9 *decoding* is
+  the bottleneck, not encoding), then playback with a seek to 20:00 landing exactly. ffmpeg is
+  optional and self-gating, exactly like the BitTorrent transport — without it, nothing changes
+  and videos still open externally. Settings → Reading view has the toggle and reports whether
+  ffmpeg was actually found.
 - **Seeking works: both servers honour HTTP Range.** An external player handed a video URL used
   to have to read from byte zero to reach a seek point, which makes a 25-minute talk unusable.
   Both the loopback reader server and the LAN server now advertise `Accept-Ranges`, answer a

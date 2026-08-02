@@ -63,4 +63,48 @@ class MediaFallbackTest {
     void theLabelSaysWhatHappensNext() {
         assertTrue(MediaFallback.defaultLabel().contains("outside"), MediaFallback.defaultLabel());
     }
+
+    @Test
+    void theInAppButtonAppearsOnlyWhenATranscoderExists() {
+        // Offering "Play here" without ffmpeg would be a button that cannot work. The branch is
+        // guarded at runtime rather than omitted from the template, so this checks the guard —
+        // MediaFallbackFxTest proves the button count that results.
+        String without = MediaFallback.installScript("l", "Open externally", null);
+        assertTrue(without.contains("var inApp = null"), "the in-app branch is switched off");
+
+        String with = MediaFallback.installScript("l", "Open externally", "Play here");
+        assertTrue(with.contains("window." + MediaFallback.BRIDGE + ".playInApp(boxId,"));
+        assertTrue(with.contains("Play here"));
+        assertTrue(with.contains("playExternal("), "the external route stays available either way");
+    }
+
+    @Test
+    void placeholdersAreIdentifiableSoProgressCanTargetThem() {
+        assertTrue(MediaFallback.installScript("l", "p", "go").contains("box.id = boxId"));
+        assertTrue(
+                MediaFallback.progressScript("insula-media-0", 40, "Preparing…").contains("insula-media-0"));
+        assertTrue(MediaFallback.progressScript("b", 40, "x").contains("width:40%"));
+        // Out-of-range percentages must not produce nonsense CSS.
+        assertTrue(MediaFallback.progressScript("b", 500, "x").contains("width:100%"));
+        assertTrue(MediaFallback.progressScript("b", -5, "x").contains("width:0%"));
+    }
+
+    @Test
+    void thePlayerSwapUsesTheServedUrlAndEscapesIt() {
+        String script = MediaFallback.playScript("insula-media-0", "http://127.0.0.1:9/file/f1");
+        assertTrue(script.contains("createElement('video')"));
+        assertTrue(script.contains("controls"));
+        assertTrue(script.contains("http://127.0.0.1:9/file/f1"));
+        assertFalse(script.contains("innerHTML = a.content"));
+    }
+
+    @Test
+    void bridgeIgnoresIncompleteInAppRequests() {
+        java.util.List<String> boxes = new java.util.ArrayList<>();
+        MediaBridge bridge = new MediaBridge(u -> {}, (box, url) -> boxes.add(box + " " + url));
+        bridge.playInApp("box-1", "http://h/v.webm");
+        bridge.playInApp(null, "http://h/v.webm");
+        bridge.playInApp("box-2", "  ");
+        assertEquals(java.util.List.of("box-1 http://h/v.webm"), boxes);
+    }
 }

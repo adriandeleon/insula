@@ -94,6 +94,10 @@ with `sha256sum -c` against the published `.sha256`.
 | `Ctrl+1` / `Ctrl+2` | Library / Store |
 | `Ctrl+R` | Cycle reader mode (original / comfortable / dark) |
 | `Ctrl+Alt+R` | Reader View (extracted article, Firefox-style) |
+
+Videos in archives are stored as WebM, which JavaFX cannot decode. Install **ffmpeg** and Insula
+converts them once and plays them inline; without it, videos open in your usual player.
+
 | `Ctrl+O` | Open an archive from disk |
 | `Ctrl+,` | Settings |
 | `Alt+←` / `Alt+→` | Back / forward |

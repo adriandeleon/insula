@@ -6,7 +6,11 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -32,6 +36,7 @@ public final class ZimHttpServer implements AutoCloseable {
     private final Map<String, ZimArchive> archives = new ConcurrentHashMap<>();
     private final AtomicInteger tokenCounter = new AtomicInteger();
     private final WebpTranscoder transcoder = new WebpTranscoder();
+    private final Map<String, Path> files = new ConcurrentHashMap<>();
 
     public ZimHttpServer() throws IOException {
         server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
@@ -55,6 +60,21 @@ public final class ZimHttpServer implements AutoCloseable {
         archives.remove(token);
     }
 
+    /**
+     * Publishes a local file (a transcoded video) at {@code /file/<token>}. The page is served
+     * over http, so a {@code file:} URL in the same document would be a cross-origin subresource;
+     * serving it from here keeps the video same-origin and gets Range handling for free.
+     */
+    public String registerFile(Path file) {
+        String token = "f" + tokenCounter.incrementAndGet();
+        files.put(token, file);
+        return token;
+    }
+
+    public String fileUrl(String token) {
+        return baseUrl() + "/file/" + token;
+    }
+
     public String baseUrl() {
         return "http://127.0.0.1:" + server.getAddress().getPort();
     }
@@ -72,6 +92,10 @@ public final class ZimHttpServer implements AutoCloseable {
     private void handle(HttpExchange exchange) throws IOException {
         try (exchange) {
             String path = exchange.getRequestURI().getPath(); // already percent-decoded
+            if (path.startsWith("/file/")) {
+                sendLocalFile(exchange, files.get(path.substring(6)));
+                return;
+            }
             if (!path.startsWith("/zim/")) {
                 sendText(exchange, 404, "Not found");
                 return;
@@ -146,6 +170,55 @@ public final class ZimHttpServer implements AutoCloseable {
         }
         exchange.sendResponseHeaders(200, total == 0 ? -1 : total);
         writeBody(exchange, archive.content(d));
+    }
+
+    /** Serves a cached transcode with the same Range handling archive entries get. */
+    private static void sendLocalFile(HttpExchange exchange, Path file) throws IOException {
+        if (file == null || !Files.isRegularFile(file)) {
+            sendText(exchange, 404, "No such file");
+            return;
+        }
+        long total = Files.size(file);
+        exchange.getResponseHeaders().set("Content-Type", "video/mp4");
+        exchange.getResponseHeaders().set("Accept-Ranges", "bytes");
+
+        ByteRanges.Request request =
+                ByteRanges.parse(exchange.getRequestHeaders().getFirst("Range"), total);
+        if (request instanceof ByteRanges.Request.Unsatisfiable) {
+            exchange.getResponseHeaders().set("Content-Range", ByteRanges.unsatisfiedRange(total));
+            exchange.sendResponseHeaders(416, -1);
+            return;
+        }
+        long start = 0;
+        long length = total;
+        if (request instanceof ByteRanges.Request.Partial partial) {
+            start = partial.start();
+            length = partial.length();
+            exchange.getResponseHeaders().set("Content-Range", ByteRanges.contentRange(partial, total));
+            exchange.sendResponseHeaders(206, length);
+        } else {
+            exchange.sendResponseHeaders(200, total == 0 ? -1 : total);
+        }
+        if (length <= 0) {
+            return;
+        }
+        // Streamed rather than read whole: a transcoded talk is tens of megabytes.
+        try (FileChannel channel = FileChannel.open(file);
+                OutputStream out = exchange.getResponseBody()) {
+            channel.position(start);
+            byte[] buffer = new byte[64 * 1024];
+            ByteBuffer wrapper = ByteBuffer.wrap(buffer);
+            long remaining = length;
+            while (remaining > 0) {
+                wrapper.clear().limit((int) Math.min(buffer.length, remaining));
+                int read = channel.read(wrapper);
+                if (read <= 0) {
+                    break;
+                }
+                out.write(buffer, 0, read);
+                remaining -= read;
+            }
+        }
     }
 
     private static void sendBytes(HttpExchange exchange, byte[] body, String mime) throws IOException {
