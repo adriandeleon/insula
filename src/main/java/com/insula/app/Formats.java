@@ -11,6 +11,21 @@ public final class Formats {
 
     private static final String[] UNITS = {"B", "KB", "MB", "GB", "TB"};
 
+    /** {@code /home/x/.insula} → {@code ~/.insula}; whole path segments only, so /home/xy stays. */
+    public static String collapseHome(String path) {
+        String home = System.getProperty("user.home", "");
+        if (home.isEmpty() || path == null) {
+            return path;
+        }
+        if (path.equals(home)) {
+            return "~";
+        }
+        if (path.startsWith(home + java.io.File.separator)) {
+            return "~" + path.substring(home.length());
+        }
+        return path;
+    }
+
     public static String bytes(long value) {
         if (value < 0) {
             return "—";

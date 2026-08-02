@@ -405,6 +405,13 @@ final class ReaderController {
         commands.register("library.updateAll", "Update All Archives", this::updateAllArchives);
         commands.register("library.repairAll", "Repair Quarantined Archives", this::repairAllQuarantined);
         commands.register("lan.share", "Share Library on Local Network", this::toggleLanSharing);
+        commands.register("lan.qr", "Show LAN Sharing QR Code", () -> {
+            if (lanUrl != null) {
+                showLanShareWindow(lanUrl);
+            } else {
+                status.setText("Not sharing — start sharing from the Library first");
+            }
+        });
         commands.register("library.search", "Search the Online Catalog", () -> {
             showCatalog();
             catalogPane.focusSearch();
@@ -1846,7 +1853,14 @@ final class ReaderController {
         box.setAlignment(Pos.CENTER);
         lanShareWindow = new Stage();
         lanShareWindow.setTitle("Share on local network");
-        lanShareWindow.setScene(new Scene(box));
+        // A secondary window is its own scene, so the design tokens must be attached here too —
+        // without them it renders in raw defaults, which is how the old Settings shipped unthemed.
+        Scene lanScene = new Scene(box);
+        lanScene.getStylesheets().add(getClass().getResource("insula.css").toExternalForm());
+        if (settings.isDark()) {
+            box.getStyleClass().add("insula-dark");
+        }
+        lanShareWindow.setScene(lanScene);
         lanShareWindow.setOnCloseRequest(e -> lanShareWindow = null);
         lanShareWindow.show();
     }
@@ -2056,8 +2070,27 @@ final class ReaderController {
         if (settingsDialog == null) {
             settingsDialog = new SettingsDialog(stage, settings, this::applySettings);
             settingsDialog.setArchivesFolder(dataDir.resolve("archives"), this::revealArchivesFolder);
+            settingsDialog.setConfigFolder(dataDir, () -> {
+                if (hostServices != null) {
+                    hostServices.showDocument(dataDir.toUri().toString());
+                }
+            });
+            settingsDialog.setCatalogInfo(this::catalogAgeLabel, () -> commands.run("catalog.refresh"));
         }
         settingsDialog.show();
+    }
+
+    /** "Last refreshed 3 days ago · stale past 14" — the Catalog settings page's one fact. */
+    private String catalogAgeLabel() {
+        long fetched = catalogCache.fetchedAtMillis();
+        if (fetched <= 0) {
+            return "Never refreshed — the Catalog will offer to fetch it";
+        }
+        long days = java.time.Duration.ofMillis(System.currentTimeMillis() - fetched)
+                .toDays();
+        String age = days <= 0 ? "today" : days == 1 ? "yesterday" : days + " days ago";
+        return "Last refreshed " + age
+                + (days > com.insula.catalog.CatalogCache.STALE_AGE.toDays() ? " — stale, worth refreshing" : "");
     }
 
     private void toggleTheme() {

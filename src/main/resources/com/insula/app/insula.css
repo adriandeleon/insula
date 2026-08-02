@@ -193,12 +193,22 @@
 
 /* ============ settings ============ */
 
-/* A heading is structure, not a destination: muted, uppercase, and never selectable. */
+/* Sidebar — the kit's set-nav: a surface column whose selected item is a soft accent pill. */
+.set-nav {
+    -fx-background-color: -insula-surface;
+    -fx-border-color: transparent -insula-line transparent transparent;
+    -fx-border-width: 0 1 0 0;
+    -fx-padding: 14 10 14 10;
+}
+.set-nav .list-cell {
+    -fx-background-color: transparent;
+}
+/* A heading is structure, not a destination: faint, uppercase, and never selectable. */
 .settings-group-header {
-    -fx-font-size: 11px;
+    -fx-font-size: 10.5px;
     -fx-font-weight: 700;
     -fx-text-fill: -insula-faint;
-    -fx-padding: 10 8 3 8;
+    -fx-padding: 12 12 5 12;
 }
 .settings-group-header:selected,
 .settings-group-header:filled:selected {
@@ -206,5 +216,52 @@
     -fx-text-fill: -insula-faint;
 }
 .settings-sidebar-item {
-    -fx-padding: 5 8 5 8;
+    -fx-font-size: 13px;
+    -fx-text-fill: -insula-ink;
+    -fx-padding: 6 12 6 12;
+    -fx-background-radius: 7;
+}
+.settings-sidebar-item:filled:selected {
+    -fx-background-color: -insula-sel;
+    -fx-text-fill: -insula-accent;
+    -fx-font-weight: 700;
+}
+
+/* Page */
+.set-page, .set-page > .viewport {
+    -fx-background-color: -insula-bg;
+}
+.set-title {
+    -fx-font-size: 18px;
+    -fx-font-weight: 700;
+}
+.set-sub {
+    -fx-font-size: 12.5px;
+    -fx-text-fill: -insula-muted;
+}
+
+/* A card of rows divided by hairlines. */
+.set-card {
+    -fx-background-color: -insula-surface;
+    -fx-background-radius: 11;
+    -fx-border-color: -insula-line;
+    -fx-border-radius: 11;
+    -fx-padding: 6 20 6 20;
+}
+.srow { -fx-padding: 13 0 13 0; }
+.srow-line { -fx-min-height: 1; -fx-max-height: 1; -fx-background-color: -insula-line; }
+.srow-label { -fx-font-size: 13.5px; -fx-font-weight: 600; }
+.srow-desc { -fx-font-size: 12px; -fx-text-fill: -insula-muted; }
+/* Status lines live under their control — green when the tool is there, muted when not. */
+.srow-status-ok { -fx-font-size: 12px; -fx-text-fill: -insula-ok; }
+.srow-status-muted { -fx-font-size: 12px; -fx-text-fill: -insula-muted; }
+
+/* The long-form notes: the app explaining why. */
+.set-note {
+    -fx-font-size: 12px;
+    -fx-text-fill: -insula-muted;
+    -fx-background-color: -insula-surface2;
+    -fx-background-radius: 9;
+    -fx-padding: 11 14 11 14;
+    -fx-line-spacing: 2;
 }

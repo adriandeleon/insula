@@ -30,6 +30,36 @@ class SettingsGroupsFxTest {
     }
 
     @Test
+    void theSidebarIsTheKitsExactly(@TempDir Path dir) {
+        // Reading / Content / Network / System, with the kit's own category names — the grouping
+        // is the design, not an implementation detail, so it is pinned verbatim.
+        withDialog(dir, (dialog, settings) -> {
+            var rows = dialog.sidebarForTest().getItems().stream()
+                    .map(r -> r instanceof Record
+                            ? "# " + ((Record) r).toString().replaceAll(".*\\[title=(.*)\\]", "$1")
+                            : String.valueOf(r))
+                    .toList();
+            assertEquals(
+                    java.util.List.of(
+                            "# Reading",
+                            "Appearance",
+                            "Reader View",
+                            "Search",
+                            "# Content",
+                            "Downloads",
+                            "Catalog",
+                            "Video playback",
+                            "# Network",
+                            "LAN sharing",
+                            "# System",
+                            "Startup",
+                            "Advanced"),
+                    rows);
+            return null;
+        });
+    }
+
+    @Test
     void aGroupHeadingIsStructureRatherThanADestination(@TempDir Path dir) {
         // Arrowing onto "READING" and getting a blank page would be a dead end in a list whose
         // whole job is navigation.

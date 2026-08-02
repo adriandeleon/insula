@@ -52,6 +52,7 @@ final class Menus {
                             "view.zoomOut",
                             "view.zoomReset",
                             SEPARATOR,
+                            "view.toggleTheme",
                             "view.commandPalette")),
             new MenuSpec("Bookmarks", List.of("bookmark.toggle", "bookmark.show", "history.show")),
             new MenuSpec(
@@ -61,6 +62,7 @@ final class Menus {
                             "library.repairAll",
                             SEPARATOR,
                             "lan.share",
+                            "lan.qr",
                             SEPARATOR,
                             "library.reveal")),
             new MenuSpec("Catalog", List.of("catalog.refresh", "download.pauseAll", "download.resumeAll")),
