@@ -184,6 +184,7 @@ final class CatalogPane {
     /** Loads the cache (off-thread) and auto-refreshes when it is older than the spec's 7 days. */
     /** Starts the 4 Hz state tick; stops itself once nothing is in flight. */
     private void startSampler() {
+        idleTicks = 0;
         sampler.setCycleCount(javafx.animation.Animation.INDEFINITE);
         if (sampler.getStatus() != javafx.animation.Animation.Status.RUNNING) {
             sampler.play();
@@ -192,6 +193,19 @@ final class CatalogPane {
 
     void deactivate() {
         sampler.stop();
+    }
+
+    /**
+     * Repaints the cards now. Called when an archive is admitted to the library, so a card flips
+     * to "In library" on the event itself rather than waiting for a sampler that may already have
+     * stopped.
+     */
+    void refreshStates() {
+        refreshCardStates();
+    }
+
+    boolean samplerRunningForTest() {
+        return sampler.getStatus() == javafx.animation.Animation.Status.RUNNING;
     }
 
     void activate() {
@@ -498,6 +512,11 @@ final class CatalogPane {
                 }
             } else {
                 onDownload.accept(variant.entry(), group.title());
+                // The sampler stops itself whenever nothing is in flight — which is the normal
+                // state of the Catalog — so a download that does not wake it leaves its own card
+                // frozen on "Download" for the entire transfer.
+                startSampler();
+                refreshCardStates();
             }
         });
 
@@ -520,15 +539,32 @@ final class CatalogPane {
     }
 
     /** Re-reads every visible card's state; cheap because it only touches the pill and button. */
+    /**
+     * Repaints every visible card, and decides whether to keep sampling.
+     *
+     * <p>It keeps going for a short while after the last download goes terminal. A finished
+     * transfer is not yet an installed archive: verification and admission to the library happen
+     * afterwards, on other threads, and stopping the instant the progress bar ends would freeze
+     * the card on "Downloading · 100%" until something else happened to re-render it.
+     */
     private void refreshCardStates() {
         boolean anyLive = false;
         for (CardControls controls : liveCards.values()) {
             anyLive |= applyCardState(controls);
         }
-        if (!anyLive) {
+        if (anyLive) {
+            idleTicks = 0;
+            return;
+        }
+        if (++idleTicks >= IDLE_TICKS_BEFORE_STOP) {
             sampler.stop();
         }
     }
+
+    /** ~3 s of sampling past the last live download, which is ample for verify-and-admit. */
+    private static final int IDLE_TICKS_BEFORE_STOP = 12;
+
+    private int idleTicks;
 
     /** Returns whether this entry is still moving, so the sampler can stop when nothing is. */
     private boolean applyCardState(CardControls controls) {

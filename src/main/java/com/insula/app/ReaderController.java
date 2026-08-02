@@ -270,6 +270,10 @@ final class ReaderController {
         closeArchive();
     }
 
+    CatalogPane.CardState catalogCardStateForTest(ZimEntry entry) {
+        return catalogCardState(entry);
+    }
+
     DownloadManager downloadsForTest() {
         return downloads;
     }
@@ -1686,6 +1690,9 @@ final class ReaderController {
         }
         // Either way the world changed: refresh pills and rows against the new installed set.
         applyUpdates(UpdateCheck.findUpdates(installedFileNames(), catalogCache.entries()), false);
+        // The Catalog card for this archive is now "In library"; say so without waiting for a
+        // sampler tick, which may be the one that decides to stop.
+        catalogPane.refreshStates();
         if (surface == Surface.LIBRARY) {
             libraryPane.activate();
         }
