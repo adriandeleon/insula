@@ -55,6 +55,8 @@ public final class Settings {
      */
     private boolean seedingEnabled = false;
 
+    private boolean workOffline = false;
+
     /**
      * Archives at least this many GB prefer BitTorrent. Stored in whole gigabytes because that is
      * the unit the choice is actually made in; 0 means "always prefer it".
@@ -129,6 +131,7 @@ public final class Settings {
             settings.rememberPosition = Boolean.parseBoolean(props.getProperty("rememberPosition", "true"));
             settings.torrentEnabled = Boolean.parseBoolean(props.getProperty("torrentEnabled", "false"));
             settings.seedingEnabled = Boolean.parseBoolean(props.getProperty("seedingEnabled", "false"));
+            settings.workOffline = Boolean.parseBoolean(props.getProperty("workOffline", "false"));
             settings.lanPort = clamp(parseInt(props.getProperty("lanPort"), settings.lanPort), 0, 65535);
             settings.archivesFolder = props.getProperty("archivesFolder", settings.archivesFolder);
             settings.recentArchives = props.getProperty("recentArchives", settings.recentArchives);
@@ -171,6 +174,7 @@ public final class Settings {
         props.setProperty("rememberPosition", String.valueOf(rememberPosition));
         props.setProperty("torrentEnabled", String.valueOf(torrentEnabled));
         props.setProperty("seedingEnabled", String.valueOf(seedingEnabled));
+        props.setProperty("workOffline", String.valueOf(workOffline));
         props.setProperty("lanPort", String.valueOf(lanPort));
         props.setProperty("archivesFolder", archivesFolder);
         props.setProperty("recentArchives", recentArchives);
@@ -313,6 +317,15 @@ public final class Settings {
 
     public void setTorrentEnabled(boolean torrentEnabled) {
         this.torrentEnabled = torrentEnabled;
+    }
+
+    /** Whether the user has asked the app to stay off the network entirely. */
+    public boolean isWorkOffline() {
+        return workOffline;
+    }
+
+    public void setWorkOffline(boolean workOffline) {
+        this.workOffline = workOffline;
     }
 
     public boolean isSeedingEnabled() {

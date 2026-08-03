@@ -110,6 +110,9 @@ final class ReaderController {
     private final Label statusArchive = new Label();
     private final Label statusArriving = new Label();
     private final Label statusLan = new Label();
+    private final Label statusNetwork = new Label();
+    private final com.insula.net.NetworkMonitor network = new com.insula.net.NetworkMonitor(
+            status -> javafx.application.Platform.runLater(() -> showNetwork(status)));
     private final TextField omniField = new TextField();
     private final Label status = new Label("Open a .zim archive to start reading");
     private final MessageLog messageLog = new MessageLog();
@@ -213,8 +216,10 @@ final class ReaderController {
                 catalogCache,
                 iconCache,
                 (entry, title) -> {
-                    downloads.enqueue(entry);
-                    setStatus("Downloading " + title);
+                    if (requireNetwork("downloading " + title)) {
+                        downloads.enqueue(entry);
+                        setStatus("Downloading " + title);
+                    }
                 },
                 this::catalogCardState,
                 this::installedFileFor,
@@ -247,6 +252,9 @@ final class ReaderController {
         buildUi();
         palette = new CommandPalette(root, commands, keys::displayFor);
         messageLogPopup = new MessageLogPopup(root, messageLog);
+        network.setUserChoseOffline(settings.isWorkOffline());
+        showNetwork(network.status());
+        network.start();
         applySettings();
         // Verification a previous run never finished resumes now that the whole shell exists.
         downloads.resumePendingVerification(msg -> Platform.runLater(() -> {
@@ -267,6 +275,10 @@ final class ReaderController {
     /** The article right-click menu, so a test can read what it would offer. */
     List<javafx.scene.control.MenuItem> readerMenuItemsForTest() {
         return readerMenuItems();
+    }
+
+    String networkLabelForTest() {
+        return statusNetwork.getText();
     }
 
     MessageLog messageLogForTest() {
@@ -403,6 +415,7 @@ final class ReaderController {
         });
         commands.register("history.clear", "Clear History", this::clearHistory);
         commands.register("view.messages", "Show Messages", () -> messageLogPopup.toggle());
+        commands.register("network.toggleOffline", "Toggle: Work Offline", this::toggleWorkOffline);
         commands.register("view.debugLog", "Show Debug Log", this::showDebugLog);
         commands.register("search.show", "Show Search", () -> showSidebarPane(0));
         commands.register("reader.cycleMode", "Reader Mode: Original / Comfortable / Dark", this::cycleReaderMode);
@@ -462,7 +475,9 @@ final class ReaderController {
         });
         commands.register("catalog.refresh", "Refresh the Catalog", () -> {
             showCatalog();
-            catalogPane.refreshCommand();
+            if (requireNetwork("refreshing the catalog")) {
+                catalogPane.refreshCommand();
+            }
         });
         commands.register("download.cancelAll", "Cancel All Downloads", () -> {
             downloads.jobs().forEach(DownloadManager.Job::cancel);
@@ -727,7 +742,11 @@ final class ReaderController {
         // The kit's status bar: the archive's verified flag, arriving downloads (click → Library),
         // and LAN state. Quiet facts only — nothing here pushes per event.
         statusArriving.setOnMouseClicked(e -> commands.run("library.open"));
-        for (Label label : List.of(statusArchive, statusArriving, statusLan)) {
+        // The network indicator, and the switch. Insula works without a connection by design, so
+        // saying which of the two it is right now is worth a permanent segment.
+        statusNetwork.getStyleClass().add("status-network");
+        statusNetwork.setOnMouseClicked(e -> commands.run("network.toggleOffline"));
+        for (Label label : List.of(statusArchive, statusArriving, statusLan, statusNetwork)) {
             label.getStyleClass().add("card-faint");
         }
         Region statusGap = new Region();
@@ -736,7 +755,7 @@ final class ReaderController {
         status.getStyleClass().add("status-message");
         status.setOnMouseClicked(e -> messageLogPopup.toggle());
         status.setTooltip(new javafx.scene.control.Tooltip("Messages from this session"));
-        HBox statusBar = new HBox(18, status, statusGap, statusArchive, statusArriving, statusLan);
+        HBox statusBar = new HBox(18, status, statusGap, statusNetwork, statusArchive, statusArriving, statusLan);
         statusBar.setPadding(new Insets(4, 10, 4, 10));
 
         menuBar = Menus.build(commands, keys, menuDynamics());
@@ -1406,6 +1425,41 @@ final class ReaderController {
         messageLog.add(message);
     }
 
+    /** Puts the app on or off the network, and says which it now is. */
+    private void toggleWorkOffline() {
+        boolean offline = !settings.isWorkOffline();
+        settings.setWorkOffline(offline);
+        settings.save();
+        network.setUserChoseOffline(offline);
+        setStatus(
+                offline
+                        ? "Working offline — downloads and the catalog are paused; everything downloaded still opens"
+                        : "Back online");
+    }
+
+    /** Paints the indicator. Called on the FX thread by the monitor. */
+    private void showNetwork(com.insula.net.NetworkState.Status status) {
+        statusNetwork.setText(com.insula.net.NetworkState.label(status));
+        statusNetwork.setTooltip(new javafx.scene.control.Tooltip(com.insula.net.NetworkState.tooltip(status)));
+        statusNetwork.getStyleClass().removeAll("status-network-off", "status-network-on");
+        statusNetwork
+                .getStyleClass()
+                .add(status == com.insula.net.NetworkState.Status.ONLINE ? "status-network-on" : "status-network-off");
+    }
+
+    /**
+     * Refuses an action that needs the network, saying which kind of offline it is.
+     *
+     * @return true when the caller may go ahead
+     */
+    private boolean requireNetwork(String action) {
+        if (network.mayUseNetwork()) {
+            return true;
+        }
+        setStatus(com.insula.net.NetworkState.refusal(network.status(), action));
+        return false;
+    }
+
     /** A filled star means "this article is saved" — the one piece of state the tab row shows. */
     private void updateBookmarkButton() {
         ArticleRef ref = currentRef();
@@ -1698,6 +1752,9 @@ final class ReaderController {
     }
 
     private void downloadUpdate(ZimEntry replacement) {
+        if (!requireNetwork("updating " + replacement.title())) {
+            return;
+        }
         downloads.enqueue(replacement);
         setStatus("Downloading " + replacement.displayName());
         if (surface == Surface.LIBRARY) {
@@ -3329,6 +3386,7 @@ final class ReaderController {
     }
 
     void dispose() {
+        network.stop();
         savePosition();
         try {
             rememberSession();

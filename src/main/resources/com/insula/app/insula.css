@@ -385,3 +385,11 @@
     -fx-font-family: "monospace";
     -fx-font-size: 12px;
 }
+
+/*
+ * The network indicator. Insula works without a connection by design, so which of the two states
+ * it is in is worth a permanent segment rather than only appearing when something fails.
+ */
+.status-network { -fx-cursor: hand; }
+.status-network-on { -fx-text-fill: -insula-ok; }
+.status-network-off { -fx-text-fill: -insula-amber; }

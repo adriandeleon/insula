@@ -58,14 +58,61 @@ public final class TorrentTransport implements DownloadTransport {
      */
     private static final java.util.Map<String, Seed> SEEDS = new java.util.concurrent.ConcurrentHashMap<>();
 
-    /** One archive still being shared: what it is doing, and how to stop. */
-    public record Seed(String name, TorrentHandle handle, SessionManager session, Runnable stop) {
+    /**
+     * One archive still being shared: what it is doing, and how to stop.
+     *
+     * <p>{@link #stats()} returns a <em>cached</em> reading, refreshed by {@link #SAMPLER} on its
+     * own thread. It used to call {@code handle.status()} directly, and its only caller is a 4 Hz
+     * JavaFX {@code Timeline} — so the UI thread, the one that also drives the GL pipeline and
+     * WebKit, was reaching into libtorrent four times a second. Two reasons that had to stop:
+     * {@code status()} takes the session's lock, so a session busy hashing ten gigabytes can stall
+     * the interface; and calling a native library from the toolkit thread is the one shape none of
+     * the crash reproductions had, which makes it the first thing to remove while the SIGSEGV in
+     * this library is still unexplained.
+     */
+    public static final class Seed {
 
-        /** Live swarm figures, or an all-zero reading if the handle has gone. */
+        private static final SwarmStats GONE = new SwarmStats(0, 0, 0, 0, 0, true);
+
+        private final String name;
+        private final TorrentHandle handle;
+        private final SessionManager session;
+        private final Runnable stop;
+        private volatile SwarmStats latest = GONE;
+
+        public Seed(String name, TorrentHandle handle, SessionManager session, Runnable stop) {
+            this.name = name;
+            this.handle = handle;
+            this.session = session;
+            this.stop = stop;
+        }
+
+        public String name() {
+            return name;
+        }
+
+        public SessionManager session() {
+            return session;
+        }
+
+        public Runnable stop() {
+            return stop;
+        }
+
+        /** The most recent reading. Never touches libtorrent — see the class note. */
         public SwarmStats stats() {
+            return latest;
+        }
+
+        /** Called only from the sampler thread. */
+        void refresh() {
+            latest = read();
+        }
+
+        private SwarmStats read() {
             try {
                 if (handle == null || !handle.isValid() || !handle.inSession()) {
-                    return new SwarmStats(0, 0, 0, 0, 0, true);
+                    return GONE;
                 }
                 TorrentStatus status = handle.status();
                 return new SwarmStats(
@@ -76,9 +123,34 @@ public final class TorrentTransport implements DownloadTransport {
                         0,
                         true);
             } catch (Throwable t) {
-                return new SwarmStats(0, 0, 0, 0, 0, true);
+                return GONE;
             }
         }
+    }
+
+    /**
+     * Refreshes every seed's figures off the UI thread.
+     *
+     * <p>One thread for all of them, once a second: upload rates do not need 4 Hz, and the panel
+     * reads whatever the last pass left. A daemon, so it can never hold the app open.
+     */
+    private static final java.util.concurrent.ScheduledExecutorService SAMPLER =
+            java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "torrent-seed-sampler");
+                t.setDaemon(true);
+                return t;
+            });
+
+    static {
+        SAMPLER.scheduleWithFixedDelay(
+                () -> {
+                    for (Seed seed : SEEDS.values()) {
+                        seed.refresh();
+                    }
+                },
+                1,
+                1,
+                java.util.concurrent.TimeUnit.SECONDS);
     }
 
     /** Everything currently being shared, newest name order not guaranteed. */

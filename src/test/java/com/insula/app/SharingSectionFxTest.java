@@ -74,7 +74,8 @@ class SharingSectionFxTest {
     @Test
     void aSeedWhoseHandleIsGoneReadsAsZeroRatherThanThrowing(@TempDir Path dir) {
         // The handle is native and can vanish under us; a Library that throws while painting is
-        // worse than one reporting an idle share.
+        // worse than one reporting an idle share. stats() reads a cached figure, so this also
+        // covers the reading a seed has before the sampler has ever run.
         TorrentTransport.Seed seed = new TorrentTransport.Seed("gone.zim", null, null, () -> {});
         assertEquals(0, seed.stats().peers());
         assertTrue(seed.stats().seeding());
