@@ -207,3 +207,17 @@ committed to this repository, are recorded in [NOTICE.md](NOTICE.md).
 The ZIM format and the archives themselves are the work of the [openZIM](https://openzim.org) and
 [Kiwix](https://kiwix.org) projects, whose mirror infrastructure Insula downloads from. Insula is
 an independent reader and is not affiliated with either project.
+
+## When BitTorrent crashes the app
+
+A native crash in libtorrent exits with code 139 and, normally, no crash report: libjlibtorrent
+replaces the JVM's own SIGSEGV and SIGBUS handlers with its own, so HotSpot never gets to write
+one. To capture the report, run:
+
+```bash
+./scripts/debug-run.sh
+```
+
+That preloads `libjsig`, the JVM's signal-chaining library, which puts HotSpot's handler back in
+the chain. Reproduce the crash under it and `hs_err_pid*.log` appears in the project root with the
+native frame that died. Nothing else gives that away — `mvn javafx:run` alone cannot.

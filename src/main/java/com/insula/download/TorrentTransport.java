@@ -389,18 +389,50 @@ public final class TorrentTransport implements DownloadTransport {
          */
         private TorrentHandle awaitHandle(SessionManager manager, TorrentInfo info)
                 throws IOException, InterruptedException {
+            com.frostwire.jlibtorrent.Sha1Hash infoHash = ownedInfoHash(info);
             long deadline = System.nanoTime() + HANDLE_TIMEOUT.toNanos();
             while (System.nanoTime() < deadline) {
                 if (cancelled.get()) {
                     throw new InterruptedException("cancelled while adding the torrent");
                 }
-                TorrentHandle handle = manager.find(info);
+                TorrentHandle handle = manager.find(infoHash);
                 if (handle != null && handle.isValid() && handle.inSession()) {
                     return handle;
                 }
                 Thread.sleep(HANDLE_POLL.toMillis());
             }
             throw new IOException("libtorrent did not accept the torrent");
+        }
+
+        /**
+         * The torrent's info-hash, copied into an object Java owns.
+         *
+         * <p>{@code SessionManager.find(TorrentInfo)} looks the hash up afresh on every call, and
+         * the object it hands to libtorrent is a <em>borrowed</em> pointer: SWIG wraps
+         * {@code torrent_info::info_hashes()} and the {@code sha1_hash} inside it without taking
+         * ownership, so both are only valid while the {@code torrent_info} behind the Java
+         * {@code TorrentInfo} is alive. Round-tripping through hex produces a {@code sha1_hash}
+         * allocated for us, with no tie to anything native we do not hold.
+         *
+         * <p>This is a targeted change, not a diagnosis. Three crashes of the app died within a
+         * second of that lookup — it is the last thing in all three logs — while eight attempts to
+         * reproduce it outside the app failed, including on the module path, on the real
+         * filesystem, under GC pressure and beside a live WebKit scene. Removing the one call they
+         * have in common costs a hex round trip once per download.
+         */
+        private com.frostwire.jlibtorrent.Sha1Hash ownedInfoHash(TorrentInfo info) throws IOException {
+            try {
+                com.frostwire.jlibtorrent.Sha1Hash borrowed = info.infoHashV1();
+                if (borrowed == null) {
+                    throw new IOException("the .torrent has no v1 info-hash");
+                }
+                String hex = borrowed.toHex();
+                return new com.frostwire.jlibtorrent.Sha1Hash(hex);
+            } finally {
+                // The borrowed pointer above lives inside this object; nothing may collect it
+                // while we are reading through it.
+                java.lang.ref.Reference.reachabilityFence(info);
+            }
         }
 
         /** Adds the Metalink mirrors the torrent does not already advertise. */
@@ -520,7 +552,7 @@ public final class TorrentTransport implements DownloadTransport {
          */
         private void seedFromFinalLocation(SessionManager manager, TorrentInfo info) {
             try {
-                TorrentHandle old = manager.find(info);
+                TorrentHandle old = manager.find(ownedInfoHash(info));
                 if (old != null && old.isValid()) {
                     manager.remove(old);
                 }

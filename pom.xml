@@ -456,6 +456,16 @@
                     <options>
                         <option>--enable-native-access=com.github.luben.zstd_jni</option>
                         <option>-Djlibtorrent.jni.path=${jlibtorrent.natives.dir}/${jlibtorrent.native.path}</option>
+                        <!--
+                          Where a crash report lands, if one can be written at all. libjlibtorrent
+                          replaces the JVM's SIGSEGV and SIGBUS handlers with its own (confirmed
+                          under -Xcheck:jni), which is why a BitTorrent crash exits 139 with no
+                          hs_err file anywhere. Use scripts/debug-run.sh to preload libjsig and
+                          chain HotSpot's handler back in; this line only makes sure that when a
+                          report is produced it is somewhere obvious rather than in whatever
+                          directory the fork happened to inherit.
+                        -->
+                        <option>-XX:ErrorFile=${project.basedir}/hs_err_pid%p.log</option>
                     </options>
                 </configuration>
             </plugin>
