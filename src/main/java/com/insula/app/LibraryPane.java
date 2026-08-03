@@ -73,6 +73,8 @@ final class LibraryPane {
     private final javafx.scene.control.ComboBox<Shelf.SortBy> sortBox = new javafx.scene.control.ComboBox<>();
     private final Label dragHint = new Label();
     private final HBox organizeBar = new HBox(10);
+    private final javafx.scene.control.TextField filterField = new javafx.scene.control.TextField();
+    private final Button filterClear = new Button("✕");
     private final VBox sharingSection = new VBox(8);
     private final VBox seedRows = new VBox(8);
     private final HBox lanRow = new HBox(12);
@@ -456,6 +458,21 @@ final class LibraryPane {
         dragHint.getStyleClass().add("card-faint");
         Region gap = new Region();
         HBox.setHgrow(gap, Priority.ALWAYS);
+        // Filtering is live rather than on Enter: a shelf of a dozen archives narrows faster than
+        // anyone can finish typing, and there is nothing to wait for.
+        filterField.setPromptText("Filter archives");
+        filterField.setPrefColumnCount(14);
+        filterField.textProperty().addListener((obs, old2, now) -> {
+            filterClear.setVisible(!now.isBlank());
+            filterClear.setManaged(!now.isBlank());
+            rebuildDevice();
+        });
+        filterClear.getStyleClass().add("project-filter-clear");
+        filterClear.setVisible(false);
+        filterClear.setManaged(false);
+        filterClear.setTooltip(new javafx.scene.control.Tooltip("Clear the filter"));
+        filterClear.setOnAction(e -> filterField.clear());
+
         organizeBar.setAlignment(Pos.CENTER_LEFT);
         organizeBar
                 .getChildren()
@@ -465,6 +482,8 @@ final class LibraryPane {
                         groupBox,
                         new Label("Sort"),
                         sortBox,
+                        filterField,
+                        filterClear,
                         gap,
                         dragHint);
     }
@@ -488,22 +507,35 @@ final class LibraryPane {
         rebuildDevice();
     }
 
+    /**
+     * Reordering is off while a filter is on. A drop computes the new arrangement from the rows on
+     * screen, and those are a subset — so a drag inside a filtered shelf would write an order that
+     * silently discards everything the filter hid.
+     */
     private boolean draggable() {
-        return sortBox.getValue() == Shelf.SortBy.CUSTOM;
+        return sortBox.getValue() == Shelf.SortBy.CUSTOM
+                && filterField.getText().isBlank();
     }
 
     private void rebuildDevice() {
         deviceRows.getChildren().clear();
         updatePillCount = 0;
-        List<LibraryEntry> entries = library.entries();
-        organizeBar.setVisible(!entries.isEmpty());
-        organizeBar.setManaged(!entries.isEmpty());
+        List<LibraryEntry> all = library.entries();
+        // The bar stays while a filter is on even if it matches nothing — otherwise the field
+        // that produced the empty shelf disappears along with it, and there is no way back.
+        boolean anyArchives = !all.isEmpty();
+        organizeBar.setVisible(anyArchives);
+        organizeBar.setManaged(anyArchives);
+        String query = filterField.getText();
+        List<LibraryEntry> entries = com.insula.library.LibraryFilter.filter(all, query);
         // Handles appear only while Custom is chosen — dragging must not look available when the
         // arrangement it produces would be ignored.
         dragHint.setText(draggable() ? "★ pins to the top · drag ⠿ to reorder" : "★ pins to the top");
 
         if (entries.isEmpty()) {
-            deviceRows.getChildren().add(emptyState());
+            // Two different empty shelves: nothing owned at all, or nothing matching. The first
+            // wants the first-run screen; the second wants to say so and stay out of the way.
+            deviceRows.getChildren().add(anyArchives ? noMatches(query) : emptyState());
             updateGauge();
             return;
         }
@@ -528,6 +560,15 @@ final class LibraryPane {
         }
         deviceRows.getChildren().add(side);
         updateGauge();
+    }
+
+    /** Shown when a filter matches nothing — never the first-run screen, which would be a lie. */
+    private Region noMatches(String query) {
+        Label label = new Label("No archives match \u201c" + query.trim() + "\u201d");
+        label.getStyleClass().add("card-sub");
+        VBox box = new VBox(label);
+        box.setPadding(new Insets(10, 2, 4, 2));
+        return box;
     }
 
     /**

@@ -65,6 +65,9 @@ final class SettingsDialog {
     private final ComboBox<String> readerModeCombo = new ComboBox<>();
     private final Spinner<Integer> readerWidthSpinner =
             new Spinner<>(ReaderTheme.MIN_WIDTH, ReaderTheme.MAX_WIDTH, 900, 50);
+    private final ComboBox<String> readerFontCombo = new ComboBox<>();
+    private final Spinner<Integer> readerFontSpinner =
+            new Spinner<>(Settings.MIN_FONT_PERCENT, Settings.MAX_FONT_PERCENT, 100, 10);
     private final ToggleSwitch rememberPositionSwitch = new ToggleSwitch();
     private final Spinner<Integer> searchLimitSpinner =
             new Spinner<>(Settings.MIN_SEARCH_LIMIT, Settings.MAX_SEARCH_LIMIT, 40, 5);
@@ -327,6 +330,23 @@ final class SettingsDialog {
                         row("Content zoom (%)", "Applies to articles; the interface stays at 100%.", zoomSpinner)));
     }
 
+    /**
+     * The typefaces offered, mapped to the CSS they set.
+     *
+     * <p>The CSS generics rather than named fonts: those are the four every system resolves to
+     * something, so choosing one always visibly does something. Naming a family the machine does
+     * not have would fall back to whatever the engine picks, which reads as a setting that did
+     * nothing at all.
+     */
+    private static final java.util.LinkedHashMap<String, String> FONT_CHOICES = new java.util.LinkedHashMap<>();
+
+    static {
+        FONT_CHOICES.put("As published", "");
+        FONT_CHOICES.put("Serif", "serif");
+        FONT_CHOICES.put("Sans-serif", "sans-serif");
+        FONT_CHOICES.put("Monospace", "monospace");
+    }
+
     private Region readerViewPage() {
         readerModeCombo.getItems().setAll("Original", "Comfortable", "Dark");
         readerModeCombo.valueProperty().addListener((obs, old, value) -> {
@@ -342,6 +362,23 @@ final class SettingsDialog {
                 applyAndSave();
             }
         });
+        // Named rather than free text: a font list is a promise the machine has to keep, and an
+        // unavailable family silently falls back to whatever the engine picks, which looks like
+        // the setting did nothing. These four are the CSS generics — every system resolves them.
+        readerFontCombo.getItems().setAll(FONT_CHOICES.keySet());
+        readerFontCombo.valueProperty().addListener((obs, old, value) -> {
+            if (!loading && value != null) {
+                settings.setReaderFontFamily(FONT_CHOICES.getOrDefault(value, ""));
+                applyAndSave();
+            }
+        });
+        readerFontSpinner.setEditable(true);
+        readerFontSpinner.valueProperty().addListener((obs, old, value) -> {
+            if (!loading && value != null) {
+                settings.setReaderFontPercent(value);
+                applyAndSave();
+            }
+        });
         rememberPositionSwitch.selectedProperty().addListener((obs, old, selected) -> {
             if (!loading) {
                 settings.setRememberPosition(selected);
@@ -353,6 +390,13 @@ final class SettingsDialog {
                 "How articles read.",
                 card(
                         row("Reader mode", "Original keeps the archive's own styling.", readerModeCombo),
+                        row(
+                                "Article typeface",
+                                "As published leaves every archive with the fonts it shipped.",
+                                readerFontCombo),
+                        row(
+                                "Article text size (%)",
+                                "The prose only — zoom scales images and layout with it.", readerFontSpinner),
                         row("Content width (px)", "The article column, centered in the window.", readerWidthSpinner),
                         row(
                                 "Return to where I left off",
@@ -648,6 +692,12 @@ final class SettingsDialog {
             readerModeCombo.setValue(settings.getReaderMode().substring(0, 1).toUpperCase(java.util.Locale.ROOT)
                     + settings.getReaderMode().substring(1));
             readerWidthSpinner.getValueFactory().setValue(ReaderTheme.clampWidth(settings.getReaderWidth()));
+            readerFontSpinner.getValueFactory().setValue(settings.getReaderFontPercent());
+            readerFontCombo.setValue(FONT_CHOICES.entrySet().stream()
+                    .filter(e -> e.getValue().equals(settings.getReaderFontFamily()))
+                    .map(java.util.Map.Entry::getKey)
+                    .findFirst()
+                    .orElse("As published"));
             rememberPositionSwitch.setSelected(settings.isRememberPosition());
             searchLimitSpinner.getValueFactory().setValue(settings.getSearchLimit());
             torrentSwitch.setSelected(settings.isTorrentEnabled());

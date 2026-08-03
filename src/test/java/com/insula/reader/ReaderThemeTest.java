@@ -86,4 +86,27 @@ class ReaderThemeTest {
         assertEquals(ReaderTheme.Mode.ORIGINAL, ReaderTheme.modeOf(null));
         assertEquals(ReaderTheme.Mode.DARK, ReaderTheme.modeOf("  DARK  "));
     }
+
+    @Test
+    void aChosenTypefaceIsImposedOnTheProse() {
+        String css = ReaderTheme.css(ReaderTheme.Mode.ORIGINAL, ReaderTheme.MAX_WIDTH, 1.0, "Georgia, serif");
+        assertTrue(css.contains("font-family: Georgia, serif !important"), css);
+        assertTrue(css.contains("body"), css);
+    }
+
+    @Test
+    void theTypefaceIsNotImposedOnEverything() {
+        // pre/code and the icon webfonts an archive uses for arrows and glyphs are typefaces
+        // chosen for a reason: overriding those turns code into prose and icons into empty boxes.
+        String css = ReaderTheme.css(ReaderTheme.Mode.ORIGINAL, ReaderTheme.MAX_WIDTH, 1.0, "Georgia");
+        assertFalse(css.contains("* {"), css);
+        assertFalse(css.contains("pre"), css);
+        assertFalse(css.contains("code"), css);
+    }
+
+    @Test
+    void leavingEverythingAsPublishedStillCostsNoStylesheet() {
+        assertEquals("", ReaderTheme.css(ReaderTheme.Mode.ORIGINAL, ReaderTheme.MAX_WIDTH, 1.0, ""));
+        assertEquals("", ReaderTheme.css(ReaderTheme.Mode.ORIGINAL, ReaderTheme.MAX_WIDTH, 1.0, "   "));
+    }
 }

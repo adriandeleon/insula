@@ -111,6 +111,11 @@ final class ReaderController {
     private final Label statusArriving = new Label();
     private final Label statusLan = new Label();
     private final Label statusNetwork = new Label();
+    private final javafx.scene.control.TextField findField = new javafx.scene.control.TextField();
+    private final Label findCount = new Label();
+    private final HBox findBar = new HBox(4);
+    private final Button fontSmaller = new Button("A\u2212");
+    private final Button fontLarger = new Button("A+");
     private final com.insula.net.NetworkMonitor network = new com.insula.net.NetworkMonitor(
             status -> javafx.application.Platform.runLater(() -> showNetwork(status)));
     private final TextField omniField = new TextField();
@@ -277,6 +282,18 @@ final class ReaderController {
         return readerMenuItems();
     }
 
+    boolean findBarShowingForTest() {
+        return findBar.isVisible();
+    }
+
+    void closeFindForTest() {
+        closeFind();
+    }
+
+    String findCountForTest() {
+        return findCount.getText();
+    }
+
     String networkLabelForTest() {
         return statusNetwork.getText();
     }
@@ -416,6 +433,12 @@ final class ReaderController {
         commands.register("history.clear", "Clear History", this::clearHistory);
         commands.register("view.messages", "Show Messages", () -> messageLogPopup.toggle());
         commands.register("network.toggleOffline", "Toggle: Work Offline", this::toggleWorkOffline);
+        commands.register("find.onPage", "Find on This Page", this::openFind);
+        commands.register("find.next", "Find Next on This Page", () -> findStep(true));
+        commands.register("find.previous", "Find Previous on This Page", () -> findStep(false));
+        commands.register("text.larger", "Larger Article Text", () -> stepFont(10));
+        commands.register("text.smaller", "Smaller Article Text", () -> stepFont(-10));
+        commands.register("text.resetSize", "Reset Article Text Size", () -> setFontPercent(100));
         commands.register("view.debugLog", "Show Debug Log", this::showDebugLog);
         commands.register("search.show", "Show Search", () -> showSidebarPane(0));
         commands.register("reader.cycleMode", "Reader Mode: Original / Comfortable / Dark", this::cycleReaderMode);
@@ -499,6 +522,10 @@ final class ReaderController {
         keys.bind("file.open", new KeyCodeCombination(KeyCode.O, KeyCombination.SHORTCUT_DOWN));
         keys.bind("view.settings", new KeyCodeCombination(KeyCode.COMMA, KeyCombination.SHORTCUT_DOWN));
         keys.bind("search.focus", new KeyCodeCombination(KeyCode.F, KeyCombination.SHORTCUT_DOWN));
+        keys.bind(
+                "find.onPage",
+                new KeyCodeCombination(KeyCode.F, KeyCombination.SHORTCUT_DOWN, KeyCombination.SHIFT_DOWN));
+        keys.bind("find.next", new KeyCodeCombination(KeyCode.G, KeyCombination.SHORTCUT_DOWN));
         keys.bind("nav.back", new KeyCodeCombination(KeyCode.LEFT, KeyCombination.ALT_DOWN));
         keys.bind("nav.forward", new KeyCodeCombination(KeyCode.RIGHT, KeyCombination.ALT_DOWN));
         keys.bind("view.zoomIn", new KeyCodeCombination(KeyCode.EQUALS, KeyCombination.SHORTCUT_DOWN));
@@ -708,9 +735,19 @@ final class ReaderController {
         HBox.setHgrow(restoredBar, Priority.ALWAYS);
         // The article's own controls, at the far end of the same row: everything here acts on the
         // page this tab is showing.
-        HBox tabActions = new HBox(4, readerViewButton, typePanelButton, bookmarkButton);
+        // Text size on the tab row, beside the other things that act on the page in front of you.
+        // Size only: the typeface is a settled preference, not something adjusted mid-article.
+        fontSmaller.setTooltip(new javafx.scene.control.Tooltip("Smaller text (Ctrl+-)"));
+        fontSmaller.setOnAction(e -> commands.run("text.smaller"));
+        fontLarger.setTooltip(new javafx.scene.control.Tooltip("Larger text (Ctrl++)"));
+        fontLarger.setOnAction(e -> commands.run("text.larger"));
+        for (Button b : List.of(fontSmaller, fontLarger)) {
+            b.getStyleClass().add("tab-action");
+        }
+        HBox tabActions = new HBox(4, fontSmaller, fontLarger, readerViewButton, typePanelButton, bookmarkButton);
         tabActions.setAlignment(Pos.CENTER_RIGHT);
-        HBox navRow = new HBox(8, tabNav, restoredBar, tabActions);
+        buildFindBar();
+        HBox navRow = new HBox(8, tabNav, restoredBar, findBar, tabActions);
         navRow.setAlignment(Pos.CENTER_LEFT);
         navRow.getStyleClass().add("tab-nav-row");
 
@@ -1423,6 +1460,126 @@ final class ReaderController {
     void setStatus(String message) {
         status.setText(message);
         messageLog.add(message);
+    }
+
+    /**
+     * Find-in-page, on the tab's own row.
+     *
+     * <p>Hidden until asked for: it is one more thing between the tabs and the article, and most
+     * reading does not involve searching the page. Escape and the ✕ put it away, which also clears
+     * the highlights — leaving a page marked up after the search is over makes the article look
+     * broken.
+     */
+    private void buildFindBar() {
+        findField.setPromptText("Find on page");
+        findField.setPrefColumnCount(16);
+        findField.textProperty().addListener((obs, old, now) -> runFind(now, true));
+        findField.setOnAction(e -> findStep(true));
+        findField.setOnKeyPressed(e -> {
+            if (e.getCode() == KeyCode.ESCAPE) {
+                closeFind();
+                e.consume();
+            } else if (e.getCode() == KeyCode.ENTER && e.isShiftDown()) {
+                findStep(false);
+                e.consume();
+            }
+        });
+        findCount.getStyleClass().add("card-faint");
+        Button prev = new Button("\u2039");
+        prev.setTooltip(new javafx.scene.control.Tooltip("Previous match (Shift+Enter)"));
+        prev.setOnAction(e -> findStep(false));
+        Button next = new Button("\u203a");
+        next.setTooltip(new javafx.scene.control.Tooltip("Next match (Enter)"));
+        next.setOnAction(e -> findStep(true));
+        Button close = new Button("\u2715");
+        close.setTooltip(new javafx.scene.control.Tooltip("Close (Esc)"));
+        close.setOnAction(e -> closeFind());
+        for (Button b : List.of(prev, next, close)) {
+            b.getStyleClass().add("tab-action");
+        }
+        findBar.setAlignment(Pos.CENTER_LEFT);
+        findBar.getChildren().addAll(findField, findCount, prev, next, close);
+        findBar.setVisible(false);
+        findBar.setManaged(false);
+    }
+
+    /** Opens the bar, seeded from the selection if there is one — the browser convention. */
+    private void openFind() {
+        if (surface != Surface.READER) {
+            showReader();
+        }
+        findBar.setVisible(true);
+        findBar.setManaged(true);
+        // Deferred as well as immediate: a node that has just become managed has not been laid out
+        // yet, and focus asked for before that pass is dropped — the bar opens with the caret
+        // still in the article and the first thing typed goes nowhere.
+        findField.requestFocus();
+        javafx.application.Platform.runLater(() -> {
+            findField.requestFocus();
+            findField.selectAll();
+        });
+        if (!findField.getText().isBlank()) {
+            runFind(findField.getText(), true);
+        }
+    }
+
+    private void closeFind() {
+        findBar.setVisible(false);
+        findBar.setManaged(false);
+        findCount.setText("");
+        runScript("if (window.__insulaFind) { window.__insulaFind.clear(); }");
+    }
+
+    /** Runs the search and reports the tally. {@code advance} jumps to the first hit. */
+    private void runFind(String query, boolean advance) {
+        if (query == null || query.isBlank()) {
+            findCount.setText("");
+            runScript("if (window.__insulaFind) { window.__insulaFind.clear(); }");
+            return;
+        }
+        // The helper and its stylesheet are installed per search: a page load drops both, and
+        // re-running them is cheaper than tracking which document is currently carrying them.
+        renderer.injectCss(com.insula.reader.PageFind.css());
+        runScript(com.insula.reader.PageFind.installScript());
+        Object total = runScript("window.__insulaFind.search(" + com.insula.reader.PageFind.quote(query) + ")");
+        int hits = total instanceof Number n ? n.intValue() : 0;
+        if (hits == 0) {
+            findCount.setText("no matches");
+            return;
+        }
+        if (advance) {
+            findStep(true);
+        } else {
+            findCount.setText(hits + (hits == 1 ? " match" : " matches"));
+        }
+    }
+
+    private void findStep(boolean forward) {
+        Object at =
+                runScript("window.__insulaFind ? window.__insulaFind." + (forward ? "next()" : "previous()") + " : 0");
+        Object total = runScript("window.__insulaFind ? window.__insulaFind.count() : 0");
+        int index = at instanceof Number n ? n.intValue() : 0;
+        int hits = total instanceof Number n ? n.intValue() : 0;
+        findCount.setText(hits == 0 ? "no matches" : index + " of " + hits);
+    }
+
+    private Object runScript(String script) {
+        return renderer instanceof com.insula.reader.WebViewRenderer web ? web.runScript(script) : null;
+    }
+
+    private void stepFont(int deltaPercent) {
+        setFontPercent(settings.getReaderFontPercent() + deltaPercent);
+    }
+
+    /**
+     * Resizes the article text. Distinct from zoom, which scales images and layout with it — this
+     * is the one people mean when the prose is too small but the diagrams are fine.
+     */
+    private void setFontPercent(int percent) {
+        settings.setReaderFontPercent(percent);
+        settings.save();
+        applyReaderTheme();
+        setStatus("Article text " + settings.getReaderFontPercent() + "%");
     }
 
     /** Puts the app on or off the network, and says which it now is. */
@@ -3121,8 +3278,11 @@ final class ReaderController {
             setReaderViewChrome(true);
             setStatus("Reader View · " + ReaderView.readingTime(readerView.words()));
         } else {
-            renderer.injectCss(
-                    ReaderTheme.css(ReaderTheme.modeOf(settings.getReaderMode()), settings.getReaderWidth(), 1.0));
+            renderer.injectCss(ReaderTheme.css(
+                    ReaderTheme.modeOf(settings.getReaderMode()),
+                    settings.getReaderWidth(),
+                    settings.getReaderFontPercent() / 100.0,
+                    settings.getReaderFontFamily()));
             setStatus("This page isn't suitable for Reader View");
         }
     }
@@ -3290,8 +3450,11 @@ final class ReaderController {
 
     /** Re-applies the reader stylesheet over whatever the archive shipped. */
     private void applyReaderTheme() {
-        renderer.injectCss(
-                ReaderTheme.css(ReaderTheme.modeOf(settings.getReaderMode()), settings.getReaderWidth(), 1.0));
+        renderer.injectCss(ReaderTheme.css(
+                ReaderTheme.modeOf(settings.getReaderMode()),
+                settings.getReaderWidth(),
+                settings.getReaderFontPercent() / 100.0,
+                settings.getReaderFontFamily()));
     }
 
     /**

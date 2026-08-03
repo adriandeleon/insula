@@ -91,6 +91,8 @@ public final class Settings {
 
     // Reader View (the Firefox-style distilled page) typography. Defaults mirror Firefox's:
     // serif at 20px in a ~680px column with 1.6 line height, light background.
+    private String readerFontFamily = "";
+    private int readerFontPercent = 100;
     private String readerViewFont = "serif";
     private int readerViewFontSize = 20;
     private int readerViewWidth = 680;
@@ -148,6 +150,11 @@ public final class Settings {
                     MAX_CONCURRENT_DOWNLOADS);
             settings.libraryGroupBy = props.getProperty("libraryGroupBy", settings.libraryGroupBy);
             settings.librarySortBy = props.getProperty("librarySortBy", settings.librarySortBy);
+            settings.readerFontFamily = props.getProperty("readerFontFamily", settings.readerFontFamily);
+            settings.readerFontPercent = clamp(
+                    parseInt(props.getProperty("readerFontPercent"), settings.readerFontPercent),
+                    MIN_FONT_PERCENT,
+                    MAX_FONT_PERCENT);
             settings.readerViewFont = props.getProperty("readerViewFont", settings.readerViewFont);
             settings.readerViewFontSize =
                     parseInt(props.getProperty("readerViewFontSize"), settings.readerViewFontSize);
@@ -185,6 +192,8 @@ public final class Settings {
         props.setProperty("maxConcurrentDownloads", String.valueOf(maxConcurrentDownloads));
         props.setProperty("libraryGroupBy", libraryGroupBy);
         props.setProperty("librarySortBy", librarySortBy);
+        props.setProperty("readerFontFamily", readerFontFamily);
+        props.setProperty("readerFontPercent", String.valueOf(readerFontPercent));
         props.setProperty("readerViewFont", readerViewFont);
         props.setProperty("readerViewFontSize", String.valueOf(readerViewFontSize));
         props.setProperty("readerViewWidth", String.valueOf(readerViewWidth));
@@ -320,6 +329,33 @@ public final class Settings {
     }
 
     /** Whether the user has asked the app to stay off the network entirely. */
+    /** Steps the article text can take. Beyond these it is either unreadable or one word a line. */
+    public static final int MIN_FONT_PERCENT = 70;
+
+    public static final int MAX_FONT_PERCENT = 250;
+
+    /**
+     * The typeface imposed on article prose as a CSS family list, or blank to leave every archive
+     * with the typefaces it was published with — which is the honest default for a reader whose
+     * job is to show you what is in the file.
+     */
+    public String getReaderFontFamily() {
+        return readerFontFamily;
+    }
+
+    public void setReaderFontFamily(String family) {
+        this.readerFontFamily = family == null ? "" : family.trim();
+    }
+
+    /** Article text size as a percentage. Distinct from zoom, which scales images too. */
+    public int getReaderFontPercent() {
+        return readerFontPercent;
+    }
+
+    public void setReaderFontPercent(int percent) {
+        this.readerFontPercent = clamp(percent, MIN_FONT_PERCENT, MAX_FONT_PERCENT);
+    }
+
     public boolean isWorkOffline() {
         return workOffline;
     }

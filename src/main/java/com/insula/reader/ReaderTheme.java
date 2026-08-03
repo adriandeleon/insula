@@ -37,7 +37,17 @@ public final class ReaderTheme {
      * @param fontScale 1.0 leaves the archive's own sizes alone
      */
     public static String css(Mode mode, int contentWidth, double fontScale) {
-        if (mode == Mode.ORIGINAL && fontScale == 1.0 && contentWidth >= MAX_WIDTH) {
+        return css(mode, contentWidth, fontScale, "");
+    }
+
+    /**
+     * @param contentWidth maximum content column in pixels; {@link #MAX_WIDTH} means unconstrained
+     * @param fontScale 1.0 leaves the archive's own sizes alone
+     * @param fontFamily a CSS family list, or blank to leave the archive's own typefaces alone
+     */
+    public static String css(Mode mode, int contentWidth, double fontScale, String fontFamily) {
+        boolean family = fontFamily != null && !fontFamily.isBlank();
+        if (mode == Mode.ORIGINAL && fontScale == 1.0 && contentWidth >= MAX_WIDTH && !family) {
             return "";
         }
         StringBuilder css = new StringBuilder();
@@ -49,6 +59,9 @@ public final class ReaderTheme {
         }
         if (fontScale != 1.0) {
             css.append(fontCss(fontScale));
+        }
+        if (family) {
+            css.append(familyCss(fontFamily));
         }
         if (mode != Mode.ORIGINAL) {
             css.append(readabilityCss());
@@ -98,6 +111,19 @@ public final class ReaderTheme {
                  box-sizing: border-box !important;
                }
                """.formatted(width);
+    }
+
+    /**
+     * Imposes a typeface on the article's prose.
+     *
+     * <p>Deliberately not on {@code *}: an archive's monospaced code samples and its icon fonts —
+     * the arrows and glyphs Wikipedia draws from a webfont — are typefaces chosen for a reason,
+     * and replacing those turns code into prose and icons into empty boxes. The selector covers
+     * what someone means by "the text" and leaves the rest as published.
+     */
+    private static String familyCss(String family) {
+        return "body, p, li, td, th, div, span, h1, h2, h3, h4, h5, h6, blockquote"
+                + " { font-family: %s !important; }%n".formatted(family);
     }
 
     private static String fontCss(double scale) {
