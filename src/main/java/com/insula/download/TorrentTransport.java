@@ -178,12 +178,6 @@ public final class TorrentTransport implements DownloadTransport {
     /** How often the session is sampled for progress. */
     private static final Duration POLL = Duration.ofMillis(500);
 
-    /**
-     * If nothing has arrived by now, give up so the manager can fall back to HTTP. The user must
-     * never be left watching 0 B/s because the swarm is empty and the port is blocked.
-     */
-    static final Duration STALL_TIMEOUT = Duration.ofSeconds(45);
-
     private final HttpClient http;
     private final boolean seedAfterDownload;
 
@@ -319,15 +313,10 @@ public final class TorrentTransport implements DownloadTransport {
                 publish(DownloadState.CONNECTING, 0, 0, 0, 0, "Fetching torrent");
                 TorrentInfo info = new TorrentInfo(fetchTorrentFile(entry));
 
-                // Always a work dir of its own, never the archives folder — even when seeding.
-                // libtorrent preallocates the file at its full published length, so an
-                // interrupted torrent leaves a full-length *sparse* file behind: real length,
-                // almost nothing on disk, every unwritten byte reading as zero. Written straight
-                // into the archives folder that husk sits exactly where the library and the HTTP
-                // fallback both look, and a torrent abandoned at 4% is indistinguishable from a
-                // finished download by any test that asks how long the file is. Seeding is
-                // re-established after the move instead — see seedFromFinalLocation.
-                workDir = destination.toAbsolutePath().getParent().resolve(".torrent-" + entry.name());
+                // Always a work dir of its own, never the archives folder — even when seeding;
+                // see TorrentJobPolicy.workDir for why, and TorrentJobPolicyTest for the proof.
+                // Seeding is re-established after the move — see seedFromFinalLocation.
+                workDir = TorrentJobPolicy.workDir(destination, entry.name());
                 Files.createDirectories(workDir);
 
                 manager = new SessionManager();
@@ -353,10 +342,8 @@ public final class TorrentTransport implements DownloadTransport {
                     return;
                 }
 
-                Path produced = workDir.resolve(info.files().fileName(0));
-                if (!Files.isRegularFile(produced)) {
-                    produced = workDir.resolve(info.name());
-                }
+                Path produced = TorrentJobPolicy.producedFile(
+                        workDir, info.files().fileName(0), info.name(), Files::isRegularFile);
                 Files.move(produced, destination, StandardCopyOption.REPLACE_EXISTING);
                 if (seedAfterDownload) {
                     seedFromFinalLocation(manager, info);
@@ -477,7 +464,7 @@ public final class TorrentTransport implements DownloadTransport {
                 long received = status.totalPayloadDownload();
                 int peers = status.numPeers();
 
-                if (status.isFinished() || verified >= total) {
+                if (TorrentJobPolicy.complete(status.isFinished(), verified, total)) {
                     publish(DownloadState.DOWNLOADING, total, total, 0, peers, "");
                     return;
                 }
@@ -497,14 +484,16 @@ public final class TorrentTransport implements DownloadTransport {
                                 "")
                         .withSwarm(swarm));
 
+                if (TorrentJobPolicy.stalled(
+                        received, lastReceived, System.nanoTime() - lastActivityAt, paused.get())) {
+                    // Empty swarm and unreachable web seeds: fail so HTTP can take over, rather
+                    // than leaving the user watching a bar that will never move.
+                    throw new IllegalStateException("No data after "
+                            + (TorrentJobPolicy.STALL_TIMEOUT_NANOS / 1_000_000_000L) + "s (" + peers + " peers)");
+                }
                 if (received > lastReceived) {
                     lastReceived = received;
                     lastActivityAt = System.nanoTime();
-                } else if (!paused.get() && System.nanoTime() - lastActivityAt > STALL_TIMEOUT.toNanos()) {
-                    // Empty swarm and unreachable web seeds: fail so HTTP can take over, rather
-                    // than leaving the user watching a bar that will never move.
-                    throw new IllegalStateException(
-                            "No data after " + STALL_TIMEOUT.toSeconds() + "s (" + peers + " peers)");
                 }
                 Thread.sleep(POLL.toMillis());
             }
@@ -515,9 +504,7 @@ public final class TorrentTransport implements DownloadTransport {
                 return;
             }
             try {
-                // Kept alive only when it is actually sharing something: a seeding session that
-                // never got as far as registering a Seed is just a leaked session.
-                if (seed == null || cancelled.get()) {
+                if (TorrentJobPolicy.shouldStopSession(seed != null, cancelled.get())) {
                     manager.stop();
                 }
             } catch (Throwable t) {
@@ -577,7 +564,7 @@ public final class TorrentTransport implements DownloadTransport {
          * a cleanup.
          */
         private void cleanup(Path workDir) {
-            if (workDir == null || !succeeded) {
+            if (workDir == null || !TorrentJobPolicy.shouldCleanup(succeeded)) {
                 return;
             }
             try (var paths = Files.walk(workDir)) {
