@@ -164,8 +164,22 @@ public final class DownloadManager implements AutoCloseable {
     }
 
     /** Currently tracked downloads, newest state included. */
+    /**
+     * The jobs worth showing: everything except the cancelled and failed ones.
+     *
+     * <p>Those two describe a transfer that already stopped, and leaving them in left a row in the
+     * Library's Arriving list that nothing could ever clear. The reason for it is not lost with
+     * the row — a failure is announced on the status line, and the message log keeps it.
+     */
+    /** The job map as it really is, including stopped ones — for tests that assert the filtering. */
+    Job rawJobForTest(ZimEntry entry) {
+        return jobs.get(entry.id());
+    }
+
     public List<Job> jobs() {
-        return List.copyOf(jobs.values());
+        return jobs.values().stream()
+                .filter(job -> DownloadStates.worthShowing(job.snapshot().state()))
+                .toList();
     }
 
     /**
@@ -182,13 +196,34 @@ public final class DownloadManager implements AutoCloseable {
         return downloadDir;
     }
 
+    /**
+     * The live job for this entry, or null.
+     *
+     * <p>A cancelled or failed job answers null: it describes something that already stopped, and
+     * a card asking "what is happening with this archive?" is better told "nothing" — which is
+     * what puts the Download button back.
+     */
     public Job job(ZimEntry entry) {
-        return jobs.get(entry.id());
+        Job job = jobs.get(entry.id());
+        return job != null && DownloadStates.worthShowing(job.snapshot().state()) ? job : null;
     }
 
     /** Queues an entry. Returns the existing job if it is already downloading. */
+    /**
+     * Starts a download, or returns the one already running for this entry.
+     *
+     * <p>A cancelled or failed job is replaced rather than handed back. It used to be
+     * {@code computeIfAbsent} over a map nothing ever removed from, so the dead job stayed forever
+     * and asking again returned it without starting anything — cancelling a download was permanent
+     * and no amount of clicking Download would restart it, while the partial bytes sat on disk
+     * ready to resume.
+     */
     public Job enqueue(ZimEntry entry) {
-        return jobs.computeIfAbsent(entry.id(), id -> {
+        return jobs.compute(entry.id(), (id, existing) -> {
+            if (existing != null
+                    && !DownloadStates.restartable(existing.snapshot().state())) {
+                return existing;
+            }
             Job job = new Job(entry, downloadDir.resolve(entry.fileName()));
             pipeline.execute(() -> runPipeline(job));
             return job;
