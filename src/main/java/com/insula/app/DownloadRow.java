@@ -81,11 +81,36 @@ final class DownloadRow extends VBox {
     }
 
     /** Called by the owner's 4 Hz tick. */
+    /** One tooltip instance, retargeted — installing a new one per 4 Hz tick would churn popups. */
+    private javafx.scene.control.Tooltip swarmTooltip;
+
+    private void setTooltip(String text) {
+        if (text == null) {
+            if (swarmTooltip != null) {
+                javafx.scene.control.Tooltip.uninstall(this, swarmTooltip);
+                swarmTooltip = null;
+            }
+            return;
+        }
+        if (swarmTooltip == null) {
+            swarmTooltip = new javafx.scene.control.Tooltip();
+            swarmTooltip.setShowDelay(javafx.util.Duration.millis(300));
+            javafx.scene.control.Tooltip.install(this, swarmTooltip);
+        }
+        swarmTooltip.setText(text);
+    }
+
     void update() {
         ProgressSnapshot s = job.snapshot();
         double fraction = s.fraction();
         bar.setProgress(fraction < 0 ? ProgressBar.INDETERMINATE_PROGRESS : fraction);
-        facts.setText(Formats.progressLine(s, job.transportName(), job.sourceNoun()));
+        String swarmSummary = SwarmText.summary(s.swarm());
+        facts.setText(Formats.progressLine(s, job.transportName(), job.sourceNoun())
+                + (swarmSummary.isEmpty() ? "" : " · " + swarmSummary));
+        // The full reading hangs off the row rather than crowding it: peers, seeds, mirrors, both
+        // rates and the ratio are what you want when a transfer looks wrong, not while it is fine.
+        String detail = SwarmText.detail(s);
+        setTooltip(detail.isEmpty() ? null : detail);
 
         boolean active = !s.state().isTerminal();
         boolean verifying = s.state() == DownloadState.VERIFYING;

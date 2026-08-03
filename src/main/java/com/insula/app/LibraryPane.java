@@ -73,12 +73,21 @@ final class LibraryPane {
     private final javafx.scene.control.ComboBox<Shelf.SortBy> sortBox = new javafx.scene.control.ComboBox<>();
     private final Label dragHint = new Label();
     private final HBox organizeBar = new HBox(10);
+    private final VBox sharingSection = new VBox(8);
+    private final VBox seedRows = new VBox(8);
     private final HBox lanRow = new HBox(12);
     private final Label lanState = new Label();
     private final Button lanToggle = new Button();
     private final Button lanQr = new Button("Show QR");
     private LanActions lanActions = LanActions.NONE;
+    private Supplier<List<com.insula.download.TorrentTransport.Seed>> seedsSupplier = List::of;
     private java.util.function.BiConsumer<Shelf.GroupBy, Shelf.SortBy> onArrangementChanged = (g, s2) -> {};
+
+    /** Where the shared-archive rows come from; empty when BitTorrent is off or unavailable. */
+    void setSeedsSupplier(Supplier<List<com.insula.download.TorrentTransport.Seed>> supplier) {
+        this.seedsSupplier = supplier == null ? List::of : supplier;
+    }
+
     private Consumer<List<LibraryEntry>> onReorder = list -> {};
     private Consumer<LibraryEntry> onTogglePin = entry -> {};
     private RowActions rowActions = RowActions.NONE;
@@ -160,8 +169,12 @@ final class LibraryPane {
         attentionSection.getChildren().addAll(sectionTitle("Needs attention"), attentionRows);
 
         buildLanRow();
+        // Sharing sits directly under the disk gauge, not at the foot of the shelf. At the bottom
+        // it is below however many archives you own — which is exactly where a thing you are
+        // doing right now, possibly without realising, must not be.
+        sharingSection.getChildren().addAll(sectionTitle("Sharing"), lanRow, seedRows);
         content.setPadding(new Insets(14));
-        content.getChildren().addAll(gauge, arrivingSection, attentionSection, organizeBar, deviceRows, lanRow);
+        content.getChildren().addAll(gauge, sharingSection, arrivingSection, attentionSection, organizeBar, deviceRows);
 
         root = new ScrollPane(content);
         root.setFitToWidth(true);
@@ -183,6 +196,7 @@ final class LibraryPane {
     }
 
     void activate() {
+        rebuildSeeds();
         rebuildAll();
         if (sampler.getStatus() != Animation.Status.RUNNING) {
             sampler.play();
@@ -225,6 +239,7 @@ final class LibraryPane {
     // ---------------------------------------------------------------- sampling
 
     private void tick() {
+        rebuildSeeds();
         List<DownloadManager.Job> jobs = downloads.jobs();
         boolean setChanged = jobs.size() != rows.size() || !rows.keySet().containsAll(jobs);
         if (setChanged) {
@@ -279,6 +294,59 @@ final class LibraryPane {
         row.setPadding(new Insets(10, 12, 10, 12));
         row.getStyleClass().addAll("rowcard", "rowcard-attention");
         return row;
+    }
+
+    /**
+     * The archives this machine is still uploading over BitTorrent.
+     *
+     * <p>Rebuilt on the sampler like the arriving rows, because a swarm's numbers move constantly
+     * and there is nothing else to drive a repaint. Absent entirely when nothing is being shared —
+     * an empty "Sharing" heading over nothing invites the question it cannot answer.
+     */
+    private void rebuildSeeds() {
+        List<com.insula.download.TorrentTransport.Seed> seeds = seedsSupplier.get();
+        boolean any = !seeds.isEmpty();
+        seedRows.setVisible(any);
+        seedRows.setManaged(any);
+        if (seeds.size() != seedRows.getChildren().size()) {
+            seedRows.getChildren().clear();
+            seeds.forEach(seed -> seedRows.getChildren().add(seedRow(seed)));
+        } else {
+            for (int i = 0; i < seeds.size(); i++) {
+                updateSeedRow((HBox) seedRows.getChildren().get(i), seeds.get(i));
+            }
+        }
+    }
+
+    private Region seedRow(com.insula.download.TorrentTransport.Seed seed) {
+        Label title = new Label(seed.name());
+        title.getStyleClass().add("card-title");
+        Label facts = new Label();
+        facts.getStyleClass().add("card-sub");
+        VBox main = new VBox(2, title, facts);
+        HBox.setHgrow(main, Priority.ALWAYS);
+
+        Button stop = new Button("Stop sharing");
+        stop.setOnAction(e -> {
+            seed.stop().run();
+            onStatus.accept("Stopped sharing " + seed.name());
+            rebuildSeeds();
+        });
+
+        HBox row = new HBox(12, main, stop);
+        row.setAlignment(Pos.CENTER_LEFT);
+        row.getStyleClass().add("rowcard");
+        row.setUserData(seed);
+        updateSeedRow(row, seed);
+        return row;
+    }
+
+    private void updateSeedRow(HBox row, com.insula.download.TorrentTransport.Seed seed) {
+        com.insula.download.SwarmStats stats = seed.stats();
+        VBox main = (VBox) row.getChildren().getFirst();
+        Label facts = (Label) main.getChildren().get(1);
+        facts.setText("Sharing · " + SwarmText.summary(stats) + " · up " + Formats.rate(stats.uploadRate()) + " · "
+                + Formats.bytes(stats.uploaded()) + " given back");
     }
 
     private void rebuildArriving(List<DownloadManager.Job> jobs) {
@@ -709,6 +777,24 @@ final class LibraryPane {
 
     int deviceRowsForTest() {
         return (int) archiveRowsForTest().count();
+    }
+
+    /** Where the Sharing section sits among the pane's sections — 1 is directly under the gauge. */
+    int sharingIndexForTest() {
+        return content.getChildren().indexOf(sharingSection);
+    }
+
+    int shelfIndexForTest() {
+        return content.getChildren().indexOf(deviceRows);
+    }
+
+    int seedRowsForTest() {
+        return seedRows.isManaged() ? seedRows.getChildren().size() : 0;
+    }
+
+    /** Presses the Stop button on the first shared archive, the way a click would. */
+    void stopFirstSeedForTest() {
+        ((Button) ((HBox) seedRows.getChildren().getFirst()).getChildren().get(1)).fire();
     }
 
     int shelfColumnsForTest() {

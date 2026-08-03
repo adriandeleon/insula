@@ -231,6 +231,7 @@ final class ReaderController {
         homePane.setEmptyDevice(() -> library.entries().isEmpty());
         homePane.setFirstRunActions(
                 () -> commands.run("file.open"), () -> catalogCache.entries().size());
+        libraryPane.setSeedsSupplier(this::activeSeeds);
         wireLibraryOrganization();
         wireLanRow();
         // Commands and their chords first: the menubar is built *out of* them, so building the UI
@@ -2268,6 +2269,23 @@ final class ReaderController {
      * The two menu lists that change while the app runs. Read when the menu opens, so there is
      * nothing to keep in sync.
      */
+    /**
+     * Archives still being uploaded over BitTorrent.
+     *
+     * <p>Guarded like every other torrent read: merely touching {@link TorrentTransport} throws
+     * when the native library is absent, and the Library has to render on a machine without it.
+     */
+    private List<TorrentTransport.Seed> activeSeeds() {
+        if (!settings.isTorrentEnabled()) {
+            return List.of();
+        }
+        try {
+            return TorrentTransport.activeSeeds();
+        } catch (Throwable t) {
+            return List.of();
+        }
+    }
+
     private Menus.Dynamic menuDynamics() {
         return new Menus.Dynamic() {
             @Override

@@ -48,6 +48,56 @@ public final class TorrentTransport implements DownloadTransport {
 
     public static final String ID = "torrent";
 
+    /**
+     * Torrents still being shared after their download finished, by file name.
+     *
+     * <p>Static because seeding outlives the {@link Job} that created it: the download is over and
+     * its row is gone, but the session is still giving back, and something has to be able to show
+     * that and stop it. Invisible seeding is the version this replaces — a session running with no
+     * way to see or end it is indistinguishable from a leak.
+     */
+    private static final java.util.Map<String, Seed> SEEDS = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** One archive still being shared: what it is doing, and how to stop. */
+    public record Seed(String name, TorrentHandle handle, SessionManager session, Runnable stop) {
+
+        /** Live swarm figures, or an all-zero reading if the handle has gone. */
+        public SwarmStats stats() {
+            try {
+                if (handle == null || !handle.isValid() || !handle.inSession()) {
+                    return new SwarmStats(0, 0, 0, 0, 0, true);
+                }
+                TorrentStatus status = handle.status();
+                return new SwarmStats(
+                        status.numPeers(),
+                        status.numSeeds(),
+                        (long) status.uploadRate(),
+                        status.totalPayloadUpload(),
+                        0,
+                        true);
+            } catch (Throwable t) {
+                return new SwarmStats(0, 0, 0, 0, 0, true);
+            }
+        }
+    }
+
+    /** Everything currently being shared, newest name order not guaranteed. */
+    public static java.util.List<Seed> activeSeeds() {
+        return java.util.List.copyOf(SEEDS.values());
+    }
+
+    /** Stops every share — used when the feature is switched off, and at shutdown. */
+    public static void stopAllSeeds() {
+        java.util.List.copyOf(SEEDS.values()).forEach(seed -> {
+            try {
+                seed.stop().run();
+            } catch (Throwable ignored) {
+                // best effort: a share that will not stop must not block the rest
+            }
+        });
+        SEEDS.clear();
+    }
+
     /** How long to wait for libtorrent to finish adding a torrent before giving up on it. */
     private static final Duration HANDLE_TIMEOUT = Duration.ofSeconds(20);
 
@@ -173,6 +223,8 @@ public final class TorrentTransport implements DownloadTransport {
                 new AtomicReference<>(ProgressSnapshot.of(DownloadState.QUEUED, 0, 0));
 
         private volatile SessionManager session;
+        private volatile int webSeedCount;
+        private volatile Seed seed;
         private volatile Thread worker;
 
         Job(ZimEntry entry, Path destination, ProgressListener listener) {
@@ -194,7 +246,13 @@ public final class TorrentTransport implements DownloadTransport {
                 publish(DownloadState.CONNECTING, 0, 0, 0, 0, "Fetching torrent");
                 TorrentInfo info = new TorrentInfo(fetchTorrentFile(entry));
 
-                workDir = destination.toAbsolutePath().getParent().resolve(".torrent-" + entry.name());
+                // Seeding means libtorrent must keep serving the file it wrote. There is no
+                // moveStorage in the Java API, so a download that is going to be seeded is written
+                // straight into the archives folder — moving it afterwards would leave the session
+                // serving a path that no longer exists, which is what "seeding" used to do.
+                workDir = seedAfterDownload
+                        ? destination.toAbsolutePath().getParent()
+                        : destination.toAbsolutePath().getParent().resolve(".torrent-" + entry.name());
                 Files.createDirectories(workDir);
 
                 manager = new SessionManager();
@@ -205,6 +263,7 @@ public final class TorrentTransport implements DownloadTransport {
                 TorrentHandle handle = awaitHandle(manager, info);
 
                 int added = mergeWebSeeds(handle, info);
+                webSeedCount = added;
                 publish(
                         DownloadState.DOWNLOADING,
                         0,
@@ -219,12 +278,19 @@ public final class TorrentTransport implements DownloadTransport {
                     return;
                 }
 
-                // libtorrent wrote <workDir>/<name>; move it to where the manager expects it.
                 Path produced = workDir.resolve(info.files().fileName(0));
                 if (!Files.isRegularFile(produced)) {
                     produced = workDir.resolve(info.name());
                 }
-                Files.move(produced, destination, StandardCopyOption.REPLACE_EXISTING);
+                if (!produced.equals(destination)) {
+                    // Moving invalidates the session's storage, so anything still seeding stops
+                    // here rather than pretending to share a file it can no longer read.
+                    Files.move(produced, destination, StandardCopyOption.REPLACE_EXISTING);
+                    stopSeeding();
+                } else if (seedAfterDownload) {
+                    seed = new Seed(entry.fileName(), handle, manager, this::stopSeeding);
+                    SEEDS.put(entry.fileName(), seed);
+                }
                 finish(DownloadResult.success(destination, Files.size(destination)));
             } catch (Throwable t) {
                 LOG.log(Level.FINE, "Torrent transport failed for " + entry.fileName(), t);
@@ -312,11 +378,21 @@ public final class TorrentTransport implements DownloadTransport {
                     publish(DownloadState.DOWNLOADING, total, total, 0, peers, "");
                     return;
                 }
-                if (paused.get()) {
-                    publish(DownloadState.PAUSED, verified, total, 0, peers, "");
-                } else {
-                    publish(DownloadState.DOWNLOADING, verified, total, (long) status.downloadRate(), peers, "");
-                }
+                SwarmStats swarm = new SwarmStats(
+                        peers,
+                        status.numSeeds(),
+                        (long) status.uploadRate(),
+                        status.totalPayloadUpload(),
+                        webSeedCount,
+                        false);
+                publish(new ProgressSnapshot(
+                                paused.get() ? DownloadState.PAUSED : DownloadState.DOWNLOADING,
+                                verified,
+                                total,
+                                paused.get() ? 0 : (long) status.downloadRate(),
+                                peers,
+                                "")
+                        .withSwarm(swarm));
 
                 if (received > lastReceived) {
                     lastReceived = received;
@@ -344,7 +420,25 @@ public final class TorrentTransport implements DownloadTransport {
             }
         }
 
+        private void stopSeeding() {
+            Seed current = seed;
+            seed = null;
+            if (current != null) {
+                SEEDS.remove(current.name());
+            }
+            SessionManager s = session;
+            if (s != null) {
+                try {
+                    s.stop();
+                } catch (Throwable ignored) {
+                    // stopping a session that is already gone is not worth reporting
+                }
+            }
+        }
+
         private void cleanup(Path workDir) {
+            // The seeding case writes straight into the archives folder, so there is no work dir
+            // to delete — and deleting that folder would take the library with it.
             if (workDir == null || seedAfterDownload) {
                 return;
             }
@@ -362,7 +456,10 @@ public final class TorrentTransport implements DownloadTransport {
         }
 
         private void publish(DownloadState state, long done, long total, long rate, int peers, String detail) {
-            ProgressSnapshot snapshot = new ProgressSnapshot(state, done, total, rate, peers, detail);
+            publish(new ProgressSnapshot(state, done, total, rate, peers, detail));
+        }
+
+        private void publish(ProgressSnapshot snapshot) {
             latest.set(snapshot);
             listener.onProgress(snapshot);
         }
