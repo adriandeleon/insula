@@ -171,6 +171,16 @@ public final class DownloadManager implements AutoCloseable {
      * Library's Arriving list that nothing could ever clear. The reason for it is not lost with
      * the row — a failure is announced on the status line, and the message log keeps it.
      */
+    /**
+     * Forgets a stopped job, so its row can be dismissed.
+     *
+     * <p>Only a stopped one: dropping a live job would orphan a transfer that is still running,
+     * with nothing left holding the handle that could cancel it.
+     */
+    public void forget(ZimEntry entry) {
+        jobs.computeIfPresent(entry.id(), (id, job) -> job.snapshot().state().isTerminal() ? null : job);
+    }
+
     /** The job map as it really is, including stopped ones — for tests that assert the filtering. */
     Job rawJobForTest(ZimEntry entry) {
         return jobs.get(entry.id());

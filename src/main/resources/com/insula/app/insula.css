@@ -393,3 +393,9 @@
 .status-network { -fx-cursor: hand; }
 .status-network-on { -fx-text-fill: -insula-ok; }
 .status-network-off { -fx-text-fill: -insula-amber; }
+
+/* A failed download keeps its row so the reason stays readable; the tint says which row it is. */
+.rowcard-failed {
+    -fx-border-color: -insula-coral;
+    -fx-background-color: -insula-coral-bg;
+}

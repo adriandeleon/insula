@@ -7,6 +7,7 @@ import com.insula.catalog.ZimEntry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -52,11 +53,15 @@ class DownloadRestartTest {
             public DownloadHandle start(ZimEntry entry, Path destination, ProgressListener listener) {
                 listener.onProgress(new ProgressSnapshot(reported, 512, 1024, 0, 0, ""));
                 return new DownloadHandle() {
-                    private final java.util.concurrent.CompletableFuture<DownloadResult> done =
-                            java.util.concurrent.CompletableFuture.completedFuture(
+                    // A live state must not also hand back a finished future: the pipeline would
+                    // run straight to a terminal state and the job under test would not be running
+                    // at all. It finishes when the test cancels it, so no thread is left waiting.
+                    private final java.util.concurrent.CompletableFuture<DownloadResult> done = reported.isTerminal()
+                            ? java.util.concurrent.CompletableFuture.completedFuture(
                                     reported == DownloadState.CANCELLED
                                             ? DownloadResult.cancelled(destination, 512)
-                                            : DownloadResult.failure(destination, 512, "no", null));
+                                            : DownloadResult.failure(destination, 512, "no", null))
+                            : new java.util.concurrent.CompletableFuture<>();
 
                     @Override
                     public java.util.concurrent.CompletableFuture<DownloadResult> completion() {
@@ -69,7 +74,9 @@ class DownloadRestartTest {
                     }
 
                     @Override
-                    public void cancel() {}
+                    public void cancel() {
+                        done.complete(DownloadResult.cancelled(destination, 512));
+                    }
 
                     @Override
                     public void pause() {}
@@ -119,14 +126,51 @@ class DownloadRestartTest {
     void askingTwiceForARunningDownloadDoesNotStartASecond(@TempDir Path dir) {
         DownloadManager m = managerWith(dir, DownloadState.DOWNLOADING);
         DownloadManager.Job first = m.enqueue(entry());
-        assertSame(first, m.enqueue(entry()), "one click, one download");
+        try {
+            assertSame(first, m.enqueue(entry()), "one click, one download");
+        } finally {
+            first.cancel();
+        }
     }
 
     @Test
-    void aStoppedJobLeavesTheArrivingList(@TempDir Path dir) throws Exception {
+    void aCancelledJobLeavesTheArrivingList(@TempDir Path dir) throws Exception {
+        // A cancel is the user saying they are done; a row nothing can clear is worse than none.
         DownloadManager m = managerWith(dir, DownloadState.CANCELLED);
         m.enqueue(entry());
         settle(m, entry());
-        assertTrue(m.jobs().isEmpty(), "a row nothing can ever clear is worse than no row");
+        assertTrue(m.jobs().isEmpty());
+    }
+
+    @Test
+    void aFailedJobKeepsItsRowSoTheReasonStaysOnScreen(@TempDir Path dir) throws Exception {
+        DownloadManager m = managerWith(dir, DownloadState.FAILED);
+        m.enqueue(entry());
+        settle(m, entry());
+        assertEquals(1, m.jobs().size(), "a failure that vanishes takes its reason with it");
+    }
+
+    @Test
+    void aFailedRowCanBeDismissed(@TempDir Path dir) throws Exception {
+        DownloadManager m = managerWith(dir, DownloadState.FAILED);
+        m.enqueue(entry());
+        settle(m, entry());
+        m.forget(entry());
+        assertTrue(m.jobs().isEmpty());
+        assertNull(m.rawJobForTest(entry()));
+    }
+
+    @Test
+    void aRunningJobCannotBeForgotten(@TempDir Path dir) {
+        // Dropping a live job would orphan a transfer with nothing left holding the handle that
+        // could cancel it.
+        DownloadManager m = managerWith(dir, DownloadState.DOWNLOADING);
+        DownloadManager.Job job = m.enqueue(entry());
+        try {
+            m.forget(entry());
+            assertNotNull(m.rawJobForTest(entry()));
+        } finally {
+            job.cancel();
+        }
     }
 }

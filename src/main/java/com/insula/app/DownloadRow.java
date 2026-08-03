@@ -36,10 +36,18 @@ final class DownloadRow extends VBox {
     private final Button pauseResume = new Button();
     private final Button cancel = new Button("✕");
     private final Button open = new Button("Open");
+    private final Button retry = new Button("Retry");
+    private final Button dismiss = new Button("✕");
 
     private boolean paused;
 
-    DownloadRow(DownloadManager.Job job, String displayTitle, Consumer<Path> onOpen, Consumer<String> onStatus) {
+    DownloadRow(
+            DownloadManager.Job job,
+            String displayTitle,
+            Consumer<Path> onOpen,
+            Consumer<String> onStatus,
+            Runnable onRetry,
+            Runnable onDismiss) {
         super(5);
         this.job = job;
         this.onOpen = onOpen;
@@ -64,10 +72,24 @@ final class DownloadRow extends VBox {
             onStatus.accept("Cancelled " + displayTitle);
         });
         open.setOnAction(e -> onOpen.accept(job.destination()));
+        // A failure keeps its row so the reason stays on screen, which only helps if the row can
+        // also act on it: start again, or say you are done with it.
+        retry.getStyleClass().add("primary");
+        retry.setOnAction(e -> {
+            if (onRetry != null) {
+                onRetry.run();
+            }
+        });
+        dismiss.setTooltip(new javafx.scene.control.Tooltip("Dismiss"));
+        dismiss.setOnAction(e -> {
+            if (onDismiss != null) {
+                onDismiss.run();
+            }
+        });
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox top = new HBox(10, title, spacer, pauseResume, cancel, open);
+        HBox top = new HBox(10, title, spacer, retry, dismiss, pauseResume, cancel, open);
         top.setAlignment(Pos.CENTER_LEFT);
 
         setPadding(new Insets(10, 12, 10, 12));
@@ -121,6 +143,11 @@ final class DownloadRow extends VBox {
         cancel.setManaged(active && !verifying);
         open.setVisible(s.state() == DownloadState.COMPLETED);
         open.setManaged(s.state() == DownloadState.COMPLETED);
+        boolean failed = s.state() == DownloadState.FAILED;
+        retry.setVisible(failed);
+        retry.setManaged(failed);
+        dismiss.setVisible(failed);
+        dismiss.setManaged(failed);
 
         // Verifying is amber and unskippable: a user who saw the bytes finish must not read the
         // hash pass as a hang. The colour is the kit's token, not a literal.
@@ -128,7 +155,7 @@ final class DownloadRow extends VBox {
         if (verifying) {
             bar.getStyleClass().add("bar-amber");
         }
-        getStyleClass().removeAll("rowcard-arriving", "rowcard-verify");
-        getStyleClass().add(verifying ? "rowcard-verify" : "rowcard-arriving");
+        getStyleClass().removeAll("rowcard-arriving", "rowcard-verify", "rowcard-failed");
+        getStyleClass().add(failed ? "rowcard-failed" : verifying ? "rowcard-verify" : "rowcard-arriving");
     }
 }

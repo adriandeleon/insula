@@ -349,10 +349,34 @@ final class LibraryPane {
                 + Formats.bytes(stats.uploaded()) + " given back");
     }
 
+    /**
+     * Starts a failed download again. The manager replaces the stopped job, and whatever arrived
+     * before the failure is still on disk — so this is usually a resume, not a fresh fetch.
+     */
+    private void retryDownload(DownloadManager.Job job) {
+        // The row is left for the next tick to reconcile. Removing it here would make the job set
+        // and the row set the same size again, and tick() only rebuilds when they differ — so the
+        // dead row would stay on screen until something unrelated changed.
+        downloads.enqueue(job.entry());
+        onStatus.accept("Retrying " + job.entry().displayName());
+    }
+
+    private void dismissDownload(DownloadManager.Job job) {
+        downloads.forget(job.entry());
+    }
+
     private void rebuildArriving(List<DownloadManager.Job> jobs) {
         rows.keySet().retainAll(jobs);
         for (DownloadManager.Job job : jobs) {
-            rows.computeIfAbsent(job, j -> new DownloadRow(j, j.entry().displayName(), onOpenArchive, onStatus));
+            rows.computeIfAbsent(
+                    job,
+                    j -> new DownloadRow(
+                            j,
+                            j.entry().displayName(),
+                            onOpenArchive,
+                            onStatus,
+                            () -> retryDownload(j),
+                            () -> dismissDownload(j)));
         }
         arrivingRows.getChildren().setAll(rows.values());
         boolean visible = !jobs.isEmpty();

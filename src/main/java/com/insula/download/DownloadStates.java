@@ -27,13 +27,15 @@ public final class DownloadStates {
     }
 
     /**
-     * Whether a job in this state still describes what the UI should show.
+     * Whether a job in this state still deserves a row.
      *
-     * <p>A restartable job describes something that already stopped, so a card asking "what is
-     * happening with this archive?" is better told "nothing" — which is what puts the Download
-     * button back.
+     * <p>Deliberately <em>not</em> the inverse of {@link #restartable}: both a cancel and a failure
+     * stop a transfer and both can be started again, but only one of them was asked for. A cancel
+     * is the user saying they are done, so its row goes; a failure is something that happened to
+     * them, and a row that vanishes takes the reason with it and leaves them wondering whether the
+     * download is still running. The failed row carries its own Retry.
      */
     public static boolean worthShowing(DownloadState state) {
-        return !restartable(state);
+        return state != DownloadState.CANCELLED;
     }
 }
