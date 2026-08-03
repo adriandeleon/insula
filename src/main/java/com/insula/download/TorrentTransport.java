@@ -226,6 +226,7 @@ public final class TorrentTransport implements DownloadTransport {
         private volatile int webSeedCount;
         private volatile Seed seed;
         private volatile Thread worker;
+        private volatile boolean succeeded;
 
         Job(ZimEntry entry, Path destination, ProgressListener listener) {
             this.entry = entry;
@@ -246,13 +247,15 @@ public final class TorrentTransport implements DownloadTransport {
                 publish(DownloadState.CONNECTING, 0, 0, 0, 0, "Fetching torrent");
                 TorrentInfo info = new TorrentInfo(fetchTorrentFile(entry));
 
-                // Seeding means libtorrent must keep serving the file it wrote. There is no
-                // moveStorage in the Java API, so a download that is going to be seeded is written
-                // straight into the archives folder — moving it afterwards would leave the session
-                // serving a path that no longer exists, which is what "seeding" used to do.
-                workDir = seedAfterDownload
-                        ? destination.toAbsolutePath().getParent()
-                        : destination.toAbsolutePath().getParent().resolve(".torrent-" + entry.name());
+                // Always a work dir of its own, never the archives folder — even when seeding.
+                // libtorrent preallocates the file at its full published length, so an
+                // interrupted torrent leaves a full-length *sparse* file behind: real length,
+                // almost nothing on disk, every unwritten byte reading as zero. Written straight
+                // into the archives folder that husk sits exactly where the library and the HTTP
+                // fallback both look, and a torrent abandoned at 4% is indistinguishable from a
+                // finished download by any test that asks how long the file is. Seeding is
+                // re-established after the move instead — see seedFromFinalLocation.
+                workDir = destination.toAbsolutePath().getParent().resolve(".torrent-" + entry.name());
                 Files.createDirectories(workDir);
 
                 manager = new SessionManager();
@@ -282,15 +285,11 @@ public final class TorrentTransport implements DownloadTransport {
                 if (!Files.isRegularFile(produced)) {
                     produced = workDir.resolve(info.name());
                 }
-                if (!produced.equals(destination)) {
-                    // Moving invalidates the session's storage, so anything still seeding stops
-                    // here rather than pretending to share a file it can no longer read.
-                    Files.move(produced, destination, StandardCopyOption.REPLACE_EXISTING);
-                    stopSeeding();
-                } else if (seedAfterDownload) {
-                    seed = new Seed(entry.fileName(), handle, manager, this::stopSeeding);
-                    SEEDS.put(entry.fileName(), seed);
+                Files.move(produced, destination, StandardCopyOption.REPLACE_EXISTING);
+                if (seedAfterDownload) {
+                    seedFromFinalLocation(manager, info);
                 }
+                succeeded = true;
                 finish(DownloadResult.success(destination, Files.size(destination)));
             } catch (Throwable t) {
                 LOG.log(Level.FINE, "Torrent transport failed for " + entry.fileName(), t);
@@ -412,7 +411,9 @@ public final class TorrentTransport implements DownloadTransport {
                 return;
             }
             try {
-                if (!seedAfterDownload || cancelled.get()) {
+                // Kept alive only when it is actually sharing something: a seeding session that
+                // never got as far as registering a Seed is just a leaked session.
+                if (seed == null || cancelled.get()) {
                     manager.stop();
                 }
             } catch (Throwable t) {
@@ -436,10 +437,43 @@ public final class TorrentTransport implements DownloadTransport {
             }
         }
 
+        /**
+         * Re-adds the torrent against the archives folder so the moved file is shared from where
+         * it now lives.
+         *
+         * <p>There is no {@code move_storage} in the Java API, so the session cannot simply be
+         * told the file went elsewhere; the torrent is removed and added again with the new save
+         * path, and libtorrent rechecks it — reading the file once — and then seeds. That recheck
+         * is the price of not writing into the library folder in the first place.
+         */
+        private void seedFromFinalLocation(SessionManager manager, TorrentInfo info) {
+            try {
+                TorrentHandle old = manager.find(info);
+                if (old != null && old.isValid()) {
+                    manager.remove(old);
+                }
+                manager.download(info, destination.toAbsolutePath().getParent().toFile());
+                TorrentHandle shared = awaitHandle(manager, info);
+                seed = new Seed(entry.fileName(), shared, manager, this::stopSeeding);
+                SEEDS.put(entry.fileName(), seed);
+            } catch (Throwable t) {
+                // Sharing is a courtesy; a download that arrived must not be reported as failed
+                // because the seed could not be re-established.
+                LOG.log(Level.FINE, "Could not seed " + entry.fileName() + " from its final location", t);
+                stopSeeding();
+            }
+        }
+
+        /**
+         * Deletes the work dir, but only once the file has been delivered.
+         *
+         * <p>A cancelled or failed multi-gigabyte torrent keeps its partial pieces: libtorrent
+         * rechecks whatever is on disk when the torrent is added again, so leaving them turns a
+         * second attempt into a resume. Throwing away 600 MB because someone pressed Stop is not
+         * a cleanup.
+         */
         private void cleanup(Path workDir) {
-            // The seeding case writes straight into the archives folder, so there is no work dir
-            // to delete — and deleting that folder would take the library with it.
-            if (workDir == null || seedAfterDownload) {
+            if (workDir == null || !succeeded) {
                 return;
             }
             try (var paths = Files.walk(workDir)) {

@@ -210,14 +210,19 @@ public final class HttpMultiSourceTransport implements DownloadTransport {
                     size,
                     metalink != null && metalink.hasPieceHashes() ? metalink.pieceLength() : 0,
                     metalink != null ? metalink.pieceHashes().size() : 0);
-            resume(plan);
+            boolean resumed = resume(plan);
             completedBytes.set(plan.completedBytes());
 
             Files.createDirectories(destination.toAbsolutePath().getParent());
             try (FileChannel channel = FileChannel.open(
                     destination, StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.READ)) {
-                if (channel.size() < size) {
-                    channel.truncate(0); // a stale shorter file would leave holes we never write
+                // Judged on the resume bitmap, never on the length: preallocation makes an
+                // abandoned download full-length and sparse, so "long enough" is exactly the
+                // wrong question. See PartialFile.
+                if (PartialFile.mustRestart(channel.size(), size, resumed)) {
+                    channel.truncate(0);
+                    preallocate(channel, size);
+                } else if (channel.size() < size) {
                     preallocate(channel, size);
                 }
                 publish(DownloadState.DOWNLOADING, mirrors.size() + " mirrors");
@@ -238,18 +243,22 @@ public final class HttpMultiSourceTransport implements DownloadTransport {
             channel.write(ByteBuffer.allocate(1), size - 1);
         }
 
-        private void resume(ChunkPlan plan) {
+        /** @return whether a resume record was found and applied — the only thing that makes
+         *  bytes already on disk believable. */
+        private boolean resume(ChunkPlan plan) {
             try {
                 if (Files.isRegularFile(partFile) && Files.isRegularFile(destination)) {
                     String bitmap = Files.readString(partFile, StandardCharsets.US_ASCII)
                             .strip();
                     if (plan.applyBitmap(bitmap)) {
                         LOG.fine(() -> "Resuming " + entry.fileName() + " at " + plan.completedBytes() + " bytes");
+                        return true;
                     }
                 }
             } catch (IOException e) {
                 LOG.log(Level.FINE, "Could not read resume state; starting over", e);
             }
+            return false;
         }
 
         private void saveResumeState(ChunkPlan plan) {
