@@ -160,11 +160,11 @@ class ShellFxTest {
     void surfacesSwitchAndHomeIsReachable(@TempDir Path dir) {
         withShell(dir, controller -> {
             controller.commandsForTest().run("home.open");
-            assertEquals(ReaderController.Surface.HOME, controller.surfaceForTest());
+            assertEquals(SurfaceCoordinator.Surface.HOME, controller.surfaceForTest());
             controller.commandsForTest().run("catalog.open");
-            assertEquals(ReaderController.Surface.CATALOG, controller.surfaceForTest());
+            assertEquals(SurfaceCoordinator.Surface.CATALOG, controller.surfaceForTest());
             controller.commandsForTest().run("library.open");
-            assertEquals(ReaderController.Surface.LIBRARY, controller.surfaceForTest());
+            assertEquals(SurfaceCoordinator.Surface.LIBRARY, controller.surfaceForTest());
             return null;
         });
     }

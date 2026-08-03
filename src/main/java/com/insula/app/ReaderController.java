@@ -102,10 +102,7 @@ final class ReaderController {
     private final Button typePanelButton = new Button("Aa");
     private javafx.stage.Popup typePanel;
     private ReaderViewSession readerView;
-    private final javafx.scene.control.ToggleButton homeTab = new javafx.scene.control.ToggleButton("Home");
     private final javafx.scene.control.ToggleButton libraryTab = new javafx.scene.control.ToggleButton("Library");
-    private final javafx.scene.control.ToggleButton catalogTab = new javafx.scene.control.ToggleButton("Catalog");
-    private final javafx.scene.control.ToggleButton readerTab = new javafx.scene.control.ToggleButton("Reader");
     private HomePane homePane;
     private final Label statusArchive = new Label();
     private final Label statusArriving = new Label();
@@ -179,15 +176,7 @@ final class ReaderController {
     private VBox[] sidebarPanes;
     private VBox sidebarHost;
 
-    /** Which surface fills the window: the Reader, the Library (home), or the Catalog. */
-    enum Surface {
-        HOME,
-        READER,
-        LIBRARY,
-        CATALOG
-    }
-
-    private Surface surface = Surface.READER;
+    private final SurfaceCoordinator surfaces;
 
     private final Path dataDir;
 
@@ -200,6 +189,23 @@ final class ReaderController {
         this.positions = ReadingPositions.load(dataDir.resolve("reading.properties"));
         this.session = com.insula.reader.ReaderSession.load(dataDir.resolve("session.txt"));
         this.network = new NetworkCoordinator(settings, this::setStatus);
+        this.surfaces = new SurfaceCoordinator(new SurfaceCoordinator.Ops() {
+            @Override
+            public void setCenter(javafx.scene.Node node) {
+                shell.setCenter(node);
+            }
+
+            @Override
+            public boolean hasArchive() {
+                return archive != null;
+            }
+
+            @Override
+            public void afterSwitch() {
+                refreshStatusBar();
+                refreshOmniPlaceholder();
+            }
+        });
         this.find = new FindCoordinator(new FindCoordinator.Ops() {
             @Override
             public void showReader() {
@@ -208,7 +214,7 @@ final class ReaderController {
 
             @Override
             public boolean readerShowing() {
-                return surface == Surface.READER;
+                return surfaces.showing(SurfaceCoordinator.Surface.READER);
             }
 
             @Override
@@ -246,7 +252,7 @@ final class ReaderController {
 
             @Override
             public boolean readerShowing() {
-                return surface == Surface.READER;
+                return surfaces.showing(SurfaceCoordinator.Surface.READER);
             }
 
             @Override
@@ -327,7 +333,7 @@ final class ReaderController {
         // Verification a previous run never finished resumes now that the whole shell exists.
         downloads.resumePendingVerification(msg -> Platform.runLater(() -> {
             setStatus(msg);
-            if (surface == Surface.LIBRARY) {
+            if (surfaces.showing(SurfaceCoordinator.Surface.LIBRARY)) {
                 refreshAttention();
                 libraryPane.activate();
             }
@@ -467,11 +473,11 @@ final class ReaderController {
     }
 
     boolean libraryShowingForTest() {
-        return surface != Surface.READER;
+        return !surfaces.showing(SurfaceCoordinator.Surface.READER);
     }
 
-    Surface surfaceForTest() {
-        return surface;
+    SurfaceCoordinator.Surface surfaceForTest() {
+        return surfaces.current();
     }
 
     CatalogPane catalogPaneForTest() {
@@ -672,21 +678,9 @@ final class ReaderController {
         typePanelButton.setVisible(false);
         typePanelButton.setManaged(false);
 
-        // Surfaces: the kit's segmented switcher. Reader only appears once something is open.
-        javafx.scene.control.ToggleGroup surfaceGroup = new javafx.scene.control.ToggleGroup();
-        homeTab.setToggleGroup(surfaceGroup);
-        libraryTab.setToggleGroup(surfaceGroup);
-        catalogTab.setToggleGroup(surfaceGroup);
-        readerTab.setToggleGroup(surfaceGroup);
-        homeTab.setOnAction(e -> commands.run("home.open"));
-        libraryTab.setOnAction(e -> commands.run("library.open"));
-        catalogTab.setOnAction(e -> commands.run("catalog.open"));
-        readerTab.setOnAction(e -> commands.run("library.reader"));
-        readerTab.setVisible(false);
-        readerTab.setManaged(false);
-        HBox surfaces = new HBox(homeTab, libraryTab, catalogTab, readerTab);
-        surfaces.getStyleClass().add("surfaces");
-        surfaces.setAlignment(Pos.CENTER_LEFT);
+        // Surfaces: the kit's segmented switcher, owned by SurfaceCoordinator.
+        surfaces.registerCommands(commands);
+        HBox surfaceSwitcher = surfaces.switcher();
 
         Button paletteButton = new Button("⌘K");
         paletteButton.setTooltip(new javafx.scene.control.Tooltip("Command palette"));
@@ -716,7 +710,7 @@ final class ReaderController {
         // in the showing tab, so they live on that tab's own navigation row beside back/forward.
         // On the window toolbar they sat next to Home and Library, where they looked like window
         // chrome and were disabled most of the time.
-        ToolBar toolbar = new ToolBar(surfaces, leftGap, omniField, rightGap, paletteButton);
+        ToolBar toolbar = new ToolBar(surfaceSwitcher, leftGap, omniField, rightGap, paletteButton);
 
         searchField.setPromptText("Search titles (Ctrl+L)");
         searchField.textProperty().addListener((obs, old, text) -> {
@@ -868,6 +862,27 @@ final class ReaderController {
         menuBar = Menus.build(commands, keys, menuDynamics());
         VBox topChrome = new VBox(menuBar, toolbar);
         shell.setTop(topChrome);
+        // Each surface is a node, something to do when it appears and something when it goes
+        // away. The coordinator knows no more about them than that.
+        surfaces.register(
+                SurfaceCoordinator.Surface.READER, new SurfaceCoordinator.Pane(() -> readerSplit, () -> {}, () -> {}));
+        surfaces.register(
+                SurfaceCoordinator.Surface.HOME,
+                // Home has nothing running to stop; it is rebuilt on each activate.
+                new SurfaceCoordinator.Pane(homePane::node, homePane::activate, () -> {}));
+        surfaces.register(
+                SurfaceCoordinator.Surface.CATALOG,
+                new SurfaceCoordinator.Pane(catalogPane::node, catalogPane::activate, catalogPane::deactivate));
+        surfaces.register(
+                SurfaceCoordinator.Surface.LIBRARY,
+                new SurfaceCoordinator.Pane(
+                        libraryPane::node,
+                        () -> {
+                            libraryPane.activate();
+                            refreshAttention();
+                            checkForUpdates(false); // starters + update pills, off-thread, disk cache only
+                        },
+                        libraryPane::deactivate));
         shell.setCenter(readerSplit);
         shell.setBottom(statusBar);
         root.getChildren().add(shell);
@@ -1410,46 +1425,23 @@ final class ReaderController {
     // ---------------------------------------------------------------- library / downloads
 
     private void showLibrary() {
-        if (surface != Surface.LIBRARY) {
-            if (surface == Surface.CATALOG) {
-                // leaving the store costs nothing; its state is plain fields
-            }
-            catalogPane.deactivate();
-            shell.setCenter(libraryPane.node());
-            libraryPane.activate();
-            surface = Surface.LIBRARY;
-            syncNavTabs();
-            refreshAttention();
-            checkForUpdates(false); // starters + update pills, off-thread, disk cache only
-        }
+        surfaces.show(SurfaceCoordinator.Surface.LIBRARY);
     }
 
     private void showCatalog() {
-        if (surface != Surface.CATALOG) {
-            libraryPane.deactivate();
-            shell.setCenter(catalogPane.node());
-            catalogPane.activate();
-            surface = Surface.CATALOG;
-            syncNavTabs();
-        }
+        surfaces.show(SurfaceCoordinator.Surface.CATALOG);
     }
 
     private void showReader() {
-        if (surface != Surface.READER) {
-            libraryPane.deactivate();
-            catalogPane.deactivate();
-            shell.setCenter(readerSplit);
-            surface = Surface.READER;
-            syncNavTabs();
-        }
+        surfaces.show(SurfaceCoordinator.Surface.READER);
+    }
+
+    private void showHome() {
+        surfaces.show(SurfaceCoordinator.Surface.HOME);
     }
 
     private void toggleLibrary() {
-        if (surface == Surface.READER) {
-            showLibrary();
-        } else {
-            showReader();
-        }
+        surfaces.toggleLibrary();
     }
 
     /**
@@ -1463,33 +1455,13 @@ final class ReaderController {
     }
 
     private void syncNavTabs() {
-        homeTab.setSelected(surface == Surface.HOME);
-        libraryTab.setSelected(surface == Surface.LIBRARY);
-        catalogTab.setSelected(surface == Surface.CATALOG);
-        readerTab.setSelected(surface == Surface.READER);
-        // Reader is a surface only once there is something to read.
-        boolean readable = archive != null;
-        readerTab.setVisible(readable);
-        readerTab.setManaged(readable);
-        refreshStatusBar();
-        refreshOmniPlaceholder();
-    }
-
-    private void showHome() {
-        if (surface != Surface.HOME) {
-            libraryPane.deactivate();
-            catalogPane.deactivate();
-            shell.setCenter(homePane.node());
-            homePane.activate();
-            surface = Surface.HOME;
-            syncNavTabs();
-        }
+        surfaces.syncSwitcher();
     }
 
     /** The omnibox says what it searches and how much of it — the kit's contextual placeholder. */
     private void refreshOmniPlaceholder() {
         omniField.setPromptText(
-                switch (surface) {
+                switch (surfaces.current()) {
                     case CATALOG -> "Search the catalog — instant, offline";
                     case READER ->
                         archive == null
@@ -1544,7 +1516,7 @@ final class ReaderController {
     }
 
     boolean readerSurfaceVisibleForTest() {
-        return readerTab.isVisible();
+        return surfaces.readerAvailable();
     }
 
     String omniPlaceholderForTest() {
@@ -1587,7 +1559,7 @@ final class ReaderController {
     private void applyStarters(List<StarterPicks.Resolved> starters) {
         libraryPane.setStarters(starters, this::downloadUpdate, this::showCatalog);
         homePane.setStarters(starters, this::downloadUpdate, this::showCatalog);
-        if (surface == Surface.HOME) {
+        if (surfaces.showing(SurfaceCoordinator.Surface.HOME)) {
             homePane.activate();
         }
     }
@@ -1648,7 +1620,7 @@ final class ReaderController {
         }
         downloads.enqueue(replacement);
         setStatus("Downloading " + replacement.displayName());
-        if (surface == Surface.LIBRARY) {
+        if (surfaces.showing(SurfaceCoordinator.Surface.LIBRARY)) {
             libraryPane.activate(); // restart the sampler so the Arriving row appears now
         }
     }
@@ -1713,7 +1685,7 @@ final class ReaderController {
         // The Catalog card for this archive is now "In library"; say so without waiting for a
         // sampler tick, which may be the one that decides to stop.
         catalogPane.refreshStates();
-        if (surface == Surface.LIBRARY) {
+        if (surfaces.showing(SurfaceCoordinator.Surface.LIBRARY)) {
             libraryPane.activate();
         }
     }
@@ -1971,7 +1943,7 @@ final class ReaderController {
                 msg -> Platform.runLater(() -> setStatus(msg)),
                 ok -> Platform.runLater(() -> {
                     refreshAttention();
-                    if (surface == Surface.LIBRARY) {
+                    if (surfaces.showing(SurfaceCoordinator.Surface.LIBRARY)) {
                         libraryPane.activate();
                     }
                 }));
@@ -2244,7 +2216,7 @@ final class ReaderController {
             library.save();
             setStatus("Added " + title + " to your library — left where it is, and not verified");
             openZim(file);
-            if (surface == Surface.LIBRARY) {
+            if (surfaces.showing(SurfaceCoordinator.Surface.LIBRARY)) {
                 libraryPane.activate();
             }
         } catch (IOException e) {
@@ -3011,7 +2983,7 @@ final class ReaderController {
     }
 
     private void toggleReaderView() {
-        if (archive == null || surface != Surface.READER) {
+        if (archive == null || !surfaces.showing(SurfaceCoordinator.Surface.READER)) {
             setStatus("Open an article first");
             return;
         }

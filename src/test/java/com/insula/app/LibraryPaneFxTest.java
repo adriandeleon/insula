@@ -138,16 +138,16 @@ class LibraryPaneFxTest {
                     .getCenter();
 
             controller.commandsForTest().run("library.open");
-            assertEquals(ReaderController.Surface.LIBRARY, controller.surfaceForTest());
+            assertEquals(SurfaceCoordinator.Surface.LIBRARY, controller.surfaceForTest());
             Object libraryCenter = center.get();
 
             controller.commandsForTest().run("catalog.open");
-            assertEquals(ReaderController.Surface.CATALOG, controller.surfaceForTest());
+            assertEquals(SurfaceCoordinator.Surface.CATALOG, controller.surfaceForTest());
             assertNotSame(libraryCenter, center.get(), "the store is its own surface, not embedded in the library");
             assertSame(controller.catalogPaneForTest().node(), center.get());
 
             controller.commandsForTest().run("library.reader");
-            assertEquals(ReaderController.Surface.READER, controller.surfaceForTest());
+            assertEquals(SurfaceCoordinator.Surface.READER, controller.surfaceForTest());
             return null;
         });
     }
@@ -158,7 +158,7 @@ class LibraryPaneFxTest {
             // Main calls this after openLastArchiveIfEnabled(). The design kit makes Home the
             // answer to "what do I read now?", so the management surface is no longer the door.
             controller.landOnLibraryIfIdle();
-            assertEquals(ReaderController.Surface.HOME, controller.surfaceForTest());
+            assertEquals(SurfaceCoordinator.Surface.HOME, controller.surfaceForTest());
             return null;
         });
     }

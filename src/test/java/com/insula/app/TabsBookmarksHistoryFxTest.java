@@ -148,7 +148,7 @@ class TabsBookmarksHistoryFxTest {
             assertEquals(
                     0, FxTestSupport.callOnFx(() -> controller.tabsForTest().count()));
             assertEquals(
-                    ReaderController.Surface.LIBRARY,
+                    SurfaceCoordinator.Surface.LIBRARY,
                     FxTestSupport.callOnFx(controller::surfaceForTest),
                     "an empty reader must not be a blank screen");
         } finally {
