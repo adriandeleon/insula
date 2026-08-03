@@ -282,6 +282,27 @@ final class ReaderController {
         return readerMenuItems();
     }
 
+    /** Opening from the Library, for a test that cannot click a shelf row. */
+    void openFromLibraryForTest(Path file) {
+        openFromLibrary(file);
+    }
+
+    int tabCountForTest() {
+        return tabs.count();
+    }
+
+    java.util.List<String> tabArchivesForTest() {
+        return tabs.tabs().stream()
+                .map(t -> t.article() == null
+                        ? ""
+                        : t.article().archiveFile().getFileName().toString())
+                .toList();
+    }
+
+    int activeTabIndexForTest() {
+        return tabs.activeIndex();
+    }
+
     boolean findBarShowingForTest() {
         return findBar.isVisible();
     }
@@ -2347,9 +2368,49 @@ final class ReaderController {
     }
 
     /** Opens a downloaded archive: switches back to the reader and loads it. */
+    /**
+     * Opens an archive from the Library in its own tab.
+     *
+     * <p>Not into the current one. Picking a second archive used to replace whatever was on screen,
+     * because the reader holds one archive at a time and loading the new main page rewrote the
+     * active tab under the reader — so the article being read simply vanished, with no way back to
+     * it but the history.
+     *
+     * <p>An archive already open is selected rather than opened twice: two tabs on the same
+     * archive both showing its front page is not what asking for it a second time means.
+     */
     private void openFromLibrary(Path file) {
         showReader();
-        openZim(file);
+        Path target = file.toAbsolutePath();
+        List<ReaderTabs.Tab> open = tabs.tabs();
+        for (int i = 0; i < open.size(); i++) {
+            ArticleRef ref = open.get(i).article();
+            if (ref != null && target.equals(ref.archiveFile().toAbsolutePath())) {
+                selectTab(i);
+                return;
+            }
+        }
+        rememberScrollForActiveTab();
+        // Opened without navigating: goHome() would load the new front page into the renderer
+        // while the previous tab is still the active one, and the location listener would rewrite
+        // that tab to point at the archive the user did not ask to leave.
+        openZim(target, false);
+        ArticleRef ref = mainPageRef();
+        if (ref != null) {
+            openTabFor(ref);
+        }
+    }
+
+    /** Brings an already-open tab to the front, as a click on the strip would. */
+    private void selectTab(int index) {
+        ReaderTabs.Tab tab = tabs.at(index);
+        if (tab == null || tab == tabs.active()) {
+            return;
+        }
+        rememberScrollForActiveTab();
+        tabs.select(index);
+        syncTabBar();
+        activateTab(tab);
     }
 
     // ---------------------------------------------------------------- settings
@@ -2880,6 +2941,14 @@ final class ReaderController {
     }
 
     void openZim(Path file) {
+        openZim(file, true);
+    }
+
+    /**
+     * @param navigate whether to load the archive's main page. False leaves the renderer showing
+     *     whatever it had, for a caller that is about to put the new archive in its own tab.
+     */
+    void openZim(Path file, boolean navigate) {
         try {
             if (server == null) {
                 server = new ZimHttpServer();
@@ -2902,7 +2971,9 @@ final class ReaderController {
             librarySearch.add(currentArchiveFile, bookTitle, archive);
             syncNavTabs();
             refreshSearchSources();
-            goHome();
+            if (navigate) {
+                goHome();
+            }
             searchField.requestFocus();
         } catch (IOException e) {
             setStatus("Failed to open " + file.getFileName() + ": " + e.getMessage());
