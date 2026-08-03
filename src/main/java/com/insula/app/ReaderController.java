@@ -110,14 +110,10 @@ final class ReaderController {
     private final Label statusArchive = new Label();
     private final Label statusArriving = new Label();
     private final Label statusLan = new Label();
-    private final Label statusNetwork = new Label();
-    private final javafx.scene.control.TextField findField = new javafx.scene.control.TextField();
-    private final Label findCount = new Label();
-    private final HBox findBar = new HBox(4);
+    private final NetworkCoordinator network;
+    private final FindCoordinator find;
     private final Button fontSmaller = new Button("A\u2212");
     private final Button fontLarger = new Button("A+");
-    private final com.insula.net.NetworkMonitor network = new com.insula.net.NetworkMonitor(
-            status -> javafx.application.Platform.runLater(() -> showNetwork(status)));
     private final TextField omniField = new TextField();
     private final Label status = new Label("Open a .zim archive to start reading");
     private final MessageLog messageLog = new MessageLog();
@@ -203,6 +199,28 @@ final class ReaderController {
         this.library = Library.load(dataDir.resolve("library.properties"));
         this.positions = ReadingPositions.load(dataDir.resolve("reading.properties"));
         this.session = com.insula.reader.ReaderSession.load(dataDir.resolve("session.txt"));
+        this.network = new NetworkCoordinator(settings, this::setStatus);
+        this.find = new FindCoordinator(new FindCoordinator.Ops() {
+            @Override
+            public void showReader() {
+                ReaderController.this.showReader();
+            }
+
+            @Override
+            public boolean readerShowing() {
+                return surface == Surface.READER;
+            }
+
+            @Override
+            public void injectCss(String css) {
+                renderer.injectCss(css);
+            }
+
+            @Override
+            public Object runScript(String script) {
+                return renderer instanceof com.insula.reader.WebViewRenderer web ? web.runScript(script) : null;
+            }
+        });
         this.tabCoordinator = new TabCoordinator(session, new TabCoordinator.Ops() {
             @Override
             public boolean loadArticle(ArticleRef ref) {
@@ -268,7 +286,7 @@ final class ReaderController {
                 catalogCache,
                 iconCache,
                 (entry, title) -> {
-                    if (requireNetwork("downloading " + title)) {
+                    if (network.require("downloading " + title)) {
                         downloads.enqueue(entry);
                         setStatus("Downloading " + title);
                     }
@@ -304,8 +322,6 @@ final class ReaderController {
         buildUi();
         palette = new CommandPalette(root, commands, keys::displayFor);
         messageLogPopup = new MessageLogPopup(root, messageLog);
-        network.setUserChoseOffline(settings.isWorkOffline());
-        showNetwork(network.status());
         network.start();
         applySettings();
         // Verification a previous run never finished resumes now that the whole shell exists.
@@ -351,19 +367,19 @@ final class ReaderController {
     }
 
     boolean findBarShowingForTest() {
-        return findBar.isVisible();
+        return find.showing();
     }
 
     void closeFindForTest() {
-        closeFind();
+        find.close();
     }
 
     String findCountForTest() {
-        return findCount.getText();
+        return find.tally();
     }
 
     String networkLabelForTest() {
-        return statusNetwork.getText();
+        return network.label();
     }
 
     MessageLog messageLogForTest() {
@@ -500,10 +516,8 @@ final class ReaderController {
         });
         commands.register("history.clear", "Clear History", this::clearHistory);
         commands.register("view.messages", "Show Messages", () -> messageLogPopup.toggle());
-        commands.register("network.toggleOffline", "Toggle: Work Offline", this::toggleWorkOffline);
-        commands.register("find.onPage", "Find on This Page", this::openFind);
-        commands.register("find.next", "Find Next on This Page", () -> findStep(true));
-        commands.register("find.previous", "Find Previous on This Page", () -> findStep(false));
+        network.registerCommands(commands);
+        find.registerCommands(commands);
         commands.register("text.larger", "Larger Article Text", () -> stepFont(10));
         commands.register("text.smaller", "Smaller Article Text", () -> stepFont(-10));
         commands.register("text.resetSize", "Reset Article Text Size", () -> setFontPercent(100));
@@ -566,7 +580,7 @@ final class ReaderController {
         });
         commands.register("catalog.refresh", "Refresh the Catalog", () -> {
             showCatalog();
-            if (requireNetwork("refreshing the catalog")) {
+            if (network.require("refreshing the catalog")) {
                 catalogPane.refreshCommand();
             }
         });
@@ -803,8 +817,7 @@ final class ReaderController {
         }
         HBox tabActions = new HBox(4, fontSmaller, fontLarger, readerViewButton, typePanelButton, bookmarkButton);
         tabActions.setAlignment(Pos.CENTER_RIGHT);
-        buildFindBar();
-        HBox navRow = new HBox(8, tabNav, restoredBar, findBar, tabActions);
+        HBox navRow = new HBox(8, tabNav, restoredBar, find.bar(), tabActions);
         navRow.setAlignment(Pos.CENTER_LEFT);
         navRow.getStyleClass().add("tab-nav-row");
 
@@ -840,9 +853,7 @@ final class ReaderController {
         statusArriving.setOnMouseClicked(e -> commands.run("library.open"));
         // The network indicator, and the switch. Insula works without a connection by design, so
         // saying which of the two it is right now is worth a permanent segment.
-        statusNetwork.getStyleClass().add("status-network");
-        statusNetwork.setOnMouseClicked(e -> commands.run("network.toggleOffline"));
-        for (Label label : List.of(statusArchive, statusArriving, statusLan, statusNetwork)) {
+        for (Label label : List.of(statusArchive, statusArriving, statusLan, network.segment())) {
             label.getStyleClass().add("card-faint");
         }
         Region statusGap = new Region();
@@ -851,7 +862,7 @@ final class ReaderController {
         status.getStyleClass().add("status-message");
         status.setOnMouseClicked(e -> messageLogPopup.toggle());
         status.setTooltip(new javafx.scene.control.Tooltip("Messages from this session"));
-        HBox statusBar = new HBox(18, status, statusGap, statusNetwork, statusArchive, statusArriving, statusLan);
+        HBox statusBar = new HBox(18, status, statusGap, network.segment(), statusArchive, statusArriving, statusLan);
         statusBar.setPadding(new Insets(4, 10, 4, 10));
 
         menuBar = Menus.build(commands, keys, menuDynamics());
@@ -1324,103 +1335,6 @@ final class ReaderController {
      * the highlights — leaving a page marked up after the search is over makes the article look
      * broken.
      */
-    private void buildFindBar() {
-        findField.setPromptText("Find on page");
-        findField.setPrefColumnCount(16);
-        findField.textProperty().addListener((obs, old, now) -> runFind(now, true));
-        findField.setOnAction(e -> findStep(true));
-        findField.setOnKeyPressed(e -> {
-            if (e.getCode() == KeyCode.ESCAPE) {
-                closeFind();
-                e.consume();
-            } else if (e.getCode() == KeyCode.ENTER && e.isShiftDown()) {
-                findStep(false);
-                e.consume();
-            }
-        });
-        findCount.getStyleClass().add("card-faint");
-        Button prev = new Button("\u2039");
-        prev.setTooltip(new javafx.scene.control.Tooltip("Previous match (Shift+Enter)"));
-        prev.setOnAction(e -> findStep(false));
-        Button next = new Button("\u203a");
-        next.setTooltip(new javafx.scene.control.Tooltip("Next match (Enter)"));
-        next.setOnAction(e -> findStep(true));
-        Button close = new Button("\u2715");
-        close.setTooltip(new javafx.scene.control.Tooltip("Close (Esc)"));
-        close.setOnAction(e -> closeFind());
-        for (Button b : List.of(prev, next, close)) {
-            b.getStyleClass().add("tab-action");
-        }
-        findBar.setAlignment(Pos.CENTER_LEFT);
-        findBar.getChildren().addAll(findField, findCount, prev, next, close);
-        findBar.setVisible(false);
-        findBar.setManaged(false);
-    }
-
-    /** Opens the bar, seeded from the selection if there is one — the browser convention. */
-    private void openFind() {
-        if (surface != Surface.READER) {
-            showReader();
-        }
-        findBar.setVisible(true);
-        findBar.setManaged(true);
-        // Deferred as well as immediate: a node that has just become managed has not been laid out
-        // yet, and focus asked for before that pass is dropped — the bar opens with the caret
-        // still in the article and the first thing typed goes nowhere.
-        findField.requestFocus();
-        javafx.application.Platform.runLater(() -> {
-            findField.requestFocus();
-            findField.selectAll();
-        });
-        if (!findField.getText().isBlank()) {
-            runFind(findField.getText(), true);
-        }
-    }
-
-    private void closeFind() {
-        findBar.setVisible(false);
-        findBar.setManaged(false);
-        findCount.setText("");
-        runScript("if (window.__insulaFind) { window.__insulaFind.clear(); }");
-    }
-
-    /** Runs the search and reports the tally. {@code advance} jumps to the first hit. */
-    private void runFind(String query, boolean advance) {
-        if (query == null || query.isBlank()) {
-            findCount.setText("");
-            runScript("if (window.__insulaFind) { window.__insulaFind.clear(); }");
-            return;
-        }
-        // The helper and its stylesheet are installed per search: a page load drops both, and
-        // re-running them is cheaper than tracking which document is currently carrying them.
-        renderer.injectCss(com.insula.reader.PageFind.css());
-        runScript(com.insula.reader.PageFind.installScript());
-        Object total = runScript("window.__insulaFind.search(" + com.insula.reader.PageFind.quote(query) + ")");
-        int hits = total instanceof Number n ? n.intValue() : 0;
-        if (hits == 0) {
-            findCount.setText("no matches");
-            return;
-        }
-        if (advance) {
-            findStep(true);
-        } else {
-            findCount.setText(hits + (hits == 1 ? " match" : " matches"));
-        }
-    }
-
-    private void findStep(boolean forward) {
-        Object at =
-                runScript("window.__insulaFind ? window.__insulaFind." + (forward ? "next()" : "previous()") + " : 0");
-        Object total = runScript("window.__insulaFind ? window.__insulaFind.count() : 0");
-        int index = at instanceof Number n ? n.intValue() : 0;
-        int hits = total instanceof Number n ? n.intValue() : 0;
-        findCount.setText(hits == 0 ? "no matches" : index + " of " + hits);
-    }
-
-    private Object runScript(String script) {
-        return renderer instanceof com.insula.reader.WebViewRenderer web ? web.runScript(script) : null;
-    }
-
     private void stepFont(int deltaPercent) {
         setFontPercent(settings.getReaderFontPercent() + deltaPercent);
     }
@@ -1437,40 +1351,6 @@ final class ReaderController {
     }
 
     /** Puts the app on or off the network, and says which it now is. */
-    private void toggleWorkOffline() {
-        boolean offline = !settings.isWorkOffline();
-        settings.setWorkOffline(offline);
-        settings.save();
-        network.setUserChoseOffline(offline);
-        setStatus(
-                offline
-                        ? "Working offline — downloads and the catalog are paused; everything downloaded still opens"
-                        : "Back online");
-    }
-
-    /** Paints the indicator. Called on the FX thread by the monitor. */
-    private void showNetwork(com.insula.net.NetworkState.Status status) {
-        statusNetwork.setText(com.insula.net.NetworkState.label(status));
-        statusNetwork.setTooltip(new javafx.scene.control.Tooltip(com.insula.net.NetworkState.tooltip(status)));
-        statusNetwork.getStyleClass().removeAll("status-network-off", "status-network-on");
-        statusNetwork
-                .getStyleClass()
-                .add(status == com.insula.net.NetworkState.Status.ONLINE ? "status-network-on" : "status-network-off");
-    }
-
-    /**
-     * Refuses an action that needs the network, saying which kind of offline it is.
-     *
-     * @return true when the caller may go ahead
-     */
-    private boolean requireNetwork(String action) {
-        if (network.mayUseNetwork()) {
-            return true;
-        }
-        setStatus(com.insula.net.NetworkState.refusal(network.status(), action));
-        return false;
-    }
-
     /** A filled star means "this article is saved" — the one piece of state the tab row shows. */
     private void updateBookmarkButton() {
         ArticleRef ref = currentRef();
@@ -1763,7 +1643,7 @@ final class ReaderController {
     }
 
     private void downloadUpdate(ZimEntry replacement) {
-        if (!requireNetwork("updating " + replacement.title())) {
+        if (!network.require("updating " + replacement.title())) {
             return;
         }
         downloads.enqueue(replacement);
