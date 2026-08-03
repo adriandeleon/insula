@@ -132,6 +132,27 @@ Config lives in `~/.insula/` (`INSULA_CONFIG_DIR` overrides): `settings.properti
   way and none of them by the unit tests.
 - Surefire runs classpath-mode (`useModulePath=false`) with `--enable-native-access=ALL-UNNAMED`
   for zstd's native library.
+- **Coverage** is measured by JaCoCo on every `test` (report at `target/site/jacoco/index.html`)
+  and *enforced* at `verify` as a per-package LINE **floor** on the packages that are mostly pure
+  logic: command/search/catalog ≥ 0.90, library/config ≥ 0.86, zim ≥ 0.85, reader ≥ 0.82.
+  Measured at the time of writing: 74% line and 64% branch overall — command 98, search 95,
+  catalog 95, library 93, zim 91, config 91, reader 87, server/net 79, media 73, download 70,
+  app 67.
+  - The floors are a **regression net, not a target**. Raise one when its package rises; never
+    lower one to make a build pass, which turns the net into a rubber stamp.
+  - **`app` and `download` are deliberately ungated.** 67% and 70% is what a JavaFX controller and
+    a subprocess-driven transport cost to test, and a floor pinned at today's number would freeze
+    it without improving anything. The cheapest way to raise them is to extract pure decision
+    helpers (`LibraryFilter`, `DownloadStates`, `NetworkState`, `PageFind`) and test those.
+  - **JaCoCo must be 0.8.13 or newer.** 0.8.12 cannot read class file major version 69 and dies on
+    `module-info.class` before reporting anything.
+  - Surefire's `<argLine>` **must** keep the `@{argLine}` token — it carries the coverage agent, and
+    overwriting it with a plain value silently disables coverage while every test still passes.
+- **A test that starts a `DownloadManager` must close it before returning.** JUnit deletes the
+  `@TempDir` as the method ends, while the pipeline thread is still creating the download folder and
+  writing its recovery sidecar into it; the cleanup then fails with `DirectoryNotEmptyException`,
+  which reads as a bug in the code under test and is not. It only shows up when the machine is busy
+  enough for the two to overlap, so it passes alone and fails in a full run.
 
 ## Hard-won facts — don't re-derive these
 

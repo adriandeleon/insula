@@ -92,6 +92,29 @@ class DownloadRestartTest {
                 dir);
     }
 
+    /**
+     * Runs a case and shuts the manager down before returning.
+     *
+     * <p>Without this, JUnit deletes the @TempDir while the pipeline thread is still creating the
+     * download folder and writing its recovery sidecar into it, and the cleanup fails with
+     * DirectoryNotEmptyException — a failure that looks like a bug in the code under test and is
+     * not, and that only shows up when the machine is busy enough for the two to overlap.
+     */
+    private static void withManager(Path dir, DownloadState reported, ManagerCase body) throws Exception {
+        DownloadManager m = managerWith(dir, reported);
+        try {
+            body.run(m);
+        } finally {
+            m.jobs().forEach(DownloadManager.Job::cancel);
+            m.close();
+        }
+    }
+
+    @FunctionalInterface
+    private interface ManagerCase {
+        void run(DownloadManager m) throws Exception;
+    }
+
     private static void settle(DownloadManager m, ZimEntry e) throws InterruptedException {
         for (int i = 0;
                 i < 200
@@ -104,73 +127,72 @@ class DownloadRestartTest {
 
     @Test
     void aCancelledDownloadCanBeStartedAgain(@TempDir Path dir) throws Exception {
-        DownloadManager m = managerWith(dir, DownloadState.CANCELLED);
-        DownloadManager.Job first = m.enqueue(entry());
-        settle(m, entry());
+        withManager(dir, DownloadState.CANCELLED, m -> {
+            DownloadManager.Job first = m.enqueue(entry());
+            settle(m, entry());
 
-        assertNull(m.job(entry()), "a stopped job must not keep describing the card");
-        DownloadManager.Job second = m.enqueue(entry());
-        assertNotSame(first, second, "enqueue handed back the corpse instead of starting again");
-        assertNotNull(second);
+            assertNull(m.job(entry()), "a stopped job must not keep describing the card");
+            DownloadManager.Job second = m.enqueue(entry());
+            assertNotSame(first, second, "enqueue handed back the corpse instead of starting again");
+            assertNotNull(second);
+        });
     }
 
     @Test
     void aFailedDownloadCanBeStartedAgain(@TempDir Path dir) throws Exception {
-        DownloadManager m = managerWith(dir, DownloadState.FAILED);
-        DownloadManager.Job first = m.enqueue(entry());
-        settle(m, entry());
-        assertNotSame(first, m.enqueue(entry()));
+        withManager(dir, DownloadState.FAILED, m -> {
+            DownloadManager.Job first = m.enqueue(entry());
+            settle(m, entry());
+            assertNotSame(first, m.enqueue(entry()));
+        });
     }
 
     @Test
-    void askingTwiceForARunningDownloadDoesNotStartASecond(@TempDir Path dir) {
-        DownloadManager m = managerWith(dir, DownloadState.DOWNLOADING);
-        DownloadManager.Job first = m.enqueue(entry());
-        try {
+    void askingTwiceForARunningDownloadDoesNotStartASecond(@TempDir Path dir) throws Exception {
+        withManager(dir, DownloadState.DOWNLOADING, m -> {
+            DownloadManager.Job first = m.enqueue(entry());
             assertSame(first, m.enqueue(entry()), "one click, one download");
-        } finally {
-            first.cancel();
-        }
+        });
     }
 
     @Test
     void aCancelledJobLeavesTheArrivingList(@TempDir Path dir) throws Exception {
         // A cancel is the user saying they are done; a row nothing can clear is worse than none.
-        DownloadManager m = managerWith(dir, DownloadState.CANCELLED);
-        m.enqueue(entry());
-        settle(m, entry());
-        assertTrue(m.jobs().isEmpty());
+        withManager(dir, DownloadState.CANCELLED, m -> {
+            m.enqueue(entry());
+            settle(m, entry());
+            assertTrue(m.jobs().isEmpty());
+        });
     }
 
     @Test
     void aFailedJobKeepsItsRowSoTheReasonStaysOnScreen(@TempDir Path dir) throws Exception {
-        DownloadManager m = managerWith(dir, DownloadState.FAILED);
-        m.enqueue(entry());
-        settle(m, entry());
-        assertEquals(1, m.jobs().size(), "a failure that vanishes takes its reason with it");
+        withManager(dir, DownloadState.FAILED, m -> {
+            m.enqueue(entry());
+            settle(m, entry());
+            assertEquals(1, m.jobs().size(), "a failure that vanishes takes its reason with it");
+        });
     }
 
     @Test
     void aFailedRowCanBeDismissed(@TempDir Path dir) throws Exception {
-        DownloadManager m = managerWith(dir, DownloadState.FAILED);
-        m.enqueue(entry());
-        settle(m, entry());
-        m.forget(entry());
-        assertTrue(m.jobs().isEmpty());
-        assertNull(m.rawJobForTest(entry()));
+        withManager(dir, DownloadState.FAILED, m -> {
+            m.enqueue(entry());
+            settle(m, entry());
+            m.forget(entry());
+            assertTrue(m.jobs().isEmpty());
+            assertNull(m.rawJobForTest(entry()));
+        });
     }
 
     @Test
-    void aRunningJobCannotBeForgotten(@TempDir Path dir) {
+    void aRunningJobCannotBeForgotten(@TempDir Path dir) throws Exception {
         // Dropping a live job would orphan a transfer with nothing left holding the handle that
         // could cancel it.
-        DownloadManager m = managerWith(dir, DownloadState.DOWNLOADING);
-        DownloadManager.Job job = m.enqueue(entry());
-        try {
+        withManager(dir, DownloadState.DOWNLOADING, m -> {
+            m.enqueue(entry());
             m.forget(entry());
             assertNotNull(m.rawJobForTest(entry()));
-        } finally {
-            job.cancel();
-        }
+        });
     }
 }
