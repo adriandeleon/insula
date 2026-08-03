@@ -1,20 +1,26 @@
 package com.insula.library;
 
 import java.util.List;
+import java.util.function.ToIntFunction;
 
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** When the shelf earns a second column, and how rows divide between them. */
+/** When the shelf earns a second column, and which groups land in it. */
 class ShelfColumnsTest {
 
     private static final double GAP = 14;
+
+    /** A group of {@code size} archives; the int is what the flow weighs it by. */
+    private static final ToIntFunction<Integer> SIZE = i -> i;
 
     @Test
     void anOrdinaryWindowStaysOneColumn() {
         assertEquals(1, ShelfColumns.columnsFor(900, GAP));
         assertEquals(1, ShelfColumns.columnsFor(1200, GAP));
+        assertEquals(1, ShelfColumns.columnsFor(1500, GAP), "a laptop full-screen is still one");
     }
 
     @Test
@@ -27,7 +33,6 @@ class ShelfColumnsTest {
 
     @Test
     void anUltrawideDoesNotKeepAddingColumnsForever() {
-        // Past a point the eye has too far to travel from a title to its buttons.
         assertEquals(ShelfColumns.MAX_COLUMNS, ShelfColumns.columnsFor(10_000, GAP));
     }
 
@@ -38,32 +43,72 @@ class ShelfColumnsTest {
     }
 
     @Test
-    void rowsFillDownEachColumnSoTheSortOrderStillReadsTopToBottom() {
-        // Filling across would turn a hand-dragged order into a zigzag.
-        assertEquals(List.of(List.of(1, 2, 3), List.of(4, 5, 6)), ShelfColumns.split(List.of(1, 2, 3, 4, 5, 6), 2));
+    void groupsFlowDownTheFirstColumnThenOverSoTheOrderStillReads() {
+        // 12 rows over 2 columns: six each, and the split falls on a group boundary.
+        assertEquals(List.of(List.of(3, 3), List.of(3, 3)), ShelfColumns.flow(List.of(3, 3, 3, 3), SIZE, 2));
     }
 
     @Test
-    void theRemainderGoesToTheEarlierColumn() {
-        // 4 and 3, never 3 and 4: a ragged gap on the left is where the eye starts.
-        assertEquals(
-                List.of(List.of(1, 2, 3, 4), List.of(5, 6, 7)), ShelfColumns.split(List.of(1, 2, 3, 4, 5, 6, 7), 2));
+    void aGroupIsNeverSplitAcrossColumns() {
+        // The whole reason this exists: splitting a group's rows leaves every one-archive group
+        // as a half-width row beside an empty column.
+        List<List<Integer>> columns = ShelfColumns.flow(List.of(1, 1, 6, 1), SIZE, 2);
+        assertTrue(
+                columns.stream().flatMap(List::stream).toList().equals(List.of(1, 1, 6, 1)),
+                "every group intact and in order: " + columns);
     }
 
     @Test
-    void everyRowLandsInExactlyOneColumn() {
-        List<Integer> rows = java.util.stream.IntStream.range(0, 17).boxed().toList();
+    void weightIsRowsNotGroups() {
+        // Otherwise a column of ten headings sits beside one heading and nine rows.
+        List<List<Integer>> columns = ShelfColumns.flow(List.of(1, 1, 1, 1, 8), SIZE, 2);
+        assertEquals(List.of(1, 1, 1, 1), columns.get(0));
+        assertEquals(List.of(8), columns.get(1));
+    }
+
+    @Test
+    void everyGroupLandsInExactlyOneColumnInOrder() {
+        List<Integer> groups = List.of(1, 4, 1, 2, 6, 1, 1, 3);
         for (int columns = 1; columns <= ShelfColumns.MAX_COLUMNS; columns++) {
-            List<Integer> flattened = ShelfColumns.split(rows, columns).stream()
+            List<Integer> flattened = ShelfColumns.flow(groups, SIZE, columns).stream()
                     .flatMap(List::stream)
                     .toList();
-            assertEquals(rows, flattened, "columns=" + columns);
+            assertEquals(groups, flattened, "columns=" + columns);
         }
     }
 
     @Test
-    void fewerRowsThanColumnsLeavesTheExtrasEmptyRatherThanMissing() {
-        assertEquals(List.of(List.of(1), List.of(2), List.of()), ShelfColumns.split(List.of(1, 2), 3));
-        assertEquals(List.of(List.of(), List.of()), ShelfColumns.split(List.of(), 2));
+    void theLastColumnIsNotTheOverloadedOne() {
+        // A long tail at the bottom right reads as a mistake rather than a layout.
+        List<List<Integer>> columns = ShelfColumns.flow(List.of(1, 1, 1, 1, 1, 1, 1), SIZE, 2);
+        assertTrue(weight(columns.get(0)) >= weight(columns.get(1)), "columns " + columns);
+    }
+
+    @Test
+    void noColumnIsLeftNearlyEmptyBesideAnOverstuffedOne() {
+        // The real shape of a library: a few big groups among many one-archive ones. A target
+        // computed once and never revised put a single row beside a column of eleven.
+        List<Integer> groups = List.of(2, 2, 2, 4, 2, 7, 2, 2, 2, 2, 2);
+        List<List<Integer>> columns = ShelfColumns.flow(groups, SIZE, 3);
+        int lightest = columns.stream().mapToInt(ShelfColumnsTest::weight).min().orElseThrow();
+        int heaviest = columns.stream().mapToInt(ShelfColumnsTest::weight).max().orElseThrow();
+        assertTrue(heaviest - lightest <= 7, "columns " + columns + " differ by " + (heaviest - lightest));
+    }
+
+    private static int weight(List<Integer> column) {
+        return column.stream().mapToInt(Integer::intValue).sum();
+    }
+
+    @Test
+    void oneGroupTallerThanAColumnStillLandsSomewhere() {
+        List<List<Integer>> columns = ShelfColumns.flow(List.of(40), SIZE, 3);
+        assertEquals(List.of(40), columns.get(0));
+        assertTrue(columns.get(1).isEmpty() && columns.get(2).isEmpty());
+    }
+
+    @Test
+    void fewerGroupsThanColumnsLeavesTheExtrasEmptyRatherThanMissing() {
+        assertEquals(3, ShelfColumns.flow(List.of(1, 1), SIZE, 3).size());
+        assertEquals(2, ShelfColumns.flow(List.of(), SIZE, 2).size());
     }
 }

@@ -208,14 +208,15 @@ class ShelfOrganizationFxTest {
     }
 
     @Test
-    void aWideWindowSplitsTheShelfIntoColumnsWithoutLosingOrLosingTrackOfARow(@TempDir Path dir) {
-        // The rows move into per-column containers, so anything that reads the shelf by walking
-        // its children has to keep working — including the drag handles and the titles.
+    void aWideWindowFlowsWholeGroupsIntoColumns(@TempDir Path dir) {
+        // Whole groups move into per-column containers, so anything that reads the shelf by
+        // walking its children has to keep working — the titles, and the drag handles.
         withShell(dir, (controller, settings) -> {
             seed(controller, dir);
             LibraryPane pane = controller.libraryPaneForTest();
-            // Custom, so the drag handles are expected to be present in both layouts.
-            pane.setArrangement(Shelf.GroupBy.NONE, Shelf.SortBy.CUSTOM);
+            // Grouped by theme so there are three groups for the flow to distribute, and Custom
+            // so the drag handles are expected in both layouts.
+            pane.setArrangement(Shelf.GroupBy.THEME, Shelf.SortBy.CUSTOM);
 
             List<String> oneColumn = pane.deviceTitlesForTest();
             assertTrue(pane.dragHandlesShownForTest(), "handles before the split");
@@ -226,6 +227,14 @@ class ShelfOrganizationFxTest {
             assertEquals(2, pane.shelfColumnsForTest(), "a wide one earns a second");
             assertEquals(3, pane.deviceRowsForTest(), "every row is still there");
             assertEquals(oneColumn, pane.deviceTitlesForTest(), "in the same order, read down the columns");
+            assertEquals(
+                    3,
+                    pane.groupTitlesForTest().size(),
+                    "every heading is still on screen, one per group, none orphaned");
+            assertEquals(
+                    List.of("Books", "Courses & talks", "Encyclopedias & reference"),
+                    pane.groupTitlesForTest(),
+                    "and a group is never torn between columns");
             assertTrue(pane.dragHandlesShownForTest(), "and the handles are still findable");
             return null;
         });

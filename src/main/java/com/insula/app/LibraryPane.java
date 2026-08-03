@@ -417,12 +417,24 @@ final class LibraryPane {
         }
         int columns = ShelfColumns.columnsFor(shelfWidth(), COLUMN_GAP);
         renderedColumns = columns;
-        for (Shelf.Group group : Shelf.arrange(entries, groupBox.getValue(), sortBox.getValue())) {
-            deviceRows
-                    .getChildren()
-                    .add(groupHeading(group.title() + "  (" + group.entries().size() + ")"));
-            deviceRows.getChildren().add(groupBody(group.entries(), columns));
+        List<Shelf.Group> groups = Shelf.arrange(entries, groupBox.getValue(), sortBox.getValue());
+        if (columns <= 1) {
+            groups.forEach(
+                    group -> deviceRows.getChildren().addAll(groupBlock(group).getChildren()));
+            updateGauge();
+            return;
         }
+        HBox side = new HBox(COLUMN_GAP);
+        for (List<Shelf.Group> slice :
+                ShelfColumns.flow(groups, g -> 1 + g.entries().size(), columns)) {
+            VBox column = new VBox(12);
+            slice.forEach(group -> column.getChildren().add(groupBlock(group)));
+            HBox.setHgrow(column, Priority.ALWAYS);
+            column.setMaxWidth(Double.MAX_VALUE);
+            column.setMinWidth(0);
+            side.getChildren().add(column);
+        }
+        deviceRows.getChildren().add(side);
         updateGauge();
     }
 
@@ -470,29 +482,19 @@ final class LibraryPane {
     }
 
     /**
-     * A group's rows: one column as before, or several side by side on a wide window.
+     * A group: its heading and its rows, as one unit.
      *
-     * <p>The single-column case returns a plain {@code VBox} so nothing about the existing layout
-     * — or the drag-and-drop that reads these children — changes on an ordinary window.
+     * <p>Kept together on purpose. Flowing whole groups into columns is what makes a wide window
+     * look deliberate; splitting a group's rows across columns — which this did first — leaves
+     * every one-archive group as a half-width row beside an empty column, and a real library is
+     * mostly one- and two-archive groups.
      */
-    private Region groupBody(List<LibraryEntry> entries, int columns) {
-        if (columns <= 1) {
-            VBox single = new VBox(8);
-            entries.forEach(entry -> single.getChildren().add(archiveRow(entry)));
-            return single;
-        }
-        HBox side = new HBox(COLUMN_GAP);
-        for (List<LibraryEntry> slice : ShelfColumns.split(entries, columns)) {
-            VBox column = new VBox(8);
-            slice.forEach(entry -> column.getChildren().add(archiveRow(entry)));
-            // Equal share of the width, so the columns line up rather than sizing to their
-            // longest title.
-            HBox.setHgrow(column, Priority.ALWAYS);
-            column.setMaxWidth(Double.MAX_VALUE);
-            column.setMinWidth(0);
-            side.getChildren().add(column);
-        }
-        return side;
+    private VBox groupBlock(Shelf.Group group) {
+        VBox block = new VBox(8);
+        block.getChildren()
+                .add(groupHeading(group.title() + "  (" + group.entries().size() + ")"));
+        group.entries().forEach(entry -> block.getChildren().add(archiveRow(entry)));
+        return block;
     }
 
     /** Width available to the shelf itself, once the scroll pane's padding is taken off. */
@@ -725,10 +727,18 @@ final class LibraryPane {
 
     /** The section headings currently rendered, in order, with their counts stripped. */
     List<String> groupTitlesForTest() {
-        return deviceRows.getChildren().stream()
-                .filter(n -> n instanceof Label label && label.getStyleClass().contains("hsec-title"))
+        return headingsUnder(deviceRows)
                 .map(n -> ((Label) n).getText().replaceAll("\\s+\\(\\d+\\)$", ""))
                 .toList();
+    }
+
+    private static java.util.stream.Stream<javafx.scene.Node> headingsUnder(javafx.scene.Node node) {
+        if (node instanceof Label label && label.getStyleClass().contains("hsec-title")) {
+            return java.util.stream.Stream.of(node);
+        }
+        return node instanceof javafx.scene.Parent parent
+                ? parent.getChildrenUnmodifiable().stream().flatMap(LibraryPane::headingsUnder)
+                : java.util.stream.Stream.of();
     }
 
     /** Archive titles in display order, so a sort can be asserted rather than inferred. */
