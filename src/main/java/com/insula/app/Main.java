@@ -21,6 +21,7 @@ public class Main extends Application {
         Scene scene = new Scene(controller.root(), 1280, 840);
         controller.installShortcuts(scene);
         stage.setTitle("Insula");
+        AppIcon.applyTo(stage);
         stage.setScene(scene);
         stage.show();
 

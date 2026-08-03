@@ -38,6 +38,19 @@ ARGS=(
   --java-options "--enable-native-access=com.github.luben.zstd_jni"
 )
 
+# jpackage wants a different format per platform, and silently ships its generic Java icon if the
+# file is missing — so the icon is only passed when the one for this platform is actually there.
+case "$(uname -s)" in
+  Darwin) ICON="branding/insula.icns" ;;
+  MINGW*|MSYS*|CYGWIN*) ICON="branding/insula.ico" ;;
+  *)      ICON="branding/insula.png" ;;
+esac
+if [ -f "$ICON" ]; then
+  ARGS+=(--icon "$ICON")
+else
+  echo "no icon at $ICON; the bundle will use jpackage's default"
+fi
+
 # BitTorrent is optional: a build whose host had no matching native profile simply ships without.
 TORRENT_NATIVE="$(find "$NATIVES" -type f \( -name '*jlibtorrent*.so' -o -name '*jlibtorrent*.dylib' -o -name '*jlibtorrent*.dll' \) 2>/dev/null | head -1)"
 if [ -n "$TORRENT_NATIVE" ]; then
