@@ -73,6 +73,24 @@ public final class Library {
         }
     }
 
+    /**
+     * Moves an entry to a new file, matched by where it used to be.
+     *
+     * <p>Separate from {@link #replace} because that matches on the entry's own path, so it silently
+     * does nothing when the path is what changed — and since {@link #load} drops entries whose file
+     * is gone, an unrecorded move loses those archives from the library at the next launch. The
+     * position is kept so a custom order survives a folder change.
+     */
+    public synchronized void relocate(Path oldFile, LibraryEntry updated) {
+        Path target = oldFile.toAbsolutePath();
+        for (int i = 0; i < entries.size(); i++) {
+            if (entries.get(i).file().toAbsolutePath().equals(target)) {
+                entries.set(i, updated);
+                return;
+            }
+        }
+    }
+
     public void save() {
         Properties props = new Properties();
         for (int i = 0; i < entries.size(); i++) {

@@ -100,4 +100,25 @@ class LibraryTest {
         Files.writeString(garbled, "1.path=/nonexistent/x.zim\n2.nonsense\n");
         assertEquals(0, Library.load(garbled).size());
     }
+
+    @Test
+    void relocatingAnEntryKeepsItInTheLibrary(@TempDir Path dir) throws Exception {
+        // replace() matches on the entry's own path, so it does nothing when the path is what
+        // changed — and load() drops entries whose file is gone, so an unrecorded move would empty
+        // the library of every archive a folder change touched.
+        Path from = Files.createFile(dir.resolve("a.zim"));
+        Path to = dir.resolve("moved.zim");
+        Library library = Library.load(dir.resolve("library.properties"));
+        library.put(new LibraryEntry(from, "A", 10, "", true, 1));
+        library.put(new LibraryEntry(Files.createFile(dir.resolve("b.zim")), "B", 20, "", true, 2));
+
+        Files.move(from, to);
+        library.relocate(from, library.find(from).orElseThrow().withFile(to));
+        library.save();
+
+        Library reloaded = Library.load(dir.resolve("library.properties"));
+        assertEquals(2, reloaded.entries().size());
+        assertTrue(reloaded.find(to).isPresent());
+        assertTrue(reloaded.find(from).isEmpty());
+    }
 }

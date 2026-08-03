@@ -38,6 +38,11 @@ public record LibraryEntry(
         return file.getFileName().toString();
     }
 
+    /** The same archive at a new path — used when the archives folder changes. */
+    public LibraryEntry withFile(Path value) {
+        return new LibraryEntry(value, title, sizeBytes, sha256, verified, addedAtEpochMs, pinned, order, theme);
+    }
+
     public LibraryEntry withVerified(boolean value) {
         return new LibraryEntry(file, title, sizeBytes, sha256, value, addedAtEpochMs, pinned, order, theme);
     }

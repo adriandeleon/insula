@@ -102,6 +102,7 @@ final class SettingsDialog {
 
     private Path archivesFolder;
     private Runnable onRevealArchives = () -> {};
+    private Runnable onChangeArchives = () -> {};
     private Path configFolder;
     private Runnable onRevealConfig = () -> {};
     private Supplier<String> catalogAge = () -> "";
@@ -123,9 +124,11 @@ final class SettingsDialog {
         stage.setScene(scene);
     }
 
-    void setArchivesFolder(Path folder, Runnable onReveal) {
+    void setArchivesFolder(Path folder, Runnable onReveal, Runnable onChange) {
         this.archivesFolder = folder;
         this.onRevealArchives = onReveal == null ? () -> {} : onReveal;
+        this.onChangeArchives = onChange == null ? () -> {} : onChange;
+        refreshArchivesRow();
     }
 
     void setConfigFolder(Path folder, Runnable onReveal) {
@@ -433,6 +436,10 @@ final class SettingsDialog {
         archivesDesc.getStyleClass().add("srow-desc");
         Button openFolder = new Button("Open folder");
         openFolder.setOnAction(e -> onRevealArchives.run());
+        Button changeFolder = new Button("Change…");
+        changeFolder.setOnAction(e -> onChangeArchives.run());
+        HBox folderButtons = new HBox(8, changeFolder, openFolder);
+        folderButtons.setAlignment(Pos.CENTER_RIGHT);
 
         torrentThresholdSpinner.setEditable(true);
         torrentThresholdSpinner.valueProperty().addListener((obs, old, value) -> {
@@ -450,7 +457,7 @@ final class SettingsDialog {
                 "Downloads",
                 "Where archives land, and which transport fetches them.",
                 card(
-                        row("Archives folder", null, archivesDesc, openFolder),
+                        row("Archives folder", null, archivesDesc, folderButtons),
                         row(
                                 "Prefer BitTorrent for large archives",
                                 "Spreads load off the donated mirrors. Smaller archives always use HTTP, where "
@@ -466,6 +473,9 @@ final class SettingsDialog {
                 card(
                         row("When an update replaces an archive", null, updatePolicyCombo),
                         row("Simultaneous downloads", null, concurrentSpinner)),
+                note("Changing the folder asks whether to bring your existing archives along. Leaving them is "
+                        + "safe either way: the library remembers each archive by its full path, so one that "
+                        + "stays put — or one you imported from a USB stick — keeps working exactly as before."),
                 note("Every download is verified against the publisher's SHA-256 before it can open. A file "
                         + "that fails is quarantined — never deleted — and Repair uses the publisher's piece "
                         + "hashes to re-fetch only the bad pieces."));

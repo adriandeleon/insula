@@ -102,7 +102,7 @@ public final class DownloadManager implements AutoCloseable {
 
     private final TransportSelector selector;
     private final Library library;
-    private final Path downloadDir;
+    private volatile Path downloadDir;
     private final HttpClient http;
     private final Map<String, Job> jobs = new ConcurrentHashMap<>();
 
@@ -166,6 +166,20 @@ public final class DownloadManager implements AutoCloseable {
     /** Currently tracked downloads, newest state included. */
     public List<Job> jobs() {
         return List.copyOf(jobs.values());
+    }
+
+    /**
+     * Changes where new downloads land. Existing jobs keep the destination they started with —
+     * re-pointing a transfer mid-flight would strand its partial file.
+     */
+    public void setDownloadDir(Path dir) {
+        if (dir != null) {
+            this.downloadDir = dir;
+        }
+    }
+
+    public Path downloadDir() {
+        return downloadDir;
     }
 
     public Job job(ZimEntry entry) {

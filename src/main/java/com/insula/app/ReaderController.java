@@ -54,6 +54,7 @@ import com.insula.download.DownloadManager;
 import com.insula.download.HttpMultiSourceTransport;
 import com.insula.download.TorrentTransport;
 import com.insula.download.TransportSelector;
+import com.insula.library.ArchiveMove;
 import com.insula.library.Library;
 import com.insula.library.LibraryEntry;
 import com.insula.library.Shelf;
@@ -200,7 +201,7 @@ final class ReaderController {
         if (torrentTransportPresent()) {
             transports.register(new TorrentTransport(settings.isSeedingEnabled()));
         }
-        this.downloads = new DownloadManager(transports, library, dataDir.resolve("archives"));
+        this.downloads = new DownloadManager(transports, library, settings.getArchivesFolder(defaultArchivesDir()));
         downloads.setOnAdmitted(job -> Platform.runLater(() -> afterArchiveAdmitted(job)));
         this.transcodes = new TranscodeService();
         this.catalogCache = new CatalogCache(dataDir.resolve("catalog"));
@@ -884,7 +885,7 @@ final class ReaderController {
     }
 
     private void revealArchivesFolder() {
-        Path folder = dataDir.resolve("archives");
+        Path folder = archivesDir();
         try {
             java.nio.file.Files.createDirectories(folder);
         } catch (IOException e) {
@@ -917,7 +918,7 @@ final class ReaderController {
         alert.setHeaderText("Insula");
         alert.setContentText("An offline reader for ZIM archives — whole encyclopedias, courses and "
                 + "talks stored as single files on your disk.\n\nArchives live in "
-                + dataDir.resolve("archives") + ".");
+                + archivesDir() + ".");
         alert.showAndWait();
     }
 
@@ -1932,7 +1933,7 @@ final class ReaderController {
 
     /** Quarantined downloads on disk, oldest name first. */
     List<Path> listQuarantined() {
-        try (var stream = Files.list(dataDir.resolve("archives"))) {
+        try (var stream = Files.list(archivesDir())) {
             return stream.filter(f -> f.getFileName().toString().contains(com.insula.download.Quarantine.SUFFIX))
                     .sorted()
                     .toList();
@@ -2137,7 +2138,7 @@ final class ReaderController {
     private void showSettings() {
         if (settingsDialog == null) {
             settingsDialog = new SettingsDialog(stage, settings, this::applySettings);
-            settingsDialog.setArchivesFolder(dataDir.resolve("archives"), this::revealArchivesFolder);
+            settingsDialog.setArchivesFolder(archivesDir(), this::revealArchivesFolder, this::changeArchivesFolder);
             settingsDialog.setConfigFolder(dataDir, () -> {
                 if (hostServices != null) {
                     hostServices.showDocument(dataDir.toUri().toString());
@@ -2349,6 +2350,161 @@ final class ReaderController {
         settings.save();
         applySidebarLayout();
         status.setText("Sidebar moved to the " + (settings.isSidebarOnRight() ? "right" : "left"));
+    }
+
+    /** A message too long for the status bar, which is where a list of file names belongs least. */
+    private void longError(String header, String detail) {
+        javafx.scene.control.Alert alert = new javafx.scene.control.Alert(javafx.scene.control.Alert.AlertType.ERROR);
+        alert.initOwner(stage);
+        alert.setTitle("Archives folder");
+        alert.setHeaderText(header);
+        javafx.scene.control.TextArea body = new javafx.scene.control.TextArea(detail);
+        body.setEditable(false);
+        body.setWrapText(true);
+        body.setPrefRowCount(8);
+        alert.getDialogPane().setContent(body);
+        alert.getDialogPane().setMinWidth(560);
+        alert.showAndWait();
+    }
+
+    /** Where archives live by default: beside the rest of the config. */
+    private Path defaultArchivesDir() {
+        return dataDir.resolve("archives");
+    }
+
+    /** Where archives live now. */
+    Path archivesDir() {
+        return settings.getArchivesFolder(defaultArchivesDir());
+    }
+
+    /**
+     * Changes the archives folder, offering to bring the existing archives along.
+     *
+     * <p>Both answers are legitimate and neither is a trick: the library index holds absolute
+     * paths and already spans folders — "Import into library" registers files where they sit — so
+     * leaving them behind keeps every archive working exactly as before. Moving is what most
+     * people mean, so it is the default button, but it is spelled out in gigabytes first.
+     */
+    private void changeArchivesFolder() {
+        javafx.stage.DirectoryChooser chooser = new javafx.stage.DirectoryChooser();
+        chooser.setTitle("Choose a folder for archives");
+        Path current = archivesDir();
+        if (Files.isDirectory(current)) {
+            chooser.setInitialDirectory(current.toFile());
+        }
+        java.io.File chosen = chooser.showDialog(stage);
+        if (chosen == null) {
+            return;
+        }
+        Path target = chosen.toPath().toAbsolutePath().normalize();
+        if (target.equals(current.toAbsolutePath().normalize())) {
+            return;
+        }
+        if (!Files.isDirectory(target) || !Files.isWritable(target)) {
+            status.setText("Cannot use " + target + " — it is not a writable folder");
+            return;
+        }
+
+        ArchiveMove.Plan plan = ArchiveMove.plan(library.entries(), current, target, Files::exists);
+        if (!plan.runnable()) {
+            longError(
+                    "Some archives already exist there",
+                    "These names are already in " + target + ":\n\n" + String.join("\n", plan.conflicts())
+                            + "\n\nMove or rename them first — replacing them would destroy files "
+                            + "this app did not put there.");
+            return;
+        }
+        if (plan.isEmpty()) {
+            applyArchivesFolder(target);
+            status.setText("New downloads will go to " + target);
+            return;
+        }
+
+        javafx.scene.control.ButtonType move =
+                new javafx.scene.control.ButtonType("Move them", javafx.scene.control.ButtonBar.ButtonData.OK_DONE);
+        javafx.scene.control.ButtonType leave = new javafx.scene.control.ButtonType(
+                "Leave them where they are", javafx.scene.control.ButtonBar.ButtonData.OTHER);
+        javafx.scene.control.Alert ask = new javafx.scene.control.Alert(
+                javafx.scene.control.Alert.AlertType.CONFIRMATION,
+                "",
+                move,
+                leave,
+                javafx.scene.control.ButtonType.CANCEL);
+        ask.initOwner(stage);
+        ask.setTitle("Change archives folder");
+        ask.setHeaderText("Move your existing archives to the new folder?");
+        ask.setContentText(plan.steps().size() + " archives · " + Formats.bytes(plan.bytes())
+                + "\n\nMoving can take a while for large archives. Leaving them is safe: they keep working "
+                + "from where they are, and only new downloads go to the new folder."
+                + (plan.staying() > 0
+                        ? "\n\n" + plan.staying() + " archive(s) outside the old folder stay put either way."
+                        : ""));
+        ask.getDialogPane().setMinWidth(520);
+        javafx.scene.control.ButtonType answer = ask.showAndWait().orElse(javafx.scene.control.ButtonType.CANCEL);
+        if (answer == javafx.scene.control.ButtonType.CANCEL) {
+            return;
+        }
+        applyArchivesFolder(target);
+        if (answer == move) {
+            moveArchives(plan);
+        } else {
+            status.setText("New downloads will go to " + target + "; existing archives stayed put");
+        }
+    }
+
+    private void applyArchivesFolder(Path folder) {
+        settings.setArchivesFolder(folder);
+        settings.save();
+        downloads.setDownloadDir(folder);
+        if (settingsDialog != null) {
+            settingsDialog.setArchivesFolder(folder, this::revealArchivesFolder, this::changeArchivesFolder);
+            settingsDialog.sync();
+        }
+    }
+
+    /**
+     * Moves the planned files off the FX thread, updating the index one file at a time.
+     *
+     * <p>Per file, not at the end: a move interrupted halfway must still leave every library entry
+     * pointing at a file that exists. Whatever has moved is recorded as moved; whatever has not
+     * still points where it still is.
+     */
+    private void moveArchives(ArchiveMove.Plan plan) {
+        status.setText("Moving " + plan.steps().size() + " archives…");
+        Thread mover = new Thread(
+                () -> {
+                    int moved = 0;
+                    List<String> failed = new java.util.ArrayList<>();
+                    for (ArchiveMove.Step step : plan.steps()) {
+                        try {
+                            Files.createDirectories(step.to().getParent());
+                            Files.move(step.from(), step.to());
+                            LibraryEntry relocated = step.entry().withFile(step.to());
+                            Platform.runLater(() -> {
+                                library.relocate(step.from(), relocated);
+                                library.save();
+                            });
+                            moved++;
+                        } catch (IOException e) {
+                            failed.add(step.entry().fileName() + ": " + e.getMessage());
+                        }
+                    }
+                    int done = moved;
+                    Platform.runLater(() -> {
+                        libraryPane.activate();
+                        if (failed.isEmpty()) {
+                            status.setText("Moved " + done + " archives");
+                        } else {
+                            longError(
+                                    "Some archives could not be moved",
+                                    "Moved " + done + ". These stayed where they were and still work:\n\n"
+                                            + String.join("\n", failed));
+                        }
+                    });
+                },
+                "archive-move");
+        mover.setDaemon(true);
+        mover.start();
     }
 
     private void toggleTheme() {

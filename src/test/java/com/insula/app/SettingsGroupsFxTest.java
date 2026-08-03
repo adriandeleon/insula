@@ -23,7 +23,7 @@ class SettingsGroupsFxTest {
         return FxTestSupport.callOnFx(() -> {
             Settings settings = Settings.load(dir.resolve("settings.properties"));
             SettingsDialog dialog = new SettingsDialog(new Stage(), settings, () -> {});
-            dialog.setArchivesFolder(dir.resolve("archives"), () -> {});
+            dialog.setArchivesFolder(dir.resolve("archives"), () -> {}, () -> {});
             dialog.sync();
             return body.apply(dialog, settings);
         });

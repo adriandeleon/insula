@@ -33,6 +33,9 @@ public final class Settings {
     private boolean reopenLastArchive = true;
     private String lastArchive = "";
 
+    /** Where downloads land. Blank means the default beside the config, resolved by the caller. */
+    private String archivesFolder = "";
+
     /** Newline-separated MRU of opened archives; see {@link RecentList}. */
     private String recentArchives = "";
 
@@ -127,6 +130,7 @@ public final class Settings {
             settings.torrentEnabled = Boolean.parseBoolean(props.getProperty("torrentEnabled", "false"));
             settings.seedingEnabled = Boolean.parseBoolean(props.getProperty("seedingEnabled", "false"));
             settings.lanPort = clamp(parseInt(props.getProperty("lanPort"), settings.lanPort), 0, 65535);
+            settings.archivesFolder = props.getProperty("archivesFolder", settings.archivesFolder);
             settings.recentArchives = props.getProperty("recentArchives", settings.recentArchives);
             settings.torrentThresholdGb = clamp(
                     parseInt(props.getProperty("torrentThresholdGb"), settings.torrentThresholdGb),
@@ -168,6 +172,7 @@ public final class Settings {
         props.setProperty("torrentEnabled", String.valueOf(torrentEnabled));
         props.setProperty("seedingEnabled", String.valueOf(seedingEnabled));
         props.setProperty("lanPort", String.valueOf(lanPort));
+        props.setProperty("archivesFolder", archivesFolder);
         props.setProperty("recentArchives", recentArchives);
         props.setProperty("torrentThresholdGb", String.valueOf(torrentThresholdGb));
         props.setProperty("sidebarVisible", String.valueOf(sidebarVisible));
@@ -430,6 +435,16 @@ public final class Settings {
 
     public void setSidebarOnRight(boolean right) {
         this.sidebarSide = right ? "right" : "left";
+    }
+
+    /** The configured archives folder, or {@code defaultFolder} when the user has not chosen one. */
+    public java.nio.file.Path getArchivesFolder(java.nio.file.Path defaultFolder) {
+        return archivesFolder.isBlank() ? defaultFolder : java.nio.file.Path.of(archivesFolder);
+    }
+
+    /** Pass null or the default back to mean "unset", so the folder follows the config dir again. */
+    public void setArchivesFolder(java.nio.file.Path folder) {
+        this.archivesFolder = folder == null ? "" : folder.toAbsolutePath().toString();
     }
 
     public java.util.List<String> getRecentArchives() {
