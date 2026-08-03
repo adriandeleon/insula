@@ -105,6 +105,7 @@ final class SettingsDialog {
     private Runnable onChangeArchives = () -> {};
     private Path configFolder;
     private Runnable onRevealConfig = () -> {};
+    private Runnable onShowDebugLog = () -> {};
     private Supplier<String> catalogAge = () -> "";
     private Runnable onRefreshCatalog = () -> {};
 
@@ -137,6 +138,11 @@ final class SettingsDialog {
     void setConfigFolder(Path folder, Runnable onReveal) {
         this.configFolder = folder;
         this.onRevealConfig = onReveal == null ? () -> {} : onReveal;
+    }
+
+    /** Opening the debug log needs a window to own it, which only the controller has. */
+    void setDebugLogAction(Runnable onShow) {
+        this.onShowDebugLog = onShow == null ? () -> {} : onShow;
     }
 
     /** The catalog page's facts and its one action; supplied by the controller. */
@@ -562,13 +568,23 @@ final class SettingsDialog {
         configPath.getStyleClass().add("srow-desc");
         Button open = new Button("Open folder");
         open.setOnAction(e -> onRevealConfig.run());
+        Button debugLog = new Button("Show debug log…");
+        debugLog.setOnAction(e -> onShowDebugLog.run());
         return page(
                 "Advanced",
                 "The plumbing, for when something needs a look.",
                 card(row("Configuration folder", null, configPath, open)),
                 note("Settings, the library index, bookmarks, history and reading positions are all plain "
                         + "text files in this folder. Archives are ordinary .zim files — copy them anywhere, "
-                        + "hand one to someone with no internet at all, and they open exactly as they do here."));
+                        + "hand one to someone with no internet at all, and they open exactly as they do here."),
+                card(row(
+                        "Debug log",
+                        "What the app has logged this session, including anything that failed.",
+                        new Label(""),
+                        debugLog)),
+                note("A packaged build has no visible console, so this is where an error that scrolled past "
+                        + "the status bar can still be read. The same lines are written to "
+                        + DebugLog.FILE_NAME + " in the folder above, so they survive a crash."));
     }
 
     // ---------------------------------------------------------------- live state

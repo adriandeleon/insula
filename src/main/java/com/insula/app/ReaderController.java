@@ -112,6 +112,9 @@ final class ReaderController {
     private final Label statusLan = new Label();
     private final TextField omniField = new TextField();
     private final Label status = new Label("Open a .zim archive to start reading");
+    private final MessageLog messageLog = new MessageLog();
+    private MessageLogPopup messageLogPopup;
+    private DebugLogWindow debugLogWindow;
 
     private final CommandRegistry commands = new CommandRegistry();
     private final Keybindings keys = new Keybindings();
@@ -211,7 +214,7 @@ final class ReaderController {
                 iconCache,
                 (entry, title) -> {
                     downloads.enqueue(entry);
-                    status.setText("Downloading " + title);
+                    setStatus("Downloading " + title);
                 },
                 this::catalogCardState,
                 this::installedFileFor,
@@ -243,10 +246,11 @@ final class ReaderController {
         bindKeys();
         buildUi();
         palette = new CommandPalette(root, commands, keys::displayFor);
+        messageLogPopup = new MessageLogPopup(root, messageLog);
         applySettings();
         // Verification a previous run never finished resumes now that the whole shell exists.
         downloads.resumePendingVerification(msg -> Platform.runLater(() -> {
-            status.setText(msg);
+            setStatus(msg);
             if (surface == Surface.LIBRARY) {
                 refreshAttention();
                 libraryPane.activate();
@@ -263,6 +267,14 @@ final class ReaderController {
     /** The article right-click menu, so a test can read what it would offer. */
     List<javafx.scene.control.MenuItem> readerMenuItemsForTest() {
         return readerMenuItems();
+    }
+
+    MessageLog messageLogForTest() {
+        return messageLog;
+    }
+
+    MessageLogPopup messageLogPopupForTest() {
+        return messageLogPopup;
     }
 
     CommandRegistry commandsForTest() {
@@ -373,7 +385,7 @@ final class ReaderController {
         commands.register("view.toggleReopenLast", "Toggle: Reopen Last Archive on Startup", () -> {
             settings.setReopenLastArchive(!settings.isReopenLastArchive());
             saveAndApply();
-            status.setText("Reopen last archive on startup: " + (settings.isReopenLastArchive() ? "on" : "off"));
+            setStatus("Reopen last archive on startup: " + (settings.isReopenLastArchive() ? "on" : "off"));
         });
         commands.register("readerview.toggle", "Toggle Reader View", this::toggleReaderView);
         commands.register("tab.new", "New Tab", this::newTab);
@@ -390,6 +402,8 @@ final class ReaderController {
             showSidebarPane(2);
         });
         commands.register("history.clear", "Clear History", this::clearHistory);
+        commands.register("view.messages", "Show Messages", () -> messageLogPopup.toggle());
+        commands.register("view.debugLog", "Show Debug Log", this::showDebugLog);
         commands.register("search.show", "Show Search", () -> showSidebarPane(0));
         commands.register("reader.cycleMode", "Reader Mode: Original / Comfortable / Dark", this::cycleReaderMode);
         commands.register(
@@ -404,7 +418,7 @@ final class ReaderController {
         commands.register("reader.toggleRememberPosition", "Toggle: Remember Reading Position", () -> {
             settings.setRememberPosition(!settings.isRememberPosition());
             saveAndApply();
-            status.setText("Remember reading position: " + (settings.isRememberPosition() ? "on" : "off"));
+            setStatus("Remember reading position: " + (settings.isRememberPosition() ? "on" : "off"));
         });
         commands.register("home.open", "Show Home", this::showHome);
         commands.register("library.open", "Show the Library", this::showLibrary);
@@ -439,7 +453,7 @@ final class ReaderController {
             if (lanUrl != null) {
                 showLanShareWindow(lanUrl);
             } else {
-                status.setText("Not sharing — start sharing from the Library first");
+                setStatus("Not sharing — start sharing from the Library first");
             }
         });
         commands.register("library.search", "Search the Online Catalog", () -> {
@@ -452,12 +466,12 @@ final class ReaderController {
         });
         commands.register("download.cancelAll", "Cancel All Downloads", () -> {
             downloads.jobs().forEach(DownloadManager.Job::cancel);
-            status.setText("Cancelled all downloads");
+            setStatus("Cancelled all downloads");
         });
         commands.register("view.toggleTorrent", "Toggle: Prefer BitTorrent for Large Archives", () -> {
             settings.setTorrentEnabled(!settings.isTorrentEnabled());
             saveAndApply();
-            status.setText("Prefer BitTorrent for large archives: " + (settings.isTorrentEnabled() ? "on" : "off")
+            setStatus("Prefer BitTorrent for large archives: " + (settings.isTorrentEnabled() ? "on" : "off")
                     + " (no torrent transport installed yet — HTTP is used either way)");
         });
         commands.register("app.quit", "Quit", () -> stage.close());
@@ -718,6 +732,10 @@ final class ReaderController {
         }
         Region statusGap = new Region();
         HBox.setHgrow(statusGap, Priority.ALWAYS);
+        // The line is a target: click it to read back what has scrolled past.
+        status.getStyleClass().add("status-message");
+        status.setOnMouseClicked(e -> messageLogPopup.toggle());
+        status.setTooltip(new javafx.scene.control.Tooltip("Messages from this session"));
         HBox statusBar = new HBox(18, status, statusGap, statusArchive, statusArriving, statusLan);
         statusBar.setPadding(new Insets(4, 10, 4, 10));
 
@@ -747,7 +765,7 @@ final class ReaderController {
                     library.replace(entry.withPinned(!entry.pinned()));
                     library.save();
                     libraryPane.activate();
-                    status.setText(entry.pinned() ? "Unpinned " + entry.title() : "Pinned " + entry.title());
+                    setStatus(entry.pinned() ? "Unpinned " + entry.title() : "Pinned " + entry.title());
                 });
         libraryPane.setRowActions(new LibraryPane.RowActions() {
             @Override
@@ -772,7 +790,7 @@ final class ReaderController {
 
             @Override
             public void verifyNow(LibraryEntry entry) {
-                status.setText("Verification on demand is not available yet for " + entry.title());
+                setStatus("Verification on demand is not available yet for " + entry.title());
             }
 
             @Override
@@ -845,9 +863,9 @@ final class ReaderController {
             library.save();
             librarySearch.remove(entry.file());
             libraryPane.activate();
-            status.setText("Deleted " + entry.fileName());
+            setStatus("Deleted " + entry.fileName());
         } catch (IOException e) {
-            status.setText("Could not delete " + entry.fileName() + ": " + e.getMessage());
+            setStatus("Could not delete " + entry.fileName() + ": " + e.getMessage());
         }
     }
 
@@ -860,7 +878,7 @@ final class ReaderController {
 
     private void reopenClosedTab() {
         if (closedTabs.isEmpty()) {
-            status.setText("No recently closed tabs");
+            setStatus("No recently closed tabs");
             return;
         }
         openRef(closedTabs.pop(), true);
@@ -882,7 +900,7 @@ final class ReaderController {
 
     private void closeCurrentArchive() {
         if (archive == null) {
-            status.setText("No archive is open");
+            setStatus("No archive is open");
             return;
         }
         closeArchive();
@@ -890,7 +908,7 @@ final class ReaderController {
         bookTitle = "";
         showLibrary();
         syncNavTabs();
-        status.setText("Closed the archive");
+        setStatus("Closed the archive");
     }
 
     private void revealArchivesFolder() {
@@ -898,13 +916,13 @@ final class ReaderController {
         try {
             java.nio.file.Files.createDirectories(folder);
         } catch (IOException e) {
-            status.setText("Could not open the archives folder: " + e.getMessage());
+            setStatus("Could not open the archives folder: " + e.getMessage());
             return;
         }
         if (hostServices != null) {
             hostServices.showDocument(folder.toUri().toString());
         } else {
-            status.setText(folder.toString());
+            setStatus(folder.toString());
         }
     }
 
@@ -913,11 +931,11 @@ final class ReaderController {
                 .filter(job -> !job.snapshot().state().isTerminal())
                 .toList();
         if (active.isEmpty()) {
-            status.setText("Nothing is downloading");
+            setStatus("Nothing is downloading");
             return;
         }
         active.forEach(action);
-        status.setText(message);
+        setStatus(message);
     }
 
     private void showAbout() {
@@ -1118,7 +1136,7 @@ final class ReaderController {
             return;
         }
         if (!java.nio.file.Files.isRegularFile(ref.archiveFile())) {
-            status.setText("That archive is no longer on this device: "
+            setStatus("That archive is no longer on this device: "
                     + ref.archiveFile().getFileName());
             return;
         }
@@ -1351,15 +1369,15 @@ final class ReaderController {
     private void toggleBookmark() {
         ArticleRef ref = currentRef();
         if (ref == null) {
-            status.setText("Open an article first");
+            setStatus("Open an article first");
             return;
         }
         if (bookmarks.contains(ref)) {
             bookmarks.remove(ref);
-            status.setText("Removed bookmark");
+            setStatus("Removed bookmark");
         } else {
             bookmarks.addLast(ref);
-            status.setText("Bookmarked " + ref.title());
+            setStatus("Bookmarked " + ref.title());
         }
         bookmarks.save();
         refreshBookmarkList();
@@ -1371,8 +1389,21 @@ final class ReaderController {
             bookmarks.save();
             refreshBookmarkList();
             updateBookmarkButton();
-            status.setText("Removed bookmark");
+            setStatus("Removed bookmark");
         }
+    }
+
+    /**
+     * Announces something in the status line, and keeps it.
+     *
+     * <p>Every message goes through here rather than at the label, because the line shows one
+     * thing at a time and never clears it — each is replaced by the next. A failure that lands
+     * while someone is reading is overwritten a moment later by something routine and is gone.
+     * Recording it costs nothing and makes the line clickable.
+     */
+    void setStatus(String message) {
+        status.setText(message);
+        messageLog.add(message);
     }
 
     /** A filled star means "this article is saved" — the one piece of state the tab row shows. */
@@ -1409,7 +1440,7 @@ final class ReaderController {
             javafx.scene.input.ClipboardContent content = new javafx.scene.input.ClipboardContent();
             content.putString(ref.title());
             javafx.scene.input.Clipboard.getSystemClipboard().setContent(content);
-            status.setText("Copied title");
+            setStatus("Copied title");
         });
         return List.of(bookmark, copyLink);
     }
@@ -1428,7 +1459,7 @@ final class ReaderController {
         history.clear();
         history.save();
         refreshHistoryList();
-        status.setText("History cleared");
+        setStatus("History cleared");
     }
 
     // ---------------------------------------------------------------- library / downloads
@@ -1628,7 +1659,7 @@ final class ReaderController {
      */
     private void checkForUpdates(boolean announce) {
         if (announce) {
-            status.setText("Checking for updates…");
+            setStatus("Checking for updates…");
         }
         List<String> installed = installedFileNames();
         long free = freeDiskBytes(dataDir);
@@ -1659,7 +1690,7 @@ final class ReaderController {
         availableUpdates = byFile;
         libraryPane.setUpdates(byFile, this::downloadUpdate);
         if (announce) {
-            status.setText(
+            setStatus(
                     updates.isEmpty()
                             ? "Everything is up to date"
                             : updates.size() + (updates.size() == 1 ? " update available" : " updates available"));
@@ -1668,7 +1699,7 @@ final class ReaderController {
 
     private void downloadUpdate(ZimEntry replacement) {
         downloads.enqueue(replacement);
-        status.setText("Downloading " + replacement.displayName());
+        setStatus("Downloading " + replacement.displayName());
         if (surface == Surface.LIBRARY) {
             libraryPane.activate(); // restart the sampler so the Arriving row appears now
         }
@@ -1680,8 +1711,7 @@ final class ReaderController {
             return;
         }
         availableUpdates.values().forEach(downloads::enqueue);
-        status.setText(
-                "Updating " + availableUpdates.size() + (availableUpdates.size() == 1 ? " archive" : " archives"));
+        setStatus("Updating " + availableUpdates.size() + (availableUpdates.size() == 1 ? " archive" : " archives"));
         showLibrary();
         libraryPane.activate();
     }
@@ -1722,11 +1752,11 @@ final class ReaderController {
                         Files.deleteIfExists(old.file());
                         library.remove(old.file());
                     } catch (IOException e) {
-                        status.setText("Could not delete " + old.fileName() + ": " + e.getMessage());
+                        setStatus("Could not delete " + old.fileName() + ": " + e.getMessage());
                     }
                 }
                 library.save();
-                status.setText("Removed " + names.size() + " superseded " + (names.size() == 1 ? "file" : "files")
+                setStatus("Removed " + names.size() + " superseded " + (names.size() == 1 ? "file" : "files")
                         + " · freed " + Formats.bytes(bytes));
             }
         }
@@ -1790,14 +1820,14 @@ final class ReaderController {
                 .filter(e -> lanSelection.isEmpty() || lanSelection.contains(e.file()))
                 .toList();
         if (entries.isEmpty()) {
-            status.setText("Nothing to share — the library has no verified archives");
+            setStatus("Nothing to share — the library has no verified archives");
             return null;
         }
         try {
             lanServer = new com.insula.server.LanServer(
                     new java.net.InetSocketAddress(0).getAddress(), settings.getLanPort());
         } catch (IOException e) {
-            status.setText("Could not start sharing: " + e.getMessage());
+            setStatus("Could not start sharing: " + e.getMessage());
             lanServer = null;
             return null;
         }
@@ -1813,7 +1843,7 @@ final class ReaderController {
                         opened);
                 sharedCount++;
             } catch (IOException e) {
-                status.setText("Could not share " + entry.fileName() + ": " + e.getMessage());
+                setStatus("Could not share " + entry.fileName() + ": " + e.getMessage());
             }
         }
         if (sharedCount == 0) {
@@ -1824,7 +1854,7 @@ final class ReaderController {
         String url = "http://" + host + ":" + lanServer.port() + "/";
         lanUrl = url;
         refreshLanRow();
-        status.setText("Sharing " + sharedCount + (sharedCount == 1 ? " archive at " : " archives at ") + url);
+        setStatus("Sharing " + sharedCount + (sharedCount == 1 ? " archive at " : " archives at ") + url);
         return url;
     }
 
@@ -1847,7 +1877,7 @@ final class ReaderController {
             }
         }
         lanArchives.clear();
-        status.setText("Stopped sharing");
+        setStatus("Stopped sharing");
     }
 
     private void refreshLanRow() {
@@ -1883,7 +1913,7 @@ final class ReaderController {
     private void chooseLanArchives() {
         List<com.insula.library.LibraryEntry> verified = library.verifiedEntries();
         if (verified.isEmpty()) {
-            status.setText("Nothing to share — the library has no verified archives");
+            setStatus("Nothing to share — the library has no verified archives");
             return;
         }
         VBox box = new VBox(6);
@@ -1935,7 +1965,7 @@ final class ReaderController {
             javafx.scene.input.ClipboardContent content = new javafx.scene.input.ClipboardContent();
             content.putString(url);
             javafx.scene.input.Clipboard.getSystemClipboard().setContent(content);
-            status.setText("Copied " + url);
+            setStatus("Copied " + url);
         });
         HBox urlRow = new HBox(8, urlField, copy);
         HBox.setHgrow(urlField, Priority.ALWAYS);
@@ -1987,10 +2017,10 @@ final class ReaderController {
     }
 
     private void repairArchive(Path quarantined) {
-        status.setText("Repairing " + quarantined.getFileName() + "…");
+        setStatus("Repairing " + quarantined.getFileName() + "…");
         downloads.repairQuarantined(
                 quarantined,
-                msg -> Platform.runLater(() -> status.setText(msg)),
+                msg -> Platform.runLater(() -> setStatus(msg)),
                 ok -> Platform.runLater(() -> {
                     refreshAttention();
                     if (surface == Surface.LIBRARY) {
@@ -2002,7 +2032,7 @@ final class ReaderController {
     private void repairAllQuarantined() {
         List<Path> files = listQuarantined();
         if (files.isEmpty()) {
-            status.setText("Nothing is quarantined");
+            setStatus("Nothing is quarantined");
             return;
         }
         showLibrary();
@@ -2020,9 +2050,9 @@ final class ReaderController {
             if (!Files.exists(zim) && listQuarantined().isEmpty()) {
                 com.insula.download.RecoverySidecar.delete(zim);
             }
-            status.setText("Deleted " + file.getFileName());
+            setStatus("Deleted " + file.getFileName());
         } catch (IOException e) {
-            status.setText("Could not delete " + file.getFileName() + ": " + e.getMessage());
+            setStatus("Could not delete " + file.getFileName() + ": " + e.getMessage());
         }
         refreshAttention();
     }
@@ -2175,6 +2205,14 @@ final class ReaderController {
         applySettings();
     }
 
+    /** The captured log, in its own window. Kept per controller so it reopens where it was. */
+    private void showDebugLog() {
+        if (debugLogWindow == null) {
+            debugLogWindow = new DebugLogWindow(stage, dataDir);
+        }
+        debugLogWindow.show();
+    }
+
     private void showSettings() {
         if (settingsDialog == null) {
             settingsDialog = new SettingsDialog(stage, settings, this::applySettings);
@@ -2185,6 +2223,7 @@ final class ReaderController {
                 }
             });
             settingsDialog.setCatalogInfo(this::catalogAgeLabel, () -> commands.run("catalog.refresh"));
+            settingsDialog.setDebugLogAction(this::showDebugLog);
         }
         settingsDialog.show();
     }
@@ -2221,7 +2260,7 @@ final class ReaderController {
         }
         Path file = chosen.toPath().toAbsolutePath();
         if (library.entries().stream().anyMatch(e -> e.file().equals(file))) {
-            status.setText(file.getFileName() + " is already in your library");
+            setStatus(file.getFileName() + " is already in your library");
             openZim(file);
             return;
         }
@@ -2230,13 +2269,13 @@ final class ReaderController {
             library.put(new com.insula.library.LibraryEntry(
                     file, title, Files.size(file), "", false, System.currentTimeMillis()));
             library.save();
-            status.setText("Added " + title + " to your library — left where it is, and not verified");
+            setStatus("Added " + title + " to your library — left where it is, and not verified");
             openZim(file);
             if (surface == Surface.LIBRARY) {
                 libraryPane.activate();
             }
         } catch (IOException e) {
-            status.setText("Could not read " + file.getFileName() + ": " + e.getMessage());
+            setStatus("Could not read " + file.getFileName() + ": " + e.getMessage());
         }
     }
 
@@ -2248,7 +2287,7 @@ final class ReaderController {
         List<StarterPicks.Resolved> picks = StarterPicks.resolve(
                 com.insula.catalog.CatalogGroups.group(catalogCache.entries()), freeDiskBytes(dataDir));
         if (picks.isEmpty()) {
-            status.setText("No starter picks — refresh the catalog first");
+            setStatus("No starter picks — refresh the catalog first");
             showCatalog();
             return;
         }
@@ -2380,7 +2419,7 @@ final class ReaderController {
         settings.setSidebarVisible(!settings.isSidebarVisible());
         settings.save();
         applySidebarLayout();
-        status.setText(settings.isSidebarVisible() ? "Sidebar shown" : "Sidebar hidden");
+        setStatus(settings.isSidebarVisible() ? "Sidebar shown" : "Sidebar hidden");
     }
 
     private void toggleSidebarSide() {
@@ -2389,7 +2428,7 @@ final class ReaderController {
         settings.setSidebarVisible(true);
         settings.save();
         applySidebarLayout();
-        status.setText("Sidebar moved to the " + (settings.isSidebarOnRight() ? "right" : "left"));
+        setStatus("Sidebar moved to the " + (settings.isSidebarOnRight() ? "right" : "left"));
     }
 
     /** A message too long for the status bar, which is where a list of file names belongs least. */
@@ -2441,7 +2480,7 @@ final class ReaderController {
             return;
         }
         if (!Files.isDirectory(target) || !Files.isWritable(target)) {
-            status.setText("Cannot use " + target + " — it is not a writable folder");
+            setStatus("Cannot use " + target + " — it is not a writable folder");
             return;
         }
 
@@ -2456,7 +2495,7 @@ final class ReaderController {
         }
         if (plan.isEmpty()) {
             applyArchivesFolder(target);
-            status.setText("New downloads will go to " + target);
+            setStatus("New downloads will go to " + target);
             return;
         }
 
@@ -2488,7 +2527,7 @@ final class ReaderController {
         if (answer == move) {
             moveArchives(plan);
         } else {
-            status.setText("New downloads will go to " + target + "; existing archives stayed put");
+            setStatus("New downloads will go to " + target + "; existing archives stayed put");
         }
     }
 
@@ -2510,7 +2549,7 @@ final class ReaderController {
      * still points where it still is.
      */
     private void moveArchives(ArchiveMove.Plan plan) {
-        status.setText("Moving " + plan.steps().size() + " archives…");
+        setStatus("Moving " + plan.steps().size() + " archives…");
         Thread mover = new Thread(
                 () -> {
                     int moved = 0;
@@ -2533,7 +2572,7 @@ final class ReaderController {
                     Platform.runLater(() -> {
                         libraryPane.activate();
                         if (failed.isEmpty()) {
-                            status.setText("Moved " + done + " archives");
+                            setStatus("Moved " + done + " archives");
                         } else {
                             longError(
                                     "Some archives could not be moved",
@@ -2550,7 +2589,7 @@ final class ReaderController {
     private void toggleTheme() {
         settings.setTheme(settings.isDark() ? Settings.THEME_LIGHT : Settings.THEME_DARK);
         saveAndApply();
-        status.setText("Theme: " + settings.getTheme());
+        setStatus("Theme: " + settings.getTheme());
     }
 
     private void adjustZoom(int deltaPercent) {
@@ -2560,7 +2599,7 @@ final class ReaderController {
     private void setZoom(int percent) {
         settings.setZoomPercent(percent);
         saveAndApply();
-        status.setText("Zoom: " + settings.getZoomPercent() + "%");
+        setStatus("Zoom: " + settings.getZoomPercent() + "%");
     }
 
     // ---------------------------------------------------------------- archive lifecycle
@@ -2620,7 +2659,7 @@ final class ReaderController {
             activateTab(tab);
         }
         if (restored.dropped() > 0) {
-            status.setText("Reopened " + restored.open().size() + " tab"
+            setStatus("Reopened " + restored.open().size() + " tab"
                     + (restored.open().size() == 1 ? "" : "s") + " · " + restored.dropped()
                     + " skipped, their archives are no longer on this device");
         }
@@ -2636,7 +2675,7 @@ final class ReaderController {
             token = server.register(archive);
             bookTitle = archive.metadata("Title").orElse(file.getFileName().toString());
             stage.setTitle(bookTitle + " — Insula");
-            status.setText(bookTitle + " · " + archive.entryCount() + " entries · " + file);
+            setStatus(bookTitle + " · " + archive.entryCount() + " entries · " + file);
             results.getItems().clear();
             searchField.clear();
             currentArchiveFile = file.toAbsolutePath();
@@ -2652,7 +2691,7 @@ final class ReaderController {
             goHome();
             searchField.requestFocus();
         } catch (IOException e) {
-            status.setText("Failed to open " + file.getFileName() + ": " + e.getMessage());
+            setStatus("Failed to open " + file.getFileName() + ": " + e.getMessage());
         }
     }
 
@@ -2680,10 +2719,10 @@ final class ReaderController {
             if (main.isPresent()) {
                 renderer.load(server.urlFor(token, main.get().fullPath()));
             } else {
-                status.setText(bookTitle + " · this archive declares no main page — use search");
+                setStatus(bookTitle + " · this archive declares no main page — use search");
             }
         } catch (IOException e) {
-            status.setText("Main page failed: " + e.getMessage());
+            setStatus("Main page failed: " + e.getMessage());
         }
     }
 
@@ -2775,7 +2814,7 @@ final class ReaderController {
             if (decoded == null) {
                 return;
             }
-            status.setText(bookTitle + " · " + decoded);
+            setStatus(bookTitle + " · " + decoded);
             // A table-of-contents click is a fragment navigation: the engine reports it exactly
             // like a real one, but the document has not changed. Doing article-changed work here
             // would exit Reader View on a heading click and restore a stored scroll position over
@@ -2796,7 +2835,7 @@ final class ReaderController {
     private void setReaderMode(ReaderTheme.Mode mode) {
         settings.setReaderMode(ReaderTheme.nameOf(mode));
         saveAndApply();
-        status.setText("Reader mode: " + ReaderTheme.nameOf(mode));
+        setStatus("Reader mode: " + ReaderTheme.nameOf(mode));
     }
 
     private void cycleReaderMode() {
@@ -2809,8 +2848,7 @@ final class ReaderController {
         int width = ReaderTheme.clampWidth(settings.getReaderWidth() + delta);
         settings.setReaderWidth(width);
         saveAndApply();
-        status.setText(
-                width >= ReaderTheme.MAX_WIDTH ? "Reader column: unconstrained" : "Reader column: " + width + " px");
+        setStatus(width >= ReaderTheme.MAX_WIDTH ? "Reader column: unconstrained" : "Reader column: " + width + " px");
     }
 
     // ---------------------------------------------------------------- unplayable media
@@ -2848,10 +2886,10 @@ final class ReaderController {
      */
     private void playExternally(String url) {
         if (hostServices == null) {
-            status.setText("No external player available");
+            setStatus("No external player available");
             return;
         }
-        status.setText("Opening the video outside Insula…");
+        setStatus("Opening the video outside Insula…");
         hostServices.showDocument(url);
     }
 
@@ -2936,11 +2974,11 @@ final class ReaderController {
                     });
                     showVideoOverlay(server.streamUrl(mediaStreamToken), videoTitleFor(sourceUrl));
                     renderer.runScript(MediaFallback.progressScript(boxId, 100, "Playing above"));
-                    status.setText("Playing");
+                    setStatus("Playing");
                 },
                 message -> {
                     renderer.runScript(MediaFallback.progressScript(boxId, 0, "Could not play this video"));
-                    status.setText(message);
+                    setStatus(message);
                 });
     }
 
@@ -3011,7 +3049,7 @@ final class ReaderController {
 
     private void toggleReaderView() {
         if (archive == null || surface != Surface.READER) {
-            status.setText("Open an article first");
+            setStatus("Open an article first");
             return;
         }
         if (readerView.isActive()) {
@@ -3024,11 +3062,11 @@ final class ReaderController {
         renderer.injectCss("");
         if (readerView.enter(bookTitle, readerViewPrefs())) {
             setReaderViewChrome(true);
-            status.setText("Reader View · " + ReaderView.readingTime(readerView.words()));
+            setStatus("Reader View · " + ReaderView.readingTime(readerView.words()));
         } else {
             renderer.injectCss(
                     ReaderTheme.css(ReaderTheme.modeOf(settings.getReaderMode()), settings.getReaderWidth(), 1.0));
-            status.setText("This page isn't suitable for Reader View");
+            setStatus("This page isn't suitable for Reader View");
         }
     }
 

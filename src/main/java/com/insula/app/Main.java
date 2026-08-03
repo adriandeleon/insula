@@ -16,6 +16,8 @@ public class Main extends Application {
     @Override
     public void start(Stage stage) throws Exception {
         Path configDir = configDir();
+        // Now that the config dir is known, the capture gets somewhere to survive a crash.
+        DebugLog.attachFile(configDir);
         Settings settings = Settings.load(configDir.resolve("settings.properties"));
         controller = new ReaderController(stage, getHostServices(), settings, configDir);
         Scene scene = new Scene(controller.root(), 1280, 840);
@@ -57,6 +59,9 @@ public class Main extends Application {
         // native pipeline contends with JavaFX for the single AppKit run loop and can hang the
         // app. Headless Java2D decodes purely in software, so the images still render.
         System.setProperty("java.awt.headless", "true");
+        // Before anything else can log: a packaged bundle has no visible stderr, so an error the
+        // app already explained is otherwise lost.
+        DebugLog.install();
         launch(args);
     }
 }

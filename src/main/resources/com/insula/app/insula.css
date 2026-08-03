@@ -352,3 +352,36 @@
     -fx-font-size: 12px;
 }
 .sidebar-control:hover { -fx-background-color: -insula-surface2; -fx-background-radius: 6; -fx-text-fill: -insula-ink; }
+
+/*
+ * The status line reads back. It is one message at a time and is never cleared — only replaced —
+ * so the click target is what keeps a failure from vanishing under the next routine notice.
+ */
+.status-message { -fx-cursor: hand; }
+.status-message:hover { -fx-text-fill: -insula-ink; -fx-underline: true; }
+
+.message-log-card {
+    -fx-background-color: -insula-surface;
+    -fx-background-radius: 10;
+    -fx-border-color: -insula-line;
+    -fx-border-radius: 10;
+    -fx-padding: 10;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.22), 22, 0.1, 0, 6);
+    /* Sits over the status line it belongs to, not centred in the window. */
+    -fx-translate-x: 10;
+    -fx-translate-y: -34;
+}
+.message-log-header { -fx-font-size: 12px; -fx-text-fill: -insula-faint; -fx-padding: 0 0 2 2; }
+.message-log-list { -fx-background-color: transparent; -fx-border-color: transparent; }
+.message-log-list .list-cell { -fx-background-color: transparent; -fx-padding: 3 6 3 6; }
+.message-log-list .list-cell:selected { -fx-background-color: -insula-accent-soft; -fx-background-radius: 5; }
+/* Monospaced digits would be better, but a fixed min width already stops the column jumping. */
+.message-log-time { -fx-font-size: 11px; -fx-text-fill: -insula-faint; }
+.message-log-text { -fx-font-size: 12px; -fx-text-fill: -insula-ink; }
+.message-log-empty { -fx-font-size: 12px; -fx-text-fill: -insula-faint; }
+
+/* The debug log is read for pasting into a bug report, so it is monospaced and plain. */
+.debug-log-text {
+    -fx-font-family: "monospace";
+    -fx-font-size: 12px;
+}
