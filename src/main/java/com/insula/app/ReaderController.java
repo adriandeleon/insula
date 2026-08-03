@@ -142,15 +142,14 @@ final class ReaderController {
     private Path currentArchiveFile;
     private String lastArticlePath;
 
-    private final ReaderTabs tabs = new ReaderTabs();
+    private final TabCoordinator tabCoordinator;
     private javafx.scene.control.MenuBar menuBar;
     private Region readerPane;
     private VBox tabContent;
-    private final javafx.scene.control.TabPane tabBar = new javafx.scene.control.TabPane();
+
     private final HBox restoredBar = new HBox(10);
     private final Label restoredLabel = new Label();
-    private final java.util.Map<javafx.scene.control.Tab, ReaderTabs.Tab> tabModel = new java.util.IdentityHashMap<>();
-    private boolean syncingTabs;
+
     private ArticleStore bookmarks;
     private ArticleStore history;
     private final ListView<ArticleRef> bookmarkList = new ListView<>();
@@ -204,6 +203,54 @@ final class ReaderController {
         this.library = Library.load(dataDir.resolve("library.properties"));
         this.positions = ReadingPositions.load(dataDir.resolve("reading.properties"));
         this.session = com.insula.reader.ReaderSession.load(dataDir.resolve("session.txt"));
+        this.tabCoordinator = new TabCoordinator(session, new TabCoordinator.Ops() {
+            @Override
+            public boolean loadArticle(ArticleRef ref) {
+                if (archive == null || !ref.archiveFile().equals(currentArchiveFile)) {
+                    openZim(ref.archiveFile());
+                }
+                if (archive == null) {
+                    return false;
+                }
+                renderer.load(server.urlFor(token, ref.articlePath()));
+                return true;
+            }
+
+            @Override
+            public double scrollPosition() {
+                return renderer.scrollPosition();
+            }
+
+            @Override
+            public void scrollTo(double fraction) {
+                renderer.scrollTo(fraction);
+            }
+
+            @Override
+            public boolean readerShowing() {
+                return surface == Surface.READER;
+            }
+
+            @Override
+            public void showLibrary() {
+                ReaderController.this.showLibrary();
+            }
+
+            @Override
+            public ArticleRef currentArticle() {
+                return currentRef();
+            }
+
+            @Override
+            public ArticleRef mainPage() {
+                return mainPageRef();
+            }
+
+            @Override
+            public void setStatus(String message) {
+                ReaderController.this.setStatus(message);
+            }
+        });
         this.bookmarks = ArticleStore.load(dataDir.resolve("bookmarks.properties"), MAX_BOOKMARKS);
         this.history = ArticleStore.load(dataDir.resolve("history.properties"), MAX_HISTORY);
         this.transports = new TransportSelector(new HttpMultiSourceTransport());
@@ -288,11 +335,11 @@ final class ReaderController {
     }
 
     int tabCountForTest() {
-        return tabs.count();
+        return tabCoordinator.count();
     }
 
     java.util.List<String> tabArchivesForTest() {
-        return tabs.tabs().stream()
+        return tabCoordinator.model().tabs().stream()
                 .map(t -> t.article() == null
                         ? ""
                         : t.article().archiveFile().getFileName().toString())
@@ -300,7 +347,7 @@ final class ReaderController {
     }
 
     int activeTabIndexForTest() {
-        return tabs.activeIndex();
+        return tabCoordinator.model().activeIndex();
     }
 
     boolean findBarShowingForTest() {
@@ -360,7 +407,7 @@ final class ReaderController {
     }
 
     javafx.scene.control.TabPane tabBarForTest() {
-        return tabBar;
+        return tabCoordinator.strip();
     }
 
     void openRefForTest(ArticleRef ref, boolean inNewTab) {
@@ -438,10 +485,10 @@ final class ReaderController {
             setStatus("Reopen last archive on startup: " + (settings.isReopenLastArchive() ? "on" : "off"));
         });
         commands.register("readerview.toggle", "Toggle Reader View", this::toggleReaderView);
-        commands.register("tab.new", "New Tab", this::newTab);
-        commands.register("tab.close", "Close Tab", this::closeActiveTab);
-        commands.register("tab.next", "Next Tab", () -> cycleTab(1));
-        commands.register("tab.previous", "Previous Tab", () -> cycleTab(-1));
+        commands.register("tab.new", "New Tab", tabCoordinator::newTab);
+        commands.register("tab.close", "Close Tab", tabCoordinator::closeActive);
+        commands.register("tab.next", "Next Tab", () -> tabCoordinator.cycle(1));
+        commands.register("tab.previous", "Previous Tab", () -> tabCoordinator.cycle(-1));
         commands.register("bookmark.toggle", "Bookmark This Article", this::toggleBookmark);
         commands.register("bookmark.show", "Show Bookmarks", () -> {
             showReader();
@@ -479,7 +526,7 @@ final class ReaderController {
         });
         commands.register("home.open", "Show Home", this::showHome);
         commands.register("library.open", "Show the Library", this::showLibrary);
-        commands.register("tab.reopen", "Reopen Closed Tab", this::reopenClosedTab);
+        commands.register("tab.reopen", "Reopen Closed Tab", tabCoordinator::reopenClosed);
         commands.register("file.closeArchive", "Close Archive", this::closeCurrentArchive);
         commands.register("library.reveal", "Reveal Archives Folder", this::revealArchivesFolder);
         commands.register(
@@ -725,19 +772,8 @@ final class ReaderController {
 
         // The tab strip sits directly over the article; the renderer is moved into whichever tab
         // is showing, because all tabs share one engine.
-        tabBar.setTabClosingPolicy(javafx.scene.control.TabPane.TabClosingPolicy.ALL_TABS);
-        tabBar.getSelectionModel().selectedItemProperty().addListener((obs, old, selected) -> {
-            if (!syncingTabs && selected != null) {
-                onTabSelected(selected);
-            }
-        });
-        tabBar.getTabs().addListener((javafx.collections.ListChangeListener<javafx.scene.control.Tab>) change -> {
-            while (change.next()) {
-                for (javafx.scene.control.Tab removed : change.getRemoved()) {
-                    onTabClosedByUser(removed);
-                }
-            }
-        });
+        // The strip's own listeners live in TabCoordinator; the window only places the node.
+        tabCoordinator.strip().setTabClosingPolicy(javafx.scene.control.TabPane.TabClosingPolicy.ALL_TABS);
 
         buildRestoredBar();
         // Back/forward ride the tab strip rather than the window toolbar: they are *this tab's*
@@ -777,7 +813,9 @@ final class ReaderController {
         // which is also the honest place for it, since this is the tab's own navigation.
         VBox.setVgrow(renderer.node(), Priority.ALWAYS);
         tabContent = new VBox(navRow, renderer.node());
-        javafx.scene.layout.BorderPane readerSide = new javafx.scene.layout.BorderPane(tabBar);
+        // The tabs share this one node, moving it into whichever tab is showing.
+        tabCoordinator.setTabContent(tabContent);
+        javafx.scene.layout.BorderPane readerSide = new javafx.scene.layout.BorderPane(tabCoordinator.strip());
         readerPane = readerSide;
         readerSplit = new SplitPane();
         readerSplit.setOrientation(Orientation.HORIZONTAL);
@@ -949,30 +987,8 @@ final class ReaderController {
     // ---------------------------------------------------------------- shell commands
 
     /** Closed tabs, newest first, so Ctrl+Shift+T walks back through them. */
-    private final java.util.Deque<ArticleRef> closedTabs = new java.util.ArrayDeque<>();
-
-    private static final int MAX_CLOSED_TABS = 20;
-
-    private void reopenClosedTab() {
-        if (closedTabs.isEmpty()) {
-            setStatus("No recently closed tabs");
-            return;
-        }
-        openRef(closedTabs.pop(), true);
-    }
-
-    private void rememberClosedTab(ArticleRef ref) {
-        if (ref == null) {
-            return;
-        }
-        closedTabs.push(ref);
-        while (closedTabs.size() > MAX_CLOSED_TABS) {
-            closedTabs.removeLast();
-        }
-    }
-
     int closedTabCountForTest() {
-        return closedTabs.size();
+        return tabCoordinator.closedCount();
     }
 
     private void closeCurrentArchive() {
@@ -1219,7 +1235,7 @@ final class ReaderController {
         }
         showReader();
         if (inNewTab) {
-            openTabFor(ref);
+            tabCoordinator.openTabFor(ref);
             return;
         }
         if (archive == null || !ref.archiveFile().equals(currentArchiveFile)) {
@@ -1228,27 +1244,6 @@ final class ReaderController {
         if (archive != null) {
             renderer.load(server.urlFor(token, ref.articlePath()));
         }
-    }
-
-    // ---- tab plumbing: the model decides, the strip follows ----
-
-    private void openTabFor(ArticleRef ref) {
-        ReaderTabs.Tab tab = tabs.open(ref, true);
-        syncTabBar();
-        activateTab(tab);
-    }
-
-    /**
-     * A new tab starts at the archive's main page, not at a copy of the current article — with no
-     * address bar, the front of the book is the only meaningful fresh start.
-     */
-    private void newTab() {
-        ArticleRef ref = mainPageRef();
-        if (ref == null) {
-            showLibrary(); // nothing to put in a tab yet; the library is where one gets filled
-            return;
-        }
-        openTabFor(ref);
     }
 
     private ArticleRef mainPageRef() {
@@ -1267,170 +1262,8 @@ final class ReaderController {
         return currentRef();
     }
 
-    private void closeActiveTab() {
-        if (tabs.count() == 0) {
-            return;
-        }
-        ReaderTabs.Tab closing = tabs.active();
-        if (closing != null) {
-            rememberClosedTab(closing.article());
-        }
-        ReaderTabs.Tab next = tabs.closeActive();
-        syncTabBar();
-        if (next == null) {
-            showLibrary();
-        } else {
-            activateTab(next);
-        }
-    }
-
-    private void cycleTab(int delta) {
-        ReaderTabs.Tab tab = delta > 0 ? tabs.next() : tabs.previous();
-        if (tab != null) {
-            syncTabBar();
-            activateTab(tab);
-        }
-    }
-
-    /** Rebuilds the strip from the model. The guard stops the rebuild firing selection events. */
-    private void syncTabBar() {
-        syncingTabs = true;
-        try {
-            tabModel.clear();
-            tabBar.getTabs().clear();
-            for (ReaderTabs.Tab tab : tabs.tabs()) {
-                javafx.scene.control.Tab uiTab = new javafx.scene.control.Tab();
-                // The label lives in the graphic so an archive chip can sit beside it; the text is
-                // left empty rather than duplicated, which would render the title twice.
-                Label label = new Label(tab.label());
-                String chip = tabs.chipFor(tab);
-                if (chip.isBlank()) {
-                    uiTab.setGraphic(label);
-                } else {
-                    Label chipLabel = new Label(chip);
-                    chipLabel.getStyleClass().addAll("pill", "pill-neutral");
-                    uiTab.setGraphic(new HBox(6, label, chipLabel));
-                }
-                tabModel.put(uiTab, tab);
-                tabBar.getTabs().add(uiTab);
-            }
-            if (tabs.activeIndex() >= 0 && tabs.activeIndex() < tabBar.getTabs().size()) {
-                javafx.scene.control.Tab selected = tabBar.getTabs().get(tabs.activeIndex());
-                selected.setContent(tabContent);
-                tabBar.getSelectionModel().select(selected);
-            }
-        } finally {
-            syncingTabs = false;
-        }
-        rememberSession();
-    }
-
-    private void onTabSelected(javafx.scene.control.Tab uiTab) {
-        ReaderTabs.Tab tab = tabModel.get(uiTab);
-        if (tab == null || tab == tabs.active()) {
-            return;
-        }
-        rememberScrollForActiveTab();
-        tabs.selectTab(tab);
-        moveRendererInto(uiTab);
-        activateTab(tab);
-    }
-
-    private void onTabClosedByUser(javafx.scene.control.Tab uiTab) {
-        if (syncingTabs) {
-            return;
-        }
-        ReaderTabs.Tab tab = tabModel.remove(uiTab);
-        if (tab == null) {
-            return;
-        }
-        rememberClosedTab(tab.article());
-        int index = tabs.tabs().indexOf(tab);
-        ReaderTabs.Tab next = tabs.close(index);
-        syncTabBar();
-        if (next == null) {
-            showLibrary();
-        } else {
-            activateTab(next);
-        }
-    }
-
-    /** All tabs share one engine, so the renderer node moves to whichever tab is showing. */
-    private void moveRendererInto(javafx.scene.control.Tab uiTab) {
-        for (javafx.scene.control.Tab other : tabBar.getTabs()) {
-            if (other != uiTab && other.getContent() == tabContent) {
-                other.setContent(null);
-            }
-        }
-        uiTab.setContent(tabContent);
-    }
-
-    /** Loads the tab's article and restores the scroll it recorded. */
-    private void activateTab(ReaderTabs.Tab tab) {
-        if (tab == null || tab.article() == null) {
-            return;
-        }
-        ArticleRef ref = tab.article();
-        if (archive == null || !ref.archiveFile().equals(currentArchiveFile)) {
-            openZim(ref.archiveFile());
-        }
-        if (archive == null) {
-            return;
-        }
-        renderer.load(server.urlFor(token, ref.articlePath()));
-        double scroll = tab.scroll();
-        if (scroll > 0) {
-            PauseTransition settle = new PauseTransition(Duration.millis(200));
-            settle.setOnFinished(e -> renderer.scrollTo(scroll));
-            settle.play();
-        }
-    }
-
-    /**
-     * Following a link inside a tab changes what that tab holds; without this the strip would keep
-     * showing the title the tab was opened with and a switch back would reload the wrong article.
-     */
-    private void syncActiveTabToCurrentArticle() {
-        ArticleRef ref = currentRef();
-        if (ref == null) {
-            return;
-        }
-        ReaderTabs.Tab active = tabs.active();
-        if (active == null) {
-            active = tabs.open(ref, true);
-            syncTabBar();
-            return;
-        }
-        active.setArticle(ref);
-        active.setScroll(0);
-        // The title moved, so the strip is rebuilt rather than poked: a new article can change
-        // whether chips are warranted at all.
-        syncTabBar();
-    }
-
-    /**
-     * Records the open set so a restart can reopen it. Called wherever the strip changes rather
-     * than only at shutdown, because a crash or a kill is exactly when losing the session stings.
-     */
-    private void rememberSession() {
-        session.set(
-                tabs.tabs().stream()
-                        .map(ReaderTabs.Tab::article)
-                        .filter(java.util.Objects::nonNull)
-                        .toList(),
-                tabs.activeIndex());
-        session.save();
-    }
-
-    private void rememberScrollForActiveTab() {
-        ReaderTabs.Tab active = tabs.active();
-        if (active != null && surface == Surface.READER) {
-            active.setScroll(renderer.scrollPosition());
-        }
-    }
-
     ReaderTabs tabsForTest() {
-        return tabs;
+        return tabCoordinator.model();
     }
 
     // ---------------------------------------------------------------- bookmarks and history
@@ -2382,35 +2215,20 @@ final class ReaderController {
     private void openFromLibrary(Path file) {
         showReader();
         Path target = file.toAbsolutePath();
-        List<ReaderTabs.Tab> open = tabs.tabs();
-        for (int i = 0; i < open.size(); i++) {
-            ArticleRef ref = open.get(i).article();
-            if (ref != null && target.equals(ref.archiveFile().toAbsolutePath())) {
-                selectTab(i);
-                return;
-            }
+        int already = tabCoordinator.indexOfArchive(target);
+        if (already >= 0) {
+            tabCoordinator.select(already);
+            return;
         }
-        rememberScrollForActiveTab();
+        tabCoordinator.rememberScroll();
         // Opened without navigating: goHome() would load the new front page into the renderer
         // while the previous tab is still the active one, and the location listener would rewrite
         // that tab to point at the archive the user did not ask to leave.
         openZim(target, false);
         ArticleRef ref = mainPageRef();
         if (ref != null) {
-            openTabFor(ref);
+            tabCoordinator.openTabFor(ref);
         }
-    }
-
-    /** Brings an already-open tab to the front, as a click on the strip would. */
-    private void selectTab(int index) {
-        ReaderTabs.Tab tab = tabs.at(index);
-        if (tab == null || tab == tabs.active()) {
-            return;
-        }
-        rememberScrollForActiveTab();
-        tabs.select(index);
-        syncTabBar();
-        activateTab(tab);
     }
 
     // ---------------------------------------------------------------- settings
@@ -2911,32 +2729,12 @@ final class ReaderController {
         }
         com.insula.reader.ReaderSession.Restored restored = session.restore(Files::isRegularFile);
         if (!restored.open().isEmpty()) {
-            restoreTabs(restored);
+            tabCoordinator.restore(restored, ref -> openRef(ref, true));
             return;
         }
         String last = settings.getLastArchive();
         if (!last.isBlank() && Files.isRegularFile(Path.of(last))) {
             openZim(Path.of(last));
-        }
-    }
-
-    private void restoreTabs(com.insula.reader.ReaderSession.Restored restored) {
-        // Opened in order so the strip matches last time, then the remembered one is selected —
-        // opening the active tab last would reorder the strip instead.
-        for (ArticleRef ref : restored.open()) {
-            openRef(ref, true);
-        }
-        int active = restored.activeIndex();
-        if (active >= 0 && active < tabs.count()) {
-            ReaderTabs.Tab tab = tabs.tabs().get(active);
-            tabs.selectTab(tab);
-            syncTabBar();
-            activateTab(tab);
-        }
-        if (restored.dropped() > 0) {
-            setStatus("Reopened " + restored.open().size() + " tab"
-                    + (restored.open().size() == 1 ? "" : "s") + " · " + restored.dropped()
-                    + " skipped, their archives are no longer on this device");
         }
     }
 
@@ -3112,7 +2910,7 @@ final class ReaderController {
             onArticleShown(decoded);
             recordHistory();
             updateBookmarkButton();
-            syncActiveTabToCurrentArticle();
+            tabCoordinator.syncActiveToCurrentArticle();
             refreshStatusBar();
         }
     }
@@ -3623,7 +3421,7 @@ final class ReaderController {
         network.stop();
         savePosition();
         try {
-            rememberSession();
+            tabCoordinator.rememberSession();
         } catch (RuntimeException e) {
             // a failed session save must never block shutdown
         }
@@ -3650,7 +3448,7 @@ final class ReaderController {
         closeVideoOverlay();
         transcodes.shutdown();
         try {
-            rememberScrollForActiveTab();
+            tabCoordinator.rememberScroll();
             bookmarks.save();
             history.save();
         } catch (RuntimeException e) {
