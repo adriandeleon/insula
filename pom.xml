@@ -54,6 +54,7 @@
         <twelvemonkeys.version>3.12.0</twelvemonkeys.version>
         <!-- Overridden per OS below; -Djpackage.type=app-image gives an unpackaged bundle. -->
         <jpackage.type>app-image</jpackage.type>
+        <lucene.version>10.1.0</lucene.version>
     </properties>
 
     <repositories>
@@ -122,6 +123,21 @@
             <groupId>com.twelvemonkeys.imageio</groupId>
             <artifactId>imageio-webp</artifactId>
             <version>${twelvemonkeys.version}</version>
+        </dependency>
+        <!--
+          Full-text search. Lucene 10 ships real JPMS module descriptors, so it links under jlink
+          with no moditect entry — which is the whole reason it is here rather than a binding to
+          the Xapian index inside the ZIM, which is C++ and would put us back where jlibtorrent is.
+        -->
+        <dependency>
+            <groupId>org.apache.lucene</groupId>
+            <artifactId>lucene-core</artifactId>
+            <version>${lucene.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.lucene</groupId>
+            <artifactId>lucene-analysis-common</artifactId>
+            <version>${lucene.version}</version>
         </dependency>
         <dependency>
             <!-- QR code generation for LAN sharing (MIT, a real JPMS module, zero deps). -->

@@ -7,6 +7,9 @@ module com.insula {
     requires jdk.httpserver;
     requires jdk.jsobject; // netscape.javascript.JSObject, for the media bridge
     requires io.nayuki.qrcodegen;
+    // Full-text search. Real JPMS modules, so no moditect entry is needed for the dist build.
+    requires org.apache.lucene.core;
+    requires org.apache.lucene.analysis.common;
     // Pure-Java WebP reader; found via the ImageIO service loader, so it must be resolved.
     requires com.twelvemonkeys.imageio.webp;
     requires java.logging;
