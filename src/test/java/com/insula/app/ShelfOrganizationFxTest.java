@@ -9,6 +9,7 @@ import javafx.stage.Stage;
 import com.insula.config.Settings;
 import com.insula.library.LibraryEntry;
 import com.insula.library.Shelf;
+import com.insula.library.ShelfColumns;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -202,6 +203,30 @@ class ShelfOrganizationFxTest {
                     List.of("en", "fr", "mul"),
                     controller.libraryPaneForTest().groupTitlesForTest(),
                     "the remembered grouping is applied on the next launch");
+            return null;
+        });
+    }
+
+    @Test
+    void aWideWindowSplitsTheShelfIntoColumnsWithoutLosingOrLosingTrackOfARow(@TempDir Path dir) {
+        // The rows move into per-column containers, so anything that reads the shelf by walking
+        // its children has to keep working — including the drag handles and the titles.
+        withShell(dir, (controller, settings) -> {
+            seed(controller, dir);
+            LibraryPane pane = controller.libraryPaneForTest();
+            // Custom, so the drag handles are expected to be present in both layouts.
+            pane.setArrangement(Shelf.GroupBy.NONE, Shelf.SortBy.CUSTOM);
+
+            List<String> oneColumn = pane.deviceTitlesForTest();
+            assertTrue(pane.dragHandlesShownForTest(), "handles before the split");
+            assertEquals(1, pane.shelfColumnsForTest(), "a 900px test window is one column");
+            assertEquals(3, pane.deviceRowsForTest());
+
+            pane.setShelfWidthForTest(2 * ShelfColumns.MIN_COLUMN_WIDTH + 200);
+            assertEquals(2, pane.shelfColumnsForTest(), "a wide one earns a second");
+            assertEquals(3, pane.deviceRowsForTest(), "every row is still there");
+            assertEquals(oneColumn, pane.deviceTitlesForTest(), "in the same order, read down the columns");
+            assertTrue(pane.dragHandlesShownForTest(), "and the handles are still findable");
             return null;
         });
     }

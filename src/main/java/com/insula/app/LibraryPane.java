@@ -32,6 +32,7 @@ import com.insula.download.DownloadManager;
 import com.insula.library.Library;
 import com.insula.library.LibraryEntry;
 import com.insula.library.Shelf;
+import com.insula.library.ShelfColumns;
 
 /**
  * Home. Everything on this screen answers one of three questions: what's arriving, what can I
@@ -164,7 +165,18 @@ final class LibraryPane {
 
         root = new ScrollPane(content);
         root.setFitToWidth(true);
+        // Re-lay out only when the column count actually changes, not on every pixel of a drag:
+        // rebuilding the shelf per resize event would rebuild every row dozens of times a second.
+        root.viewportBoundsProperty().addListener((obs, old, now) -> {
+            int columns = ShelfColumns.columnsFor(shelfWidth(), COLUMN_GAP);
+            if (columns != renderedColumns && !library.entries().isEmpty()) {
+                rebuildDevice();
+            }
+        });
     }
+
+    /** The column count the shelf is currently drawn at, so a resize can tell when it changed. */
+    private int renderedColumns = 1;
 
     Region node() {
         return root;
@@ -403,12 +415,13 @@ final class LibraryPane {
             updateGauge();
             return;
         }
+        int columns = ShelfColumns.columnsFor(shelfWidth(), COLUMN_GAP);
+        renderedColumns = columns;
         for (Shelf.Group group : Shelf.arrange(entries, groupBox.getValue(), sortBox.getValue())) {
-            Label heading = groupHeading(group.title() + "  (" + group.entries().size() + ")");
-            deviceRows.getChildren().add(heading);
-            for (LibraryEntry entry : group.entries()) {
-                deviceRows.getChildren().add(archiveRow(entry));
-            }
+            deviceRows
+                    .getChildren()
+                    .add(groupHeading(group.title() + "  (" + group.entries().size() + ")"));
+            deviceRows.getChildren().add(groupBody(group.entries(), columns));
         }
         updateGauge();
     }
@@ -455,6 +468,45 @@ final class LibraryPane {
         row.getStyleClass().add("rowcard");
         return row;
     }
+
+    /**
+     * A group's rows: one column as before, or several side by side on a wide window.
+     *
+     * <p>The single-column case returns a plain {@code VBox} so nothing about the existing layout
+     * — or the drag-and-drop that reads these children — changes on an ordinary window.
+     */
+    private Region groupBody(List<LibraryEntry> entries, int columns) {
+        if (columns <= 1) {
+            VBox single = new VBox(8);
+            entries.forEach(entry -> single.getChildren().add(archiveRow(entry)));
+            return single;
+        }
+        HBox side = new HBox(COLUMN_GAP);
+        for (List<LibraryEntry> slice : ShelfColumns.split(entries, columns)) {
+            VBox column = new VBox(8);
+            slice.forEach(entry -> column.getChildren().add(archiveRow(entry)));
+            // Equal share of the width, so the columns line up rather than sizing to their
+            // longest title.
+            HBox.setHgrow(column, Priority.ALWAYS);
+            column.setMaxWidth(Double.MAX_VALUE);
+            column.setMinWidth(0);
+            side.getChildren().add(column);
+        }
+        return side;
+    }
+
+    /** Width available to the shelf itself, once the scroll pane's padding is taken off. */
+    private double shelfWidth() {
+        if (shelfWidthOverride > 0) {
+            return shelfWidthOverride;
+        }
+        double viewport = root == null ? 0 : root.getViewportBounds().getWidth();
+        return viewport - content.getPadding().getLeft() - content.getPadding().getRight();
+    }
+
+    private double shelfWidthOverride;
+
+    private static final double COLUMN_GAP = 14;
 
     private Region archiveRow(LibraryEntry entry) {
         StackPane icon = monogram(entry.title());
@@ -636,9 +688,35 @@ final class LibraryPane {
         return arrivingRows.getChildren().size();
     }
 
+    /** Every archive row on the shelf, whatever column container it now sits in. */
+    private java.util.stream.Stream<HBox> archiveRowsForTest() {
+        return deviceRows.getChildren().stream()
+                .flatMap(LibraryPane::rowsUnder)
+                .filter(n -> n.getStyleClass().contains("rowcard"))
+                .map(HBox.class::cast);
+    }
+
+    private static java.util.stream.Stream<javafx.scene.Node> rowsUnder(javafx.scene.Node node) {
+        if (node instanceof HBox box && box.getStyleClass().contains("rowcard")) {
+            return java.util.stream.Stream.of(node);
+        }
+        return node instanceof javafx.scene.Parent parent
+                ? parent.getChildrenUnmodifiable().stream().flatMap(LibraryPane::rowsUnder)
+                : java.util.stream.Stream.of();
+    }
+
     int deviceRowsForTest() {
-        return (int)
-                deviceRows.getChildren().stream().filter(n -> n instanceof HBox).count();
+        return (int) archiveRowsForTest().count();
+    }
+
+    int shelfColumnsForTest() {
+        return renderedColumns;
+    }
+
+    /** Pretends the viewport is this wide and re-lays out, since a test window is never one. */
+    void setShelfWidthForTest(double width) {
+        shelfWidthOverride = width;
+        rebuildDevice();
     }
 
     String gaugeTextForTest() {
@@ -655,8 +733,7 @@ final class LibraryPane {
 
     /** Archive titles in display order, so a sort can be asserted rather than inferred. */
     List<String> deviceTitlesForTest() {
-        return deviceRows.getChildren().stream()
-                .filter(n -> n instanceof HBox)
+        return archiveRowsForTest()
                 .map(n -> ((HBox) n)
                         .getChildren().stream()
                                 .filter(c -> c instanceof VBox)
@@ -667,8 +744,7 @@ final class LibraryPane {
     }
 
     boolean dragHandlesShownForTest() {
-        return deviceRows.getChildren().stream()
-                .filter(n -> n instanceof HBox)
+        return archiveRowsForTest()
                 .anyMatch(n -> ((HBox) n)
                         .getChildren().stream()
                                 .anyMatch(

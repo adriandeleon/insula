@@ -237,20 +237,18 @@ public final class TorrentTransport implements DownloadTransport {
         }
 
         /**
-         * Waits for the torrent to actually be in the session before anything touches its handle.
+         * Waits for the torrent to be in the session before anything touches its handle.
          *
-         * <p>{@code SessionManager.download} is <b>asynchronous</b> — libtorrent adds the torrent
-         * on its own thread and publishes an alert — so the handle {@code find} returns
-         * immediately afterwards may not be backed by a live torrent yet. Every call on such a
-         * handle ({@code addUrlSeed}, {@code status}) reaches straight into native code, where an
-         * invalid handle is undefined behaviour rather than an exception: the process dies with a
-         * SIGSEGV that no Java catch block can see, taking the window and every other download
-         * with it.
+         * <p>The handle must come from {@code find}, <b>not</b> from the {@code add_torrent}
+         * alert, however much the alert looks like the tidier source. Measured, same session and
+         * same torrent: a {@code find} handle survives {@code status()} indefinitely, while a
+         * handle kept from the alert segfaults within a few calls — libtorrent owns that
+         * {@code torrent_handle} and frees it when the alert batch is recycled, so holding on to
+         * it is a use-after-free. An attempt to "harden" this by switching to the alert made the
+         * crash reproducible in seconds; the experiment is the only reason that is known.
          *
-         * <p>It is a race, so it usually wins — which is exactly what makes it worth a guard
-         * rather than a comment. A busy launch (session restore, an article rendering, the catalog
-         * parsing) is when the add is slowest relative to the find, and that is when a download
-         * is most likely to be starting.
+         * <p>{@code download} is asynchronous, so the wait itself is still needed: the handle is
+         * only safe to drive once the torrent is actually attached to the session.
          */
         private TorrentHandle awaitHandle(SessionManager manager, TorrentInfo info)
                 throws IOException, InterruptedException {
@@ -260,8 +258,6 @@ public final class TorrentTransport implements DownloadTransport {
                     throw new InterruptedException("cancelled while adding the torrent");
                 }
                 TorrentHandle handle = manager.find(info);
-                // Both checks: isValid says the handle points at something, inSession says that
-                // something is attached to this session and safe to drive.
                 if (handle != null && handle.isValid() && handle.inSession()) {
                     return handle;
                 }
