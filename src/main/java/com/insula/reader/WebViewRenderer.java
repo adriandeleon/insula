@@ -2,9 +2,16 @@ package com.insula.reader;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.List;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 import javafx.scene.Node;
+import javafx.scene.control.ContextMenu;
+import javafx.scene.control.MenuItem;
+import javafx.scene.control.SeparatorMenuItem;
+import javafx.scene.input.Clipboard;
+import javafx.scene.input.ClipboardContent;
 import javafx.scene.web.WebEngine;
 import javafx.scene.web.WebHistory;
 import javafx.scene.web.WebView;
@@ -21,9 +28,58 @@ import javafx.scene.web.WebView;
 public final class WebViewRenderer implements ArticleRenderer {
 
     private final WebView webView = new WebView();
+    private final ContextMenu menu = new ContextMenu();
+    private Supplier<List<MenuItem>> extraItems = List::of;
 
     public WebViewRenderer() {
         webView.getEngine().setJavaScriptEnabled(true);
+        installContextMenu();
+    }
+
+    /**
+     * Our own right-click menu in place of WebView's.
+     *
+     * <p>WebView's built-in menu is disabled rather than added to, because JavaFX offers no way to
+     * add to it. That means Copy has to be reimplemented here — dropping it to gain a bookmark
+     * item would be a bad trade in a reader, where copying a passage is the thing people do most.
+     */
+    private void installContextMenu() {
+        webView.setContextMenuEnabled(false);
+        webView.setOnContextMenuRequested(e -> {
+            menu.getItems().clear();
+
+            String selection = selectedText();
+            MenuItem copy = new MenuItem("Copy");
+            copy.setDisable(selection.isEmpty());
+            copy.setOnAction(a -> {
+                ClipboardContent content = new ClipboardContent();
+                content.putString(selection);
+                Clipboard.getSystemClipboard().setContent(content);
+            });
+            MenuItem selectAll = new MenuItem("Select All");
+            selectAll.setOnAction(a -> run("document.execCommand('selectAll')"));
+            menu.getItems().addAll(copy, selectAll);
+
+            List<MenuItem> extra = extraItems.get();
+            if (!extra.isEmpty()) {
+                menu.getItems().add(new SeparatorMenuItem());
+                menu.getItems().addAll(extra);
+            }
+            menu.show(webView, e.getScreenX(), e.getScreenY());
+            e.consume();
+        });
+        // Any click outside dismisses it; without this the menu survives a click into the article.
+        webView.setOnMousePressed(e -> menu.hide());
+    }
+
+    private String selectedText() {
+        Object value = run("window.getSelection().toString()");
+        return value instanceof String text ? text : "";
+    }
+
+    @Override
+    public void setContextMenuItems(Supplier<List<MenuItem>> items) {
+        this.extraItems = items == null ? List::of : items;
     }
 
     /** Escape hatch for code that genuinely needs the engine; keep uses few. */

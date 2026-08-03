@@ -1,8 +1,11 @@
 package com.insula.reader;
 
+import java.util.List;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 import javafx.scene.Node;
+import javafx.scene.control.MenuItem;
 
 /**
  * The surface that displays an article.
@@ -49,6 +52,18 @@ public interface ArticleRenderer {
 
     /** Called with every location the view navigates to, including in-page links. */
     void setOnLocationChanged(Consumer<String> listener);
+
+    /**
+     * Items to offer when the article is right-clicked, resolved each time the menu opens.
+     *
+     * <p>Resolved on open rather than set once, because what the menu should say depends on the
+     * page currently showing — "Bookmark this page" and "Remove bookmark" are the same item.
+     *
+     * <p>The renderer owns the menu rather than the caller installing a handler on {@link #node()}:
+     * an engine that draws its own menu (a real browser, out of process) can only merge these in
+     * itself, and the interface exists so that swap stays possible.
+     */
+    void setContextMenuItems(Supplier<List<MenuItem>> items);
 
     /** Releases the engine's resources. */
     void dispose();

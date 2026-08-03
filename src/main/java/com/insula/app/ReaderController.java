@@ -260,6 +260,11 @@ final class ReaderController {
 
     // ------------------------------------------------------- package-visible test seams
 
+    /** The article right-click menu, so a test can read what it would offer. */
+    List<javafx.scene.control.MenuItem> readerMenuItemsForTest() {
+        return readerMenuItems();
+    }
+
     CommandRegistry commandsForTest() {
         return commands;
     }
@@ -518,6 +523,9 @@ final class ReaderController {
         bookmarkButton.setOnAction(e -> commands.run("bookmark.toggle"));
         bookmarkButton.setTooltip(new javafx.scene.control.Tooltip("Bookmark this article (Ctrl+D)"));
         bookmarkButton.setDisable(true);
+        for (Button b : List.of(readerViewButton, typePanelButton, bookmarkButton)) {
+            b.getStyleClass().add("tab-action");
+        }
         readerViewButton.setOnAction(e -> commands.run("readerview.toggle"));
         readerViewButton.setDisable(true);
         readerViewButton.setTooltip(new javafx.scene.control.Tooltip("Reader View (Ctrl+Alt+R)"));
@@ -566,15 +574,11 @@ final class ReaderController {
         // Open, Home and Settings are gone: the File menu opens archives and Settings, the
         // surface switcher already carries Home, and back/forward moved onto the tab strip where
         // they belong — they are that tab's history, not the window's.
-        ToolBar toolbar = new ToolBar(
-                surfaces,
-                leftGap,
-                omniField,
-                rightGap,
-                readerViewButton,
-                typePanelButton,
-                bookmarkButton,
-                paletteButton);
+        // Reader View, the type panel and the bookmark star are not here: they act on the article
+        // in the showing tab, so they live on that tab's own navigation row beside back/forward.
+        // On the window toolbar they sat next to Home and Library, where they looked like window
+        // chrome and were disabled most of the time.
+        ToolBar toolbar = new ToolBar(surfaces, leftGap, omniField, rightGap, paletteButton);
 
         searchField.setPromptText("Search titles (Ctrl+L)");
         searchField.textProperty().addListener((obs, old, text) -> {
@@ -673,7 +677,11 @@ final class ReaderController {
         HBox tabNav = new HBox(2, backButton, forwardButton);
         tabNav.setAlignment(Pos.CENTER_LEFT);
         HBox.setHgrow(restoredBar, Priority.ALWAYS);
-        HBox navRow = new HBox(8, tabNav, restoredBar);
+        // The article's own controls, at the far end of the same row: everything here acts on the
+        // page this tab is showing.
+        HBox tabActions = new HBox(4, readerViewButton, typePanelButton, bookmarkButton);
+        tabActions.setAlignment(Pos.CENTER_RIGHT);
+        HBox navRow = new HBox(8, tabNav, restoredBar, tabActions);
         navRow.setAlignment(Pos.CENTER_LEFT);
         navRow.getStyleClass().add("tab-nav-row");
 
@@ -689,6 +697,7 @@ final class ReaderController {
         SplitPane.setResizableWithParent(sidebar, false);
         applySidebarLayout();
 
+        renderer.setContextMenuItems(this::readerMenuItems);
         renderer.setOnLocationChanged(location -> {
             onLocationChanged(location);
             updateNavButtons();
@@ -1366,12 +1375,43 @@ final class ReaderController {
         }
     }
 
-    /** A filled star means "this article is saved" — the one piece of state the toolbar shows. */
+    /** A filled star means "this article is saved" — the one piece of state the tab row shows. */
     private void updateBookmarkButton() {
         ArticleRef ref = currentRef();
         boolean saved = ref != null && bookmarks.contains(ref);
-        bookmarkButton.setText(saved ? "★" : "☆");
+        bookmarkButton.setText(saved ? "\u2605" : "\u2606");
         bookmarkButton.setDisable(ref == null);
+        // Colour as well as fill: a filled and an outlined star are hard to tell apart at a glance
+        // in the same grey.
+        bookmarkButton.getStyleClass().remove("bookmark-on");
+        if (saved) {
+            bookmarkButton.getStyleClass().add("bookmark-on");
+        }
+    }
+
+    /**
+     * What the article's right-click menu offers beyond copying.
+     *
+     * <p>Built fresh on each open so it can say which of the two things it does: an item labelled
+     * "Bookmark this page" that silently removes one is worse than no item.
+     */
+    private List<javafx.scene.control.MenuItem> readerMenuItems() {
+        ArticleRef ref = currentRef();
+        if (ref == null) {
+            return List.of();
+        }
+        boolean saved = bookmarks.contains(ref);
+        javafx.scene.control.MenuItem bookmark =
+                new javafx.scene.control.MenuItem(saved ? "Remove Bookmark" : "Bookmark This Page");
+        bookmark.setOnAction(e -> commands.run("bookmark.toggle"));
+        javafx.scene.control.MenuItem copyLink = new javafx.scene.control.MenuItem("Copy Article Title");
+        copyLink.setOnAction(e -> {
+            javafx.scene.input.ClipboardContent content = new javafx.scene.input.ClipboardContent();
+            content.putString(ref.title());
+            javafx.scene.input.Clipboard.getSystemClipboard().setContent(content);
+            status.setText("Copied title");
+        });
+        return List.of(bookmark, copyLink);
     }
 
     private void recordHistory() {

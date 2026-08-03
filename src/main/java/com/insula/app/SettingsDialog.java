@@ -119,7 +119,10 @@ final class SettingsDialog {
         this.onApply = onApply;
         stage.initOwner(owner);
         stage.setTitle("Settings — Insula");
-        Scene scene = new Scene(build(), 780, 560);
+        // 1014x728: the master-detail pages have grown — External Tools, the archives folder and
+        // the per-server rows all want a form wider than their labels — and at 780x560 the detail
+        // side was scrolling for want of about one field.
+        Scene scene = new Scene(build(), 1014, 728);
         scene.getStylesheets().add(getClass().getResource("insula.css").toExternalForm());
         stage.setScene(scene);
     }

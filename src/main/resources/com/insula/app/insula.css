@@ -313,15 +313,36 @@
     -fx-border-color: transparent;
 }
 
-/* Back/forward on the tab strip: quiet, so they read as part of the strip rather than chrome. */
+/*
+ * Back/forward on the tab strip. Quiet, but not invisible: at 13px in the muted grey these were
+ * two faint marks that people did not find. The arrows are the most-used control on the row, so
+ * they get a size and a colour that say so, and a hit area big enough to aim at.
+ */
 .tab-nav {
     -fx-background-color: transparent;
-    -fx-text-fill: -insula-muted;
-    -fx-padding: 2 7 2 7;
-    -fx-font-size: 13px;
+    -fx-text-fill: -insula-ink;
+    -fx-padding: 2 10 4 10;
+    -fx-font-size: 20px;
+    -fx-min-width: 34;
 }
 .tab-nav:hover { -fx-background-color: -insula-surface2; -fx-background-radius: 6; }
-.tab-nav:disabled { -fx-opacity: 0.35; }
+.tab-nav:disabled { -fx-opacity: 0.3; }
+
+/*
+ * The article's own actions at the other end of the same row: Reader View, type, bookmark. Text
+ * scaled to the row rather than the toolbar they came from, and the star a size up so a filled
+ * one is legible as state.
+ */
+.tab-action {
+    -fx-background-color: transparent;
+    -fx-text-fill: -insula-muted;
+    -fx-padding: 2 9 2 9;
+    -fx-font-size: 13px;
+    -fx-background-radius: 6;
+}
+.tab-action:hover { -fx-background-color: -insula-surface2; -fx-text-fill: -insula-ink; }
+.tab-action:disabled { -fx-opacity: 0.35; }
+.tab-action.bookmark-on { -fx-text-fill: -insula-accent; }
 
 /* The sidebar's own show/move controls. */
 .sidebar-control {
