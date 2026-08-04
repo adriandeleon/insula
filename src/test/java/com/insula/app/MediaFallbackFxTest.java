@@ -45,9 +45,28 @@ class MediaFallbackFxTest {
     static void openRenderer() throws Exception {
         server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
         server.createContext("/", exchange -> {
+            // Only the article exists. A catch-all that answered every path with the page's own
+            // HTML also answered `videos/…/video.webm` with it, so the engine fetched the source
+            // and handed its media stack HTML bytes labelled text/html. That is not a shape a
+            // real archive can produce — the ZIM server returns the media or nothing — and on
+            // Windows it killed the whole JVM: EXCEPTION_ACCESS_VIOLATION in native WebKit code,
+            // immediately after ERROR_MEDIA_CORRUPTED, taking the surefire fork with it. Nothing
+            // in these tests needs the source to resolve: canPlayType judges the type attribute,
+            // and the Play button carries the URL without ever fetching it.
+            boolean article = "/article".equals(exchange.getRequestURI().getPath());
+            boolean head = "HEAD".equals(exchange.getRequestMethod());
+            if (!article) {
+                exchange.sendResponseHeaders(404, -1);
+                exchange.close();
+                return;
+            }
             byte[] body = page.getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().set("Content-Type", "text/html; charset=UTF-8");
-            exchange.sendResponseHeaders(200, body.length);
+            exchange.sendResponseHeaders(200, head ? -1 : body.length);
+            if (head) {
+                exchange.close();
+                return;
+            }
             try (OutputStream out = exchange.getResponseBody()) {
                 out.write(body);
             }

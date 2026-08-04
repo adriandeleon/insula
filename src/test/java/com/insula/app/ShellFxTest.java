@@ -5,6 +5,9 @@ import java.nio.file.Path;
 import java.util.List;
 
 import javafx.scene.Scene;
+import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyCodeCombination;
+import javafx.scene.input.KeyCombination;
 import javafx.stage.Stage;
 
 import com.insula.config.Settings;
@@ -88,19 +91,31 @@ class ShellFxTest {
         });
     }
 
+    private static KeyCombination shortcut(KeyCode code, KeyCombination.Modifier... extra) {
+        KeyCombination.Modifier[] modifiers = new KeyCombination.Modifier[extra.length + 1];
+        modifiers[0] = KeyCombination.SHORTCUT_DOWN;
+        System.arraycopy(extra, 0, modifiers, 1, extra.length);
+        return new KeyCodeCombination(code, modifiers);
+    }
+
     @Test
     void theKitsKeyMapIsWhatIsBound(@TempDir Path dir) {
+        // Asserted as KeyCombinations rather than display text: SHORTCUT_DOWN is the platform's
+        // own modifier, so getDisplayText renders "Ctrl+1" on Windows and Linux and "⌘1" on
+        // macOS. Pinning either spelling makes the test fail on the other platform while the
+        // binding it is really about — which key opens which surface — is identical everywhere.
+        // displayFor's own contract is covered platform-independently in ReaderShellFxTest.
         withShell(dir, controller -> {
             var keys = controller.keybindingsForTest();
-            assertEquals("Ctrl+1", keys.displayFor("home.open"));
-            assertEquals("Ctrl+2", keys.displayFor("library.open"));
-            assertEquals("Ctrl+3", keys.displayFor("catalog.open"));
-            assertEquals("Ctrl+B", keys.displayFor("bookmark.show"), "B opens the bookmarks panel");
-            assertEquals("Ctrl+H", keys.displayFor("history.show"));
-            assertEquals("Ctrl+F", keys.displayFor("search.focus"), "F searches within the archive");
-            assertEquals("Ctrl+R", keys.displayFor("catalog.refresh"));
-            assertEquals("Ctrl+L", keys.displayFor("lan.share"), "L shares on the network, not search");
-            assertEquals("Ctrl+Shift+T", keys.displayFor("tab.reopen"));
+            assertEquals(shortcut(KeyCode.DIGIT1), keys.combinationFor("home.open"));
+            assertEquals(shortcut(KeyCode.DIGIT2), keys.combinationFor("library.open"));
+            assertEquals(shortcut(KeyCode.DIGIT3), keys.combinationFor("catalog.open"));
+            assertEquals(shortcut(KeyCode.B), keys.combinationFor("bookmark.show"), "B opens the bookmarks panel");
+            assertEquals(shortcut(KeyCode.H), keys.combinationFor("history.show"));
+            assertEquals(shortcut(KeyCode.F), keys.combinationFor("search.focus"), "F searches within the archive");
+            assertEquals(shortcut(KeyCode.R), keys.combinationFor("catalog.refresh"));
+            assertEquals(shortcut(KeyCode.L), keys.combinationFor("lan.share"), "L shares on the network, not search");
+            assertEquals(shortcut(KeyCode.T, KeyCombination.SHIFT_DOWN), keys.combinationFor("tab.reopen"));
             return null;
         });
     }
