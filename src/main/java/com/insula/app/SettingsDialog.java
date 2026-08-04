@@ -109,6 +109,8 @@ final class SettingsDialog {
     private Path configFolder;
     private Runnable onRevealConfig = () -> {};
     private Runnable onShowDebugLog = () -> {};
+    private java.util.function.Supplier<String> indexUsage = () -> "";
+    private Runnable onRevealIndexes = () -> {};
     private Supplier<String> catalogAge = () -> "";
     private Runnable onRefreshCatalog = () -> {};
 
@@ -141,6 +143,12 @@ final class SettingsDialog {
     void setConfigFolder(Path folder, Runnable onReveal) {
         this.configFolder = folder;
         this.onRevealConfig = onReveal == null ? () -> {} : onReveal;
+    }
+
+    /** What the text indexes cost, and how to get at them; supplied by the controller. */
+    void setIndexInfo(java.util.function.Supplier<String> usage, Runnable onReveal) {
+        this.indexUsage = usage == null ? () -> "" : usage;
+        this.onRevealIndexes = onReveal == null ? () -> {} : onReveal;
     }
 
     /** Opening the debug log needs a window to own it, which only the controller has. */
@@ -612,6 +620,11 @@ final class SettingsDialog {
         configPath.getStyleClass().add("srow-desc");
         Button open = new Button("Open folder");
         open.setOnAction(e -> onRevealConfig.run());
+        Label indexes = new Label();
+        indexes.getStyleClass().add("srow-desc");
+        indexes.textProperty().bind(javafx.beans.binding.Bindings.createStringBinding(indexUsage::get));
+        Button revealIndexes = new Button("Open folder");
+        revealIndexes.setOnAction(e -> onRevealIndexes.run());
         Button debugLog = new Button("Show debug log…");
         debugLog.setOnAction(e -> onShowDebugLog.run());
         return page(
@@ -621,6 +634,12 @@ final class SettingsDialog {
                 note("Settings, the library index, bookmarks, history and reading positions are all plain "
                         + "text files in this folder. Archives are ordinary .zim files — copy them anywhere, "
                         + "hand one to someone with no internet at all, and they open exactly as they do here."),
+                card(row(
+                        "Text indexes",
+                        "Built per archive, only when you ask. Deleting one costs nothing but the "
+                                + "time to build it again.",
+                        indexes,
+                        revealIndexes)),
                 card(row(
                         "Debug log",
                         "What the app has logged this session, including anything that failed.",

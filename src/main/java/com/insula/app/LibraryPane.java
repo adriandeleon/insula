@@ -111,6 +111,16 @@ final class LibraryPane {
         default void reveal(LibraryEntry entry) {}
 
         default void delete(LibraryEntry entry) {}
+
+        /** Builds, or deletes, this archive's text index. */
+        default void buildTextIndex(LibraryEntry entry) {}
+
+        default void deleteTextIndex(LibraryEntry entry) {}
+
+        /** Whether this archive can already be searched by its text. */
+        default boolean hasTextIndex(LibraryEntry entry) {
+            return false;
+        }
     }
 
     void setRowActions(RowActions actions) {
@@ -703,6 +713,12 @@ final class LibraryPane {
                         item("Open in new tab", () -> rowActions.openInNewTab(entry)),
                         item(entry.pinned() ? "Unpin" : "Pin to top", () -> onTogglePin.accept(entry)),
                         item("Move to theme…", () -> rowActions.moveToTheme(entry)),
+                        new javafx.scene.control.SeparatorMenuItem(),
+                        // Named for what it does rather than for the index it builds: nobody
+                        // wants an index, they want to find a sentence they half remember.
+                        rowActions.hasTextIndex(entry)
+                                ? item("Delete the text index", () -> rowActions.deleteTextIndex(entry))
+                                : item("Search inside this archive…", () -> rowActions.buildTextIndex(entry)),
                         new javafx.scene.control.SeparatorMenuItem(),
                         item("Share on LAN", () -> rowActions.shareOnLan(entry)),
                         item("Check for update", () -> rowActions.checkForUpdate(entry)),

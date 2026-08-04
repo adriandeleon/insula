@@ -412,6 +412,10 @@ final class ReaderController {
         return network.label();
     }
 
+    String indexUsageLabelForTest() {
+        return indexUsageLabel();
+    }
+
     FullTextCoordinator fullTextForTest() {
         return fullText;
     }
@@ -889,7 +893,8 @@ final class ReaderController {
         status.getStyleClass().add("status-message");
         status.setOnMouseClicked(e -> messageLogPopup.toggle());
         status.setTooltip(new javafx.scene.control.Tooltip("Messages from this session"));
-        HBox statusBar = new HBox(18, status, statusGap, network.segment(), statusArchive, statusArriving, statusLan);
+        HBox statusBar = new HBox(
+                18, status, statusGap, fullText.strip(), network.segment(), statusArchive, statusArriving, statusLan);
         statusBar.setPadding(new Insets(4, 10, 4, 10));
 
         menuBar = Menus.build(commands, keys, menuDynamics());
@@ -945,6 +950,23 @@ final class ReaderController {
             @Override
             public void openInNewTab(LibraryEntry entry) {
                 openArchiveInNewTab(entry);
+            }
+
+            @Override
+            public boolean hasTextIndex(LibraryEntry entry) {
+                return fullText.isIndexed(entry.file().toAbsolutePath());
+            }
+
+            @Override
+            public void buildTextIndex(LibraryEntry entry) {
+                // The archives in the library are already registered for search, so the row can
+                // ask for one it is not currently reading.
+                fullText.build(entry.file().toAbsolutePath());
+            }
+
+            @Override
+            public void deleteTextIndex(LibraryEntry entry) {
+                fullText.delete(entry.file().toAbsolutePath());
             }
 
             @Override
@@ -2196,6 +2218,29 @@ final class ReaderController {
         applySettings();
     }
 
+    /** "No text indexes yet" or "412 MB across 3 archives" — the Settings page's one fact. */
+    private String indexUsageLabel() {
+        long bytes = fullText.totalIndexBytes();
+        return bytes == 0
+                ? "No text indexes yet — build one from an archive's ⋯ menu"
+                : Formats.bytes(bytes) + " in "
+                        + Formats.collapseHome(
+                                com.insula.fulltext.IndexPaths.root(dataDir).toString());
+    }
+
+    private void revealIndexFolder() {
+        java.nio.file.Path root = com.insula.fulltext.IndexPaths.root(dataDir);
+        try {
+            java.nio.file.Files.createDirectories(root);
+        } catch (IOException e) {
+            setStatus("Could not open the index folder: " + e.getMessage());
+            return;
+        }
+        if (hostServices != null) {
+            hostServices.showDocument(root.toUri().toString());
+        }
+    }
+
     /** The captured log, in its own window. Kept per controller so it reopens where it was. */
     private void showDebugLog() {
         if (debugLogWindow == null) {
@@ -2215,6 +2260,7 @@ final class ReaderController {
             });
             settingsDialog.setCatalogInfo(this::catalogAgeLabel, () -> commands.run("catalog.refresh"));
             settingsDialog.setDebugLogAction(this::showDebugLog);
+            settingsDialog.setIndexInfo(this::indexUsageLabel, this::revealIndexFolder);
         }
         settingsDialog.show();
     }

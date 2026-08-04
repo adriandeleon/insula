@@ -8,6 +8,12 @@ import java.util.Set;
 import java.util.function.Consumer;
 
 import javafx.application.Platform;
+import javafx.geometry.Pos;
+import javafx.scene.control.Button;
+import javafx.scene.control.Label;
+import javafx.scene.control.ProgressBar;
+import javafx.scene.control.Tooltip;
+import javafx.scene.layout.HBox;
 
 import com.insula.command.CommandRegistry;
 import com.insula.fulltext.FullTextService;
@@ -49,9 +55,45 @@ final class FullTextCoordinator {
     private final FullTextService service;
     private final Ops ops;
 
+    /**
+     * The job's own strip in the status bar.
+     *
+     * <p>Its own thing rather than words in the echo area, because indexing a Wikipedia is a
+     * quarter of an hour: long enough that "how far along is it" and "make it stop" both have to
+     * be answerable at a glance, and long enough that a message which the next announcement
+     * overwrites is no use at all.
+     */
+    private final ProgressBar bar = new ProgressBar(0);
+
+    private final Label caption = new Label();
+    private final HBox strip = new HBox(8);
+
     FullTextCoordinator(Path configDir, Ops ops) {
         this.service = new FullTextService(configDir);
         this.ops = ops;
+        buildStrip();
+    }
+
+    private void buildStrip() {
+        bar.setPrefWidth(120);
+        caption.getStyleClass().add("card-faint");
+        Button stop = new Button("Stop");
+        stop.setTooltip(new Tooltip("Stop indexing; what has been written is discarded"));
+        stop.getStyleClass().add("tab-action");
+        stop.setOnAction(e -> cancel());
+        strip.setAlignment(Pos.CENTER_LEFT);
+        strip.getChildren().addAll(caption, bar, stop);
+        showStrip(false);
+    }
+
+    /** The status-bar strip. Hidden unless something is being indexed. */
+    HBox strip() {
+        return strip;
+    }
+
+    private void showStrip(boolean visible) {
+        strip.setVisible(visible);
+        strip.setManaged(visible);
     }
 
     void register(Path file, String title, ZimArchive archive) {
@@ -122,7 +164,11 @@ final class FullTextCoordinator {
 
     /** Builds the index for the archive being read. */
     void buildForCurrent() {
-        Path current = ops.currentArchive();
+        build(ops.currentArchive());
+    }
+
+    /** Builds the index for a named archive — the Library acts on rows, not on what is open. */
+    void build(Path current) {
         if (current == null) {
             ops.setStatus("Open an archive first");
             return;
@@ -136,11 +182,12 @@ final class FullTextCoordinator {
             return;
         }
         ops.setStatus("Building a text index. Searching still works meanwhile.");
+        showStrip(true);
         service.buildIndex(
                 current,
-                progress -> Platform.runLater(() -> ops.setProgress(describe(progress))),
+                progress -> Platform.runLater(() -> paint(progress)),
                 ok -> Platform.runLater(() -> {
-                    ops.setProgress("");
+                    showStrip(false);
                     ops.setStatus(
                             ok
                                     ? "Text index ready - searches now look inside this archive"
@@ -148,11 +195,19 @@ final class FullTextCoordinator {
                 }));
     }
 
-    private static String describe(FullTextService.Progress progress) {
+    private void paint(FullTextService.Progress progress) {
+        double fraction = progress.fraction();
+        // An unknown total shows as indeterminate rather than as zero: a bar sitting at the far
+        // left says "stuck", which is the opposite of what is happening.
+        bar.setProgress(fraction < 0 ? ProgressBar.INDETERMINATE_PROGRESS : fraction);
+        caption.setText(describe(progress));
+    }
+
+    /** "Indexing MDWiki - 41%". The article count lives in the tooltip; the strip is narrow. */
+    static String describe(FullTextService.Progress progress) {
         double fraction = progress.fraction();
         String percent = fraction < 0 ? "" : " - " + Math.round(fraction * 100) + "%";
-        return "Indexing " + progress.archiveTitle() + percent + " - " + String.format("%,d", progress.indexed())
-                + " articles";
+        return "Indexing " + progress.archiveTitle() + percent;
     }
 
     void cancel() {
@@ -165,7 +220,10 @@ final class FullTextCoordinator {
     }
 
     void deleteForCurrent() {
-        Path current = ops.currentArchive();
+        delete(ops.currentArchive());
+    }
+
+    void delete(Path current) {
         if (current == null || !isIndexed(current)) {
             ops.setStatus("This archive has no text index");
             return;
