@@ -27,6 +27,41 @@ final class AppIcon {
 
     private AppIcon() {}
 
+    /** The largest bundled icon, for a dialog that wants one picture rather than a set. */
+    static javafx.scene.image.ImageView largeView(double size) {
+        for (int candidate : new int[] {256, 128, 64}) {
+            try (InputStream in = AppIcon.class.getResourceAsStream("icons/insula-" + candidate + ".png")) {
+                if (in != null) {
+                    javafx.scene.image.ImageView view = new javafx.scene.image.ImageView(new Image(in));
+                    view.setFitWidth(size);
+                    view.setFitHeight(size);
+                    view.setPreserveRatio(true);
+                    return view;
+                }
+            } catch (Exception e) {
+                LOG.log(Level.FINE, "Could not load the large icon", e);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Puts the app icon on a dialog.
+     *
+     * <p>Dialogs own their own Stage, and it starts with no icon at all — so without this the
+     * About box shows the generic Java cup while the window behind it shows ours.
+     */
+    static void applyTo(javafx.scene.control.Dialog<?> dialog) {
+        javafx.scene.image.ImageView graphic = largeView(64);
+        if (graphic != null) {
+            dialog.setGraphic(graphic);
+        }
+        if (dialog.getDialogPane().getScene() != null
+                && dialog.getDialogPane().getScene().getWindow() instanceof Stage stage) {
+            applyTo(stage);
+        }
+    }
+
     static void applyTo(Stage stage) {
         List<Image> icons = new ArrayList<>();
         for (int size : SIZES) {

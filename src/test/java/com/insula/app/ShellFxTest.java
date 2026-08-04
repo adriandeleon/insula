@@ -175,8 +175,13 @@ class ShellFxTest {
             controller.commandsForTest().run("home.open");
             String placeholder = controller.omniPlaceholderForTest();
             assertTrue(placeholder.startsWith("Search everything you have"), placeholder);
+            // Not "the catalog", even on the Catalog surface. The omnibox searches what is on
+            // this device; the Catalog has its own box for searching what is not. It used to
+            // promise otherwise while actually opening the command palette.
             controller.commandsForTest().run("catalog.open");
-            assertTrue(controller.omniPlaceholderForTest().contains("catalog"), "scope follows the surface");
+            assertTrue(
+                    controller.omniPlaceholderForTest().startsWith("Search everything you have"),
+                    "it describes what it really searches: " + controller.omniPlaceholderForTest());
             return null;
         });
     }

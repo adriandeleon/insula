@@ -112,6 +112,10 @@ final class ReaderController {
     private final Button fontSmaller = new Button("A\u2212");
     private final Button fontLarger = new Button("A+");
     private final TextField omniField = new TextField();
+
+    /** Guards the two search fields against echoing each other's edits back and forth. */
+    private boolean syncingOmni;
+
     private final Label status = new Label("Open a .zim archive to start reading");
     private final MessageLog messageLog = new MessageLog();
     private String lastAnnounced = "";
@@ -412,6 +416,22 @@ final class ReaderController {
         return network.label();
     }
 
+    javafx.scene.control.TextField omniFieldForTest() {
+        return omniField;
+    }
+
+    String searchFieldTextForTest() {
+        return searchField.getText();
+    }
+
+    void setSearchFieldTextForTest(String text) {
+        searchField.setText(text);
+    }
+
+    Settings settingsForTest() {
+        return settings;
+    }
+
     String indexUsageLabelForTest() {
         return indexUsageLabel();
     }
@@ -527,8 +547,8 @@ final class ReaderController {
         commands.register("view.commandPalette", "Show Command Palette", () -> palette.toggle());
         commands.register("view.settings", "Open Settings", this::showSettings);
         commands.register("search.focus", "Focus Search", () -> {
-            searchField.requestFocus();
-            searchField.selectAll();
+            omniField.requestFocus();
+            omniField.selectAll();
         });
         commands.register("nav.back", "Go Back", () -> historyGo(-1));
         commands.register("nav.forward", "Go Forward", () -> historyGo(1));
@@ -726,10 +746,38 @@ final class ReaderController {
         // One omnibox, whose placeholder states the scope and the count of what it searches.
         omniField.setPromptText("Search");
         omniField.getStyleClass().add("omni");
-        omniField.setOnAction(e -> commands.run("view.commandPalette"));
-        omniField.setEditable(false);
-        omniField.setFocusTraversable(false);
-        omniField.setOnMouseClicked(e -> commands.run("view.commandPalette"));
+        // It searches. It used to open the command palette instead, while its own placeholder read
+        // "Search this archive - 318,179 articles" — a control that says one thing and does
+        // another, and the palette has both a button beside it and a shortcut of its own.
+        //
+        // The sidebar field stays the one source of truth for the query; this drives it, so both
+        // show the same thing and there is a single search pipeline behind them.
+        omniField.textProperty().addListener((obs, old2, text) -> {
+            if (!syncingOmni) {
+                revealSearchSidebar();
+                syncingOmni = true;
+                try {
+                    searchField.setText(text);
+                } finally {
+                    syncingOmni = false;
+                }
+            }
+        });
+        omniField.setOnAction(e -> {
+            if (!results.getItems().isEmpty()) {
+                openResult(results.getItems().get(0));
+            }
+        });
+        omniField.setOnKeyPressed(e -> {
+            if (e.getCode() == KeyCode.DOWN && !results.getItems().isEmpty()) {
+                results.getSelectionModel().select(0);
+                results.requestFocus();
+                e.consume();
+            } else if (e.getCode() == KeyCode.ESCAPE) {
+                omniField.clear();
+                e.consume();
+            }
+        });
         // Wide enough to actually say the scope: an elided "Search everything you have — 17 archi"
         // defeats the point of a placeholder that names what it searches.
         omniField.setPrefWidth(460);
@@ -750,9 +798,17 @@ final class ReaderController {
         ToolBar toolbar = new ToolBar(surfaceSwitcher, leftGap, omniField, rightGap, paletteButton);
 
         searchField.setPromptText("Search titles (Ctrl+L)");
-        searchField.textProperty().addListener((obs, old, text) -> {
+        searchField.textProperty().addListener((obs, old2, text) -> {
             searchDebounce.setOnFinished(e -> runSearch(text));
             searchDebounce.playFromStart();
+            if (!syncingOmni) {
+                syncingOmni = true;
+                try {
+                    omniField.setText(text);
+                } finally {
+                    syncingOmni = false;
+                }
+            }
         });
         searchField.setOnKeyPressed(e -> {
             if (e.getCode() == KeyCode.DOWN && !results.getItems().isEmpty()) {
@@ -1120,6 +1176,10 @@ final class ReaderController {
         alert.setContentText("An offline reader for ZIM archives — whole encyclopedias, courses and "
                 + "talks stored as single files on your disk.\n\nArchives live in "
                 + archivesDir() + ".");
+        // A dialog owns its own Stage, which starts with no icon: without this the About box shows
+        // the generic Java cup while the window behind it shows ours.
+        alert.initOwner(stage);
+        AppIcon.applyTo(alert);
         alert.showAndWait();
     }
 
@@ -1186,6 +1246,16 @@ final class ReaderController {
     private final List<javafx.scene.control.ToggleButton> sidebarButtons = new java.util.ArrayList<>();
 
     /** 0 = search, 1 = bookmarks, 2 = history. */
+    /** Makes sure a search has somewhere to put its results before it runs. */
+    private void revealSearchSidebar() {
+        if (!settings.isSidebarVisible()) {
+            settings.setSidebarVisible(true);
+            settings.save();
+            applySidebarLayout();
+        }
+        showSidebarPane(0);
+    }
+
     private void showSidebarPane(int index) {
         if (sidebarPanes == null) {
             return;
@@ -1530,7 +1600,9 @@ final class ReaderController {
     private void refreshOmniPlaceholder() {
         omniField.setPromptText(
                 switch (surfaces.current()) {
-                    case CATALOG -> "Search the catalog — instant, offline";
+                    // Not "search the catalog": the Catalog has its own box, and this one
+                    // searches what is already on this device.
+                    case CATALOG -> homeSearchScope();
                     case READER ->
                         archive == null
                                 ? "Search"

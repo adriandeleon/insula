@@ -1,0 +1,23 @@
+[Desktop Entry]
+Name=APPLICATION_NAME
+Comment=APPLICATION_DESCRIPTION
+Exec=APPLICATION_LAUNCHER %F
+Icon=APPLICATION_ICON
+Terminal=false
+Type=Application
+# Written out rather than left as APPLICATION_CATEGORIES: jpackage substitutes the name,
+# description, launcher and icon placeholders but not this one, and an unfilled
+# placeholder here is an invalid entry that desktop-file-validate rejects.
+Categories=Education;Literature;
+# No MimeType line. Claiming application/x-zim does nothing on its own — GNOME has no
+# shared-mime-info rule mapping .zim to it, so nothing would ever be offered to us.
+# Opening .zim files from a file manager needs that rule shipped too, which is its own
+# piece of work rather than one line here.
+# The load-bearing line, and the one jpackage does not generate.
+#
+# GNOME matches a running window to its menu entry by WM_CLASS. JavaFX derives that from the main
+# class — verified with xprop against a live window, which reports com.insula.app.Main — not from
+# the launcher or the app name. Without this the entry and the window are two unrelated things to
+# the shell: the dash shows our icon for the launcher and a generic one for the window somebody is
+# actually looking at.
+StartupWMClass=com.insula.app.Main

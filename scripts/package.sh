@@ -70,7 +70,11 @@ fi
 # Installer-only options: jpackage rejects them outright for a plain app-image.
 if [ "$TYPE" != "app-image" ]; then
   case "$(uname -s)" in
-    Linux)  ARGS+=(--linux-shortcut --linux-menu-group Education) ;;
+    Linux)
+      ARGS+=(--linux-shortcut --linux-menu-group Education)
+      # Our own .desktop template, for the StartupWMClass jpackage will not write. See the file.
+      [ -d packaging/linux ] && ARGS+=(--resource-dir packaging/linux)
+      ;;
     Darwin) ARGS+=(--mac-package-name Insula) ;;
   esac
 fi
