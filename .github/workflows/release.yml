@@ -32,9 +32,19 @@ jobs:
           cache: maven
 
       # WiX is what jpackage shells out to for an .msi; it is not present by default.
+      #
+      # Pinned, and with the extension added explicitly. Unpinned this installed WiX 7, and
+      # jpackage's own command line passes "-ext WixToolset.Util.wixext" — which WiX 4 and later
+      # will not resolve unless the extension has been added, so the build died inside wix.exe
+      # with jpackage swallowing its stderr. Pinning also means a future WiX release cannot break
+      # packaging on a day nobody touched this repository.
       - name: Install WiX (Windows)
         if: runner.os == 'Windows'
-        run: dotnet tool install --global wix
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          wix extension add -g WixToolset.Util.wixext/5.0.2
+          wix --version
+          wix extension list -g
 
       # The tag is the authority when there is one; a manual dry run falls back to the pom, so the
       # step works either way instead of only on a release.
