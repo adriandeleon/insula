@@ -2,6 +2,7 @@ package com.insula.search;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -10,6 +11,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.logging.Level;
@@ -164,6 +166,21 @@ public final class LibrarySearch implements AutoCloseable {
     public void close() {
         searchExecutor.shutdownNow();
         indexExecutor.shutdownNow();
+        // shutdownNow only interrupts; a result callback already running keeps running, and it
+        // calls on into the full-text service. Waiting means that when close() returns, no search
+        // thread is still inside somebody else's code.
+        awaitQuiet(searchExecutor);
+        awaitQuiet(indexExecutor);
         indexes.clear();
     }
+
+    private static void awaitQuiet(ExecutorService executor) {
+        try {
+            executor.awaitTermination(SHUTDOWN_GRACE.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private static final Duration SHUTDOWN_GRACE = Duration.ofSeconds(2);
 }

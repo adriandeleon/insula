@@ -241,6 +241,13 @@ public final class DownloadManager implements AutoCloseable {
     }
 
     private void runPipeline(Job job) {
+        // A worker can have taken this task off the queue without having run a line of it yet, so
+        // shutdownNow cannot drain it and it starts anyway. Its first two acts are to create the
+        // download folder and write a sidecar, neither of which is interruptible — which is how a
+        // cancelled job still put a directory on disk after close() had returned.
+        if (job.cancelled.get()) {
+            return;
+        }
         try {
             Files.createDirectories(downloadDir);
             try {
@@ -304,6 +311,14 @@ public final class DownloadManager implements AutoCloseable {
                     : snapshot;
         });
         job.handle = handle;
+        // A cancel that arrived while the transport was starting saw a null handle and silently
+        // did nothing, because cancel() can only forward to a handle that has been published. The
+        // transport was already running its own threads by then, so nothing stopped them: close()
+        // returned and the .part file kept being written afterwards. Re-reading the flag here is
+        // the publish-then-recheck that closes the window.
+        if (job.cancelled.get()) {
+            handle.cancel();
+        }
         return handle.completion().get();
     }
 
@@ -559,11 +574,48 @@ public final class DownloadManager implements AutoCloseable {
     @Override
     public void close() {
         jobs.values().forEach(Job::cancel);
+        // Each transport runs its own threads and stops them in its own finish(), so a cancel is
+        // a request, not an accomplished fact. Shutting the pipeline down straight away
+        // interrupted the thread blocked on completion() and let close() return while the
+        // transport was still writing — bytes landing in the archives folder after the manager
+        // said it had stopped. Waiting for the handles first means that when close() returns,
+        // nothing is still writing.
+        awaitTransports();
         pipeline.shutdownNow();
         try {
             pipeline.awaitTermination(SHUTDOWN_GRACE.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+        }
+        // Again, because a task that was already on a thread when the first wait ran had no handle
+        // to wait for yet and started its transport afterwards. By now the pipeline has stopped,
+        // so every handle that will ever exist has been published — and cancelled, by the recheck
+        // in download() — and this is the wait that actually covers it.
+        awaitTransports();
+    }
+
+    /** Waits, within one shared budget, for every in-flight transport to finish stopping. */
+    private void awaitTransports() {
+        long deadline = System.nanoTime() + SHUTDOWN_GRACE.toNanos();
+        for (Job job : jobs.values()) {
+            DownloadHandle handle = job.handle;
+            if (handle == null) {
+                continue;
+            }
+            long remaining = deadline - System.nanoTime();
+            if (remaining <= 0) {
+                return;
+            }
+            try {
+                handle.completion().get(remaining, java.util.concurrent.TimeUnit.NANOSECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException e) {
+                // A transport that will not stop must not be able to hang the shutdown; the
+                // pipeline interrupt below is the fallback, exactly as before.
+                LOG.log(Level.FINE, "Transport did not stop within the shutdown grace", e);
+            }
         }
     }
 
