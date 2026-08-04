@@ -378,8 +378,18 @@
                                     <goal>exec</goal>
                                 </goals>
                                 <configuration>
-                                    <executable>${project.basedir}/scripts/package.sh</executable>
+                                    <!--
+                                      Run through bash rather than executing the script directly.
+                                      Windows cannot exec a .sh — CreateProcess answers "error=193,
+                                      %1 is not a valid Win32 application" — so naming the script as
+                                      the executable works on two platforms out of three. bash is
+                                      already a hard requirement of the script itself, and is on
+                                      PATH on all three runners, so handing it the script is both
+                                      uniform and honest about what it needs.
+                                    -->
+                                    <executable>bash</executable>
                                     <arguments>
+                                        <argument>${project.basedir}/scripts/package.sh</argument>
                                         <argument>${project.build.directory}</argument>
                                         <argument>${project.version}</argument>
                                         <argument>${jpackage.type}</argument>

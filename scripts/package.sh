@@ -6,7 +6,11 @@
 # project's own jar joins them.
 set -euo pipefail
 
-TARGET="$1"
+# Maven passes native paths, so on Windows this arrives as D:\a\...\target. bash reads those
+# backslashes as escapes, and a glob like "$TARGET"/modules/*.jar then quietly matches nothing.
+# Forward slashes are understood by bash and by the Windows tools jpackage drives — unlike the
+# /d/a/... form git-bash would give, which jpackage rejects outright.
+TARGET="${1//\\//}"
 VERSION="$2"
 TYPE="${3:-app-image}"
 MODULES="$TARGET/dist-modules"
