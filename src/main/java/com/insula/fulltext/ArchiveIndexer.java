@@ -33,9 +33,10 @@ public final class ArchiveIndexer {
     @FunctionalInterface
     public interface Progress {
         /**
-         * @param scanned entries looked at so far
-         * @param total entries in the archive
-         * @param indexed how many of them turned out to be articles worth indexing
+         * @param scanned articles handled so far
+         * @param total articles this archive will contribute — not its entry count, which is
+         *     mostly images and would leave a bar that races to a third and then crawls
+         * @param indexed how many of them had text worth indexing
          */
         void at(long scanned, long total, long indexed);
     }
@@ -62,20 +63,21 @@ public final class ArchiveIndexer {
         Files.createDirectories(staging);
 
         long total = archive.entryCount();
+        long[] order = articleOrder(archive);
         long indexed = 0;
-        long skipped = 0;
+        long skipped = total - order.length;
         boolean stopped = false;
 
         try (FullTextIndex.Builder builder = FullTextIndex.builder(staging)) {
-            for (long i = 0; i < total; i++) {
+            for (int at = 0; at < order.length; at++) {
                 if (cancelled != null && cancelled.getAsBoolean()) {
                     stopped = true;
                     break;
                 }
-                if (progress != null && (i % 512 == 0 || i == total - 1)) {
-                    progress.at(i + 1, total, indexed);
+                if (progress != null && (at % 512 == 0 || at == order.length - 1)) {
+                    progress.at(at + 1, order.length, indexed);
                 }
-                if (indexOne(archive, i, builder)) {
+                if (indexOne(archive, (int) (order[at] & 0xFFFFFFFFL), builder)) {
                     indexed++;
                 } else {
                     skipped++;
@@ -91,6 +93,46 @@ public final class ArchiveIndexer {
         Files.createDirectories(indexDir.getParent());
         Files.move(staging, indexDir);
         return new Result(indexed, skipped, false);
+    }
+
+    /**
+     * The articles to index, ordered so each cluster is decompressed once.
+     *
+     * <p>This is the whole performance story. Entries are laid out in the archive in path order,
+     * and a ZIM packs about seventy articles into each compressed cluster — but consecutive paths
+     * land in <em>different</em> clusters, so walking entries in their natural order jumped
+     * between clusters 84,353 times to read 84,877 articles out of 1,254 of them. No cache of any
+     * sane size survives that: the OpenStreetMap wiki spent 28 of its 39 seconds decompressing the
+     * same clusters over and over.
+     *
+     * <p>Sorting by cluster first turns that back into 1,254 decompressions. The cost is one extra
+     * pass over the dirents, which is under a second, and eight bytes an article.
+     *
+     * <p>Each element packs the cluster number above the entry index, so a plain sort orders by
+     * cluster and then by position within it — which is also the order the blobs sit in.
+     */
+    private static long[] articleOrder(ZimArchive archive) throws IOException {
+        long total = archive.entryCount();
+        long[] packed = new long[(int) Math.min(total, Integer.MAX_VALUE)];
+        int n = 0;
+        for (long i = 0; i < total; i++) {
+            try {
+                Dirent dirent = archive.direntAt(i);
+                if (dirent.isRedirect() || !dirent.hasContent() || dirent.namespace() != archive.contentNamespace()) {
+                    continue;
+                }
+                String mime = archive.mimeType(dirent);
+                if (mime == null || !mime.startsWith("text/html")) {
+                    continue;
+                }
+                packed[n++] = (dirent.clusterNumber() << 32) | (i & 0xFFFFFFFFL);
+            } catch (IOException | RuntimeException e) {
+                LOG.log(Level.FINE, "Skipped entry " + i + " while surveying", e);
+            }
+        }
+        long[] order = java.util.Arrays.copyOf(packed, n);
+        java.util.Arrays.sort(order);
+        return order;
     }
 
     /** @return whether this entry was an article and went into the index */

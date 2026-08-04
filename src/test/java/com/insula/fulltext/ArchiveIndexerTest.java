@@ -48,11 +48,14 @@ class ArchiveIndexerTest {
     }
 
     @Test
-    void progressReachesTheEnd(@TempDir Path dir) throws Exception {
+    void progressCountsArticlesAndReachesTheEnd(@TempDir Path dir) throws Exception {
+        // The denominator is the articles this archive will contribute, not its entry count.
+        // Most entries in a real ZIM are images — counting those leaves a bar that races to a
+        // third and then crawls, which is a worse lie than no bar.
         AtomicLong lastScanned = new AtomicLong();
         AtomicLong reportedTotal = new AtomicLong();
         try (ZimArchive archive = ZimArchive.open(NEW_SCHEME)) {
-            ArchiveIndexer.index(
+            ArchiveIndexer.Result result = ArchiveIndexer.index(
                     archive,
                     dir.resolve("idx"),
                     (scanned, total, indexed) -> {
@@ -60,8 +63,10 @@ class ArchiveIndexerTest {
                         reportedTotal.set(total);
                     },
                     () -> false);
-            assertEquals(archive.entryCount(), reportedTotal.get());
-            assertEquals(archive.entryCount(), lastScanned.get(), "the last entry is reported, not just every 512th");
+            assertTrue(reportedTotal.get() > 0);
+            assertTrue(reportedTotal.get() < archive.entryCount(), "articles are a subset of entries");
+            assertEquals(reportedTotal.get(), lastScanned.get(), "the last one is reported, not just every 512th");
+            assertEquals(result.indexed(), reportedTotal.get(), "everything counted was indexable");
         }
     }
 
