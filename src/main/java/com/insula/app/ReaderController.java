@@ -3450,6 +3450,13 @@ final class ReaderController {
 
     void dispose() {
         network.stop();
+        // Before fullText, not after. A library search delivers its results on its own thread and
+        // that callback goes on to query the full-text service, so closing fullText first left a
+        // window in which a live search thread called into an already-closed service — which is
+        // the RejectedExecutionException that used to appear in every CI log. Shutting down the
+        // caller before the callee closes it.
+        searchExecutor.shutdownNow();
+        librarySearch.close();
         fullText.close();
         savePosition();
         try {
@@ -3463,8 +3470,6 @@ final class ReaderController {
             // a failed position save must never block shutdown
         }
         renderer.dispose();
-        searchExecutor.shutdownNow();
-        librarySearch.close();
         searchArchives.values().forEach(a -> {
             try {
                 a.close();

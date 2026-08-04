@@ -286,13 +286,21 @@ public final class FullTextService implements AutoCloseable {
      * because the pass never reached the code that deletes it. The cancel flag is polled between
      * articles, so asking politely costs a fraction of a second and leaves nothing behind.
      *
-     * <p>Searches are interrupted without ceremony: a query nobody will see the answer to has
-     * nothing to clean up.
+     * <p>Searches are interrupted without ceremony — a query nobody will see the answer to has
+     * nothing to clean up — but they are still waited for. Interrupting is not stopping: a search
+     * already inside {@code collect} holds a Lucene index open, and opening one creates its
+     * directory, so returning while one is in flight leaves the service touching the filesystem
+     * after it has reported itself closed.
      */
     @Override
     public void close() {
         cancelIndexing();
         searchPool.shutdownNow();
+        try {
+            searchPool.awaitTermination(SHUTDOWN_GRACE_MILLIS, java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
         indexPool.shutdown();
         try {
             if (!indexPool.awaitTermination(SHUTDOWN_GRACE_MILLIS, java.util.concurrent.TimeUnit.MILLISECONDS)) {
