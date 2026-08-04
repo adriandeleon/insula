@@ -1,0 +1,15 @@
+# Sources are LF everywhere, including in a Windows working tree. Without this, a checkout with
+# core.autocrlf=true hands spotless CRLF files it is told to keep at LF, and the build fails on a
+# diff whose two sides look identical.
+* text=auto eol=lf
+
+# Never let the ZIM and WebP fixtures through the text filter. They are read byte-for-byte by the
+# format tests, so a single translated CR would corrupt them into a parser bug that only appears
+# on Windows.
+*.zim binary
+*.webp binary
+
+# cmd.exe is unreliable on a batch file with LF-only endings, and this one is already stored with
+# CRLF. -text keeps its bytes exactly as they are rather than normalising the index to match the
+# rule above, so the Windows wrapper is untouched by any of this.
+mvnw.cmd -text

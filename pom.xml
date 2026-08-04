@@ -598,6 +598,14 @@
                 <artifactId>spotless-maven-plugin</artifactId>
                 <version>${spotless.version}</version>
                 <configuration>
+                    <!--
+                      Pinned, because the default policy asks git what this platform's endings are
+                      and answers CRLF on Windows. The checkout is LF there, so spotless:check saw
+                      every line of every file as changed and failed the build with a diff whose
+                      two sides read identically. Sources are LF in git on every platform, so the
+                      formatter should target LF on every platform.
+                    -->
+                    <lineEndings>UNIX</lineEndings>
                     <java>
                         <includes>
                             <include>src/main/java/**/*.java</include>
