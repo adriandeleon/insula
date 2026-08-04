@@ -274,11 +274,34 @@ public final class FullTextService implements AutoCloseable {
         }
     }
 
+    /** How long a build gets to unwind before it is interrupted outright. */
+    private static final long SHUTDOWN_GRACE_MILLIS = 5_000;
+
+    /**
+     * Stops everything, asking the indexing pass to finish rather than interrupting it.
+     *
+     * <p>The difference matters. {@code shutdownNow} interrupts a worker in the middle of
+     * {@code IndexWriter.close}, which unwinds through Lucene's own shutdown as an
+     * InterruptedException — an alarming trace on the way out, and a staging directory left behind
+     * because the pass never reached the code that deletes it. The cancel flag is polled between
+     * articles, so asking politely costs a fraction of a second and leaves nothing behind.
+     *
+     * <p>Searches are interrupted without ceremony: a query nobody will see the answer to has
+     * nothing to clean up.
+     */
     @Override
     public void close() {
         cancelIndexing();
         searchPool.shutdownNow();
-        indexPool.shutdownNow();
+        indexPool.shutdown();
+        try {
+            if (!indexPool.awaitTermination(SHUTDOWN_GRACE_MILLIS, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                indexPool.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            indexPool.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
         open.keySet().forEach(this::closeIndex);
         sources.clear();
     }

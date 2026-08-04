@@ -114,6 +114,7 @@ final class ReaderController {
     private final TextField omniField = new TextField();
     private final Label status = new Label("Open a .zim archive to start reading");
     private final MessageLog messageLog = new MessageLog();
+    private String lastAnnounced = "";
     private MessageLogPopup messageLogPopup;
     private DebugLogWindow debugLogWindow;
 
@@ -166,6 +167,8 @@ final class ReaderController {
     /** Cross-archive search: every archive in the library, not just the one being read. */
     private final LibrarySearch librarySearch = new LibrarySearch();
 
+    private final FullTextCoordinator fullText;
+
     private final java.util.Map<Path, ZimArchive> searchArchives = new java.util.LinkedHashMap<>();
     private final ReadingPositions positions;
     private final com.insula.reader.ReaderSession session;
@@ -189,6 +192,27 @@ final class ReaderController {
         this.positions = ReadingPositions.load(dataDir.resolve("reading.properties"));
         this.session = com.insula.reader.ReaderSession.load(dataDir.resolve("session.txt"));
         this.network = new NetworkCoordinator(settings, this::setStatus);
+        this.fullText = new FullTextCoordinator(dataDir, new FullTextCoordinator.Ops() {
+            @Override
+            public java.nio.file.Path currentArchive() {
+                return currentArchiveFile;
+            }
+
+            @Override
+            public void setStatus(String message) {
+                ReaderController.this.setStatus(message);
+            }
+
+            @Override
+            public void setProgress(String message) {
+                ReaderController.this.setProgress(message);
+            }
+
+            @Override
+            public int searchLimit() {
+                return settings.getSearchLimit();
+            }
+        });
         this.surfaces = new SurfaceCoordinator(new SurfaceCoordinator.Ops() {
             @Override
             public void setCenter(javafx.scene.Node node) {
@@ -388,6 +412,14 @@ final class ReaderController {
         return network.label();
     }
 
+    FullTextCoordinator fullTextForTest() {
+        return fullText;
+    }
+
+    void setProgressForTest(String message) {
+        setProgress(message);
+    }
+
     MessageLog messageLogForTest() {
         return messageLog;
     }
@@ -523,6 +555,7 @@ final class ReaderController {
         commands.register("history.clear", "Clear History", this::clearHistory);
         commands.register("view.messages", "Show Messages", () -> messageLogPopup.toggle());
         network.registerCommands(commands);
+        fullText.registerCommands(commands);
         find.registerCommands(commands);
         commands.register("text.larger", "Larger Article Text", () -> stepFont(10));
         commands.register("text.smaller", "Smaller Article Text", () -> stepFont(-10));
@@ -1339,7 +1372,20 @@ final class ReaderController {
      */
     void setStatus(String message) {
         status.setText(message);
+        lastAnnounced = message == null ? "" : message;
         messageLog.add(message);
+    }
+
+    /**
+     * Shows something transient without announcing it.
+     *
+     * <p>Indexing progress changes several times a second. Putting it through setStatus would bury
+     * every real message under a thousand rows of a percentage counting up, which is the message
+     * log made useless by the one feature most likely to need it afterwards. A blank message
+     * restores whatever was last announced.
+     */
+    private void setProgress(String message) {
+        status.setText(message == null || message.isBlank() ? lastAnnounced : message);
     }
 
     /**
@@ -2619,6 +2665,7 @@ final class ReaderController {
             settings.save();
             // The archive being read participates in search alongside the rest of the library.
             librarySearch.add(currentArchiveFile, bookTitle, archive);
+            fullText.register(currentArchiveFile, bookTitle, archive);
             syncNavTabs();
             refreshSearchSources();
             if (navigate) {
@@ -2670,13 +2717,26 @@ final class ReaderController {
         }
         long generation = searchGeneration.incrementAndGet();
         librarySearch.search(query, settings.getSearchLimit(), found -> {
-            if (generation == searchGeneration.get()) {
-                Platform.runLater(() -> {
-                    if (generation == searchGeneration.get()) {
-                        results.getItems().setAll(found);
-                    }
-                });
+            if (generation != searchGeneration.get()) {
+                return;
             }
+            Platform.runLater(() -> {
+                if (generation != searchGeneration.get()) {
+                    return;
+                }
+                // Titles first and immediately: they are already in memory, and waiting for the
+                // text search would make every keystroke feel slower than it used to be.
+                results.getItems().setAll(found);
+                String offer = fullText.offerForCurrentArchive();
+                if (!offer.isBlank()) {
+                    setProgress(offer);
+                }
+            });
+            fullText.appendTo(found, query, merged -> {
+                if (generation == searchGeneration.get()) {
+                    results.getItems().setAll(merged);
+                }
+            });
         });
     }
 
@@ -2691,6 +2751,7 @@ final class ReaderController {
                 try {
                     ZimArchive opened = ZimArchive.open(file);
                     librarySearch.add(file, entry.title(), opened);
+                    fullText.register(file, entry.title(), opened);
                     return opened;
                 } catch (IOException e) {
                     return null;
@@ -3271,6 +3332,7 @@ final class ReaderController {
 
     void dispose() {
         network.stop();
+        fullText.close();
         savePosition();
         try {
             tabCoordinator.rememberSession();
