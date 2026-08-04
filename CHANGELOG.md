@@ -7,7 +7,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Everything below is in `main` and unreleased; there has been no tagged version yet.
+Nothing yet.
+
+## [0.1.0] - 2026-08-04
+
+The first release. Everything below is what Insula does at 0.1.0 — a reader for ZIM archives that
+opens them, searches them, downloads them and verifies them, with no network needed once a file is
+on disk.
+
+Installers for Linux (`.deb`), macOS (`.dmg`) and Windows (`.msi`) are attached to this release.
+They are **unsigned**: macOS will need Open from the right-click menu the first time, and Windows
+will show a SmartScreen warning. Signing is a later piece of work.
 
 ### Added
 

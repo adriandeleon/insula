@@ -6,7 +6,7 @@
 
     <groupId>com.insula</groupId>
     <artifactId>insula</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.1.0</version>
     <packaging>jar</packaging>
 
     <name>Insula</name>
@@ -411,6 +411,29 @@
     </profiles>
 
     <build>
+        <!--
+          Two entries over the same directory so exactly one file is filtered. Filtering the whole
+          of src/main/resources would run the icons and the ZIM fixtures through the token
+          substitution as if they were text, which corrupts them. build-info.properties is how
+          AppInfo learns the version, so that the pom is the only place a release number is
+          written and the User-Agent cannot claim a version this build is not.
+        -->
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>false</filtering>
+                <excludes>
+                    <exclude>com/insula/build-info.properties</exclude>
+                </excludes>
+            </resource>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>true</filtering>
+                <includes>
+                    <include>com/insula/build-info.properties</include>
+                </includes>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

@@ -36,17 +36,98 @@ jobs:
         if: runner.os == 'Windows'
         run: dotnet tool install --global wix
 
+      # The tag is the authority when there is one; a manual dry run falls back to the pom, so the
+      # step works either way instead of only on a release.
+      - name: Resolve the version
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF#refs/tags/v}"
+          else
+            version="$(./mvnw -q -DforceStdout help:evaluate -Dexpression=project.version)"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "building $version"
+
       - name: Build the installer
         shell: bash
         run: ./mvnw --batch-mode --no-transfer-progress -Pdist package -DskipTests
+
+      # jpackage names each file its own way — and on macOS it names it after the bumped
+      # app-version it was given rather than the real one — so left alone the release page would
+      # offer three differently-spelled downloads, one of them with the wrong number in it.
+      - name: Stage the installer under one name
+        shell: bash
+        run: |
+          mkdir -p staged
+          shopt -s nullglob
+          found=0
+          for file in target/dist/*.deb target/dist/*.dmg target/dist/*.msi; do
+            cp "$file" "staged/Insula-${{ steps.version.outputs.version }}-${{ matrix.artifact }}.${file##*.}"
+            found=1
+          done
+          [ "$found" = 1 ] || { echo "no installer was produced"; exit 1; }
+          ls -1 staged
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
           name: insula-${{ matrix.artifact }}
-          path: |
-            target/dist/*.deb
-            target/dist/*.dmg
-            target/dist/*.msi
+          path: staged/*
           if-no-files-found: error
           retention-days: 14
+
+  # Artifacts expire and need a login to fetch, so on their own they are not a release. This is
+  # what turns a tag into something a stranger can download.
+  release:
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Collect every installer
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: dist
+        run: |
+          sha256sum * > checksums.txt
+          cat checksums.txt
+
+      - name: Take the notes from the changelog
+        shell: bash
+        run: |
+          version="${GITHUB_REF#refs/tags/v}"
+          # index()==1 rather than a regex, because the heading contains [ and ] and the version
+          # contains dots — all three are regex syntax, and none of them are meant as syntax here.
+          awk -v want="## [$version]" '
+            index($0, want) == 1 { found = 1; next }
+            found && /^## \[/     { exit }
+            found                 { print }
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "No '## [$version]' section in CHANGELOG.md — refusing to publish a release with empty notes." >&2
+            exit 1
+          fi
+          head -20 notes.md
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF#refs/tags/v}"
+          # A tag like v0.2.0-rc1 is a pre-release; a plain one is not.
+          prerelease=""
+          case "$version" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "Insula $version" \
+            --notes-file notes.md \
+            $prerelease
