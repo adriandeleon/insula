@@ -12,8 +12,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /** Planning a folder change. These are the decisions that can lose someone's library. */
 class ArchiveMoveTest {
 
-    private static final Path OLD = Path.of("/home/x/.insula/archives");
-    private static final Path NEW = Path.of("/mnt/big/archives");
+    // Absolutised, because ArchiveMove.plan absolutises everything it is given and then compares.
+    // A "/mnt/big" literal is already absolute on Linux and macOS but only drive-*relative* on
+    // Windows, so there plan() produced D:\mnt\big\archives\a.zim while the assertions expected
+    // \mnt\big\archives\a.zim — and the exists predicate, keyed on the un-prefixed path, stopped
+    // matching, so the conflict case believed a plan that would overwrite a file was runnable.
+    // Absolutising here puts both sides in the same vocabulary on every platform.
+    private static final Path OLD = Path.of("/home/x/.insula/archives").toAbsolutePath();
+    private static final Path NEW = Path.of("/mnt/big/archives").toAbsolutePath();
 
     private static LibraryEntry entry(String path, long size) {
         return new LibraryEntry(Path.of(path), "Archive", size, "", true, 0);

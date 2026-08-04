@@ -11,7 +11,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /** Every judgement a torrent download makes, without a peer in sight. */
 class TorrentJobPolicyTest {
 
-    private static final Path ARCHIVES = Path.of("/home/x/.insula/archives");
+    // Absolutised, because workDir absolutises the destination before taking its parent. A
+    // "/home/x" literal is already absolute on Linux and macOS but only drive-*relative* on
+    // Windows, so there workDir answered D:\home\x\... against an expectation of \home\x\...
+    private static final Path ARCHIVES = Path.of("/home/x/.insula/archives").toAbsolutePath();
     private static final Path DEST = ARCHIVES.resolve("mdwiki_en_all_2025-11.zim");
 
     @Test
