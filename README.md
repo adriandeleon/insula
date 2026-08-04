@@ -8,12 +8,9 @@
 ![JavaFX](https://img.shields.io/badge/JavaFX-26-1e90ff)
 ![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 [![Stars](https://img.shields.io/github/stars/adriandeleon/insula?style=flat)](https://github.com/adriandeleon/insula/stargazers)
-
-<!-- Uncomment after the first vX.Y.Z release tag:
 [![Release](https://img.shields.io/github/v/release/adriandeleon/insula)](https://github.com/adriandeleon/insula/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/adriandeleon/insula/total)](https://github.com/adriandeleon/insula/releases)
 [![Installers](https://github.com/adriandeleon/insula/actions/workflows/release.yml/badge.svg)](https://github.com/adriandeleon/insula/actions/workflows/release.yml)
--->
 
 A fast, keyboard-first desktop reader for **ZIM** offline content archives — the same archives
 [Kiwix](https://kiwix.org) uses: Wikipedia, Wiktionary, Wikibooks, StackExchange dumps and
@@ -63,10 +60,19 @@ step, no platform-specific native toolchain to install.
 
 ## Install and run
 
-Requires **JDK 25** or newer. No separate Maven install — the repository ships a wrapper.
+**Download an installer** from [the latest release](https://github.com/adriandeleon/insula/releases/latest)
+— `.deb` for Linux, `.dmg` for macOS, `.msi` for Windows. Each carries its own Java runtime, so
+nothing else needs installing. A `checksums.txt` is attached if you want to verify what you got.
+
+The installers are **unsigned**, which is worth knowing before the OS tells you off about it: on
+macOS, open it from the right-click menu the first time rather than by double-clicking; on Windows,
+SmartScreen will warn and needs "More info" → "Run anyway". Signing is a later piece of work.
+
+**Or run from source.** Requires **JDK 25** or newer; no separate Maven install, since the
+repository ships a wrapper.
 
 ```bash
-git clone <repository-url> insula
+git clone https://github.com/adriandeleon/insula.git
 cd insula
 ./mvnw javafx:run
 ```
@@ -77,8 +83,8 @@ Open an archive directly:
 ./mvnw javafx:run -Djavafx.args=/path/to/archive.zim
 ```
 
-Native installers (DMG/MSI/DEB) are on the roadmap; for now the wrapper is the supported way to
-run it.
+Running from source is also the only way to get the **BitTorrent** transport, for the reason given
+under [Installers](#installers).
 
 ## Getting archives
 
