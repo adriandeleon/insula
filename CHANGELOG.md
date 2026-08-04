@@ -11,6 +11,79 @@ Everything below is in `main` and unreleased; there has been no tagged version y
 
 ### Added
 
+**Full-text search inside an archive**
+
+- Search the **text** of every article, not just titles. Title matches still come first and just as
+  fast — somebody who types an article's name means that article, and burying it under pages that
+  merely mention it would make the common case worse to improve the rare one — with text matches
+  arriving underneath as they are found.
+- **Nothing indexes on its own.** Indexing costs real time, and an app that starts a quarter of an
+  hour of work because you opened a file has taken a decision it had no right to. An unindexed
+  archive says so *after* a search — the one moment an offer to search harder is welcome rather
+  than noise — and building, stopping and deleting an index are all commands in the palette.
+- The Library row's own menu offers **"Search inside this archive…"** and, once there is one,
+  **"Delete the text index"**, acting on that row's archive rather than on whatever is open.
+- Indexing has its own **status-bar strip** — caption, progress bar, Stop — rather than words in
+  the echo area. Fifteen minutes is long enough that "how far along is it" and "make it stop" both
+  have to be answerable at a glance. It takes no room when nothing is indexing, and an unknown
+  total shows as indeterminate rather than as a bar pinned at the far left, which reads as stuck.
+- Progress deliberately does **not** go through the message log: it changes several times a second,
+  and announcing it would bury every real message under a thousand rows of a percentage counting
+  up. A test pins that fifty progress updates add nothing to the log.
+- The index is keyed on the archive's **UUID**, not its file name, so renaming or moving an archive
+  keeps its index — and a new edition, which carries a different UUID, gets a new one instead of
+  silently inheriting last year's text. It builds into a staging folder and moves it into place at
+  the end, so a cancelled run leaves the previous index or none, but never a half-built one that
+  answers incompletely.
+- Built on **Lucene 10**, which ships real JPMS module descriptors and links through jlink with no
+  moditect entry. Titles are weighted four times the body; the body is indexed but not stored,
+  since the archive already holds the article and storing it again would roughly double the index.
+  Lucene's `QueryParser` is deliberately unused — every piece of its syntax is a way for ordinary
+  text to behave surprisingly (`C++`, `either/or`), and escaping is not enough because the bare
+  boolean keywords survive it: `programming AND` parses, matches nothing, and looks exactly like
+  "there is nothing there". The query is built from analysed tokens instead.
+- Settings → Advanced reports what the indexes cost on disk and opens the folder.
+
+**Indexing speed: 162 seconds to 11**
+
+- Measured on the OpenStreetMap wiki (84,877 articles), twice, and the answers did not change.
+- **Cluster ordering, 162 s → 50 s.** A ZIM lays entries out in path order but packs ~70 articles
+  into each compressed cluster, and consecutive paths land in *different* clusters — so walking
+  entries naturally switched cluster 84,353 times to read 84,877 articles out of only 1,254 of
+  them, re-decompressing the same clusters over and over. Profiling put 72% of the time in
+  decompression, which is what pointed at it. Sorting by cluster first turns 84,353 decompressions
+  into 1,254, for one extra pass over the dirents and eight bytes an article.
+- **Parallel workers, 50 s → 11 s.** One reader thread, a pool of workers. Everything touching the
+  archive stays on the reader's thread — the cluster cache is a plain `LinkedHashMap` behind a
+  single file channel, so sharing it would corrupt the cache rather than fail loudly — and the
+  HTML extract and the Lucene add, which are pure CPU, fan out. Eight workers at most: past that
+  the single reader is the limit, and an indexing job has no business taking over a machine.
+- Progress counts **articles, not entries**. Most entries in a real ZIM are images, and counting
+  those gives a bar that races to a third and then crawls, which is a worse lie than no bar at all.
+
+**Reading and the library**
+
+- The **omnibox actually searches**. It used to open the command palette when clicked while its own
+  placeholder read "Search this archive — 318,179 articles". Typing now runs the same search the
+  sidebar field does, Enter opens the first result, Down moves into the list, Escape clears. The
+  sidebar field stays the single source of truth and the two mirror each other, so neither box can
+  quietly disagree with the results on screen.
+- Opening a second archive from the Library gives it **its own tab** instead of replacing what you
+  were reading. An archive already open is brought to the front rather than opened twice.
+- **Find on the page** (`Ctrl+Shift+F`), with a running "3 of 17" count. It walks text nodes and
+  wraps hits rather than calling `window.find`, which moves the browser's own selection, leaves
+  nothing to page between and gives no count. Script, style and editable regions are skipped:
+  wrapping inside a script changes what the page runs, and marking inside an input edits what you
+  typed.
+- **Article typeface and size**, with A− / A+ on the tab row. Deliberately not zoom — zoom scales
+  images and layout too, and the usual complaint is that the prose is small while the diagrams are
+  fine. The rule covers prose only, so an archive's monospaced code and its icon webfonts keep the
+  typefaces they were given.
+- A **filter** on the Library shelf, matching title, file name and theme, with terms allowed to
+  land in different fields so "medical 2025" finds an archive whose title has one word and whose
+  file name has the other. Reordering is disabled while a filter is on, since a drop computes the
+  arrangement from the rows on screen and those are only a subset.
+
 **App shell — menubar, four surfaces, one omnibox**
 
 - A **menubar** (File / View / Bookmarks / Library / Catalog / Help) built entirely from registered
@@ -33,6 +106,50 @@ Everything below is in `main` and unreleased; there has been no tagged version y
   shortcut sheet (generated from the bindings, so it cannot drift).
 
 ### Fixed
+
+**Shutdown: two layers kept working after being told to stop**
+
+- **A download could keep writing after the manager was closed.** `Job.cancel()` forwards to the
+  transport's handle, but that handle is published only *after* `transport.start()` has already
+  spun up the transport's own threads — so a cancel arriving in that window saw `null` and did
+  nothing, and nothing ever stopped the transfer. `close()` compounded it by waiting only for the
+  orchestrating pipeline thread, not for the transport pools that actually move the bytes, and
+  `runPipeline` created the download folder and wrote a sidecar before checking anything, neither
+  of which is interruptible. In an app this is bytes landing in the archives folder after the
+  manager reported itself stopped; in the tests it was a temp directory that kept regaining
+  entries after the test had ended. Measured: 300 probe iterations clean, 240 of them under 2×
+  CPU load, against a 33% failure rate before.
+- **The full-text service was closed while a search was still calling into it.** A library search
+  delivers its results on its own thread and that callback goes on to query the full-text service,
+  but shutdown closed the service first — a window every CI run logged as a
+  `RejectedExecutionException`. The caller is now shut down first, and both services await their
+  pools rather than merely interrupting them: interrupting is not stopping, and a search in flight
+  holds a Lucene index open, whose directory is created by opening it.
+
+**The build was red on macOS and Windows**
+
+- **macOS: a test pinned one platform's spelling of a shortcut.** `SHORTCUT_DOWN` is the platform's
+  own modifier, so the key map renders as `Ctrl+1` on Windows and Linux and `⌘1` on macOS. The
+  test asserted the display text; it now asserts the `KeyCombination`, which is what it was really
+  about and is identical everywhere.
+- **Windows: a test crashed the JVM outright.** `EXCEPTION_ACCESS_VIOLATION` in native WebKit code,
+  immediately after `ERROR_MEDIA_CORRUPTED`, taking the whole surefire fork with it. The media
+  test's HTTP server answered *every* path with the article's own HTML, so a request for
+  `video.webm` came back as HTML and the engine handed those bytes to its media decoder — a shape
+  no real archive can produce, since the ZIM server returns the media or nothing.
+- **Windows: three path fixtures had never actually run**, because the crash stopped the suite
+  before their classes were reached. `/home/x/...` literals are already absolute on Linux and
+  macOS but drive-*relative* on Windows, so code that correctly absolutises what it is given
+  produced `D:\...` against an expectation without it. One of the three matters on its own: the
+  test asserting that a folder move which would **overwrite an existing archive** is refused had,
+  on Windows, been concluding the opposite, because its conflict check never matched the
+  drive-prefixed path.
+- **Windows: `spotless:check` had never run there either**, being bound to `verify` and preempted
+  by the test failure every time. Its default policy asks git what the platform's line endings are
+  and answers CRLF against an LF checkout, so every file differed from itself. Spotless is now
+  pinned to LF, and a `.gitattributes` keeps a Windows working tree on LF regardless of the
+  developer's `core.autocrlf` — with the ZIM and WebP fixtures marked binary, since they are read
+  byte-for-byte and one translated CR would corrupt them into a Windows-only parser bug.
 
 - **`Ctrl+R` was bound to two commands at once** — the catalog refresh and the reader-mode cycle.
   Bindings are installed into a map keyed by chord, so the loser simply became unreachable from
@@ -215,6 +332,22 @@ Everything below is in `main` and unreleased; there has been no tagged version y
 
 ### Changed
 
+- **`ReaderController` is being taken apart one coordinator at a time**, rather than in one sweep:
+  the reader's tabs, find-on-page, the network switch and the four surfaces are now their own
+  classes, and the controller went from 3,667 lines to 3,317. What came out is the part that could
+  be tested — the extracted classes sit at 77–98% covered against the 58% left behind, which is
+  the more useful number, because what remains is what genuinely needs a window. An existing
+  assertion earned its keep during the surface extraction by catching a toggle that survived as an
+  orphan and went on answering for a live one.
+- **A torrent download's judgements are now separate from what it does.** Where the bytes are
+  written, whether the transfer has stalled, whether it finished, what may be deleted afterwards —
+  those decisions quarantined a four-percent file as corrupt and left a full-length husk in the
+  library, and not one of them needed a peer to get wrong. They are pure and pinned by tests now.
+  The coverage number barely moved, and should not be read as progress: the rest of that class is
+  session setup and a poll loop that genuinely cannot be covered without a swarm.
+- **Coverage is measured on every run and held to a floor at `verify`** — command/search/catalog
+  ≥ 0.90, library/config ≥ 0.86, zim ≥ 0.85, reader ≥ 0.82. A regression net, not a target: raise
+  a floor when its package rises, never lower one to make a build pass.
 - Renamed from "Offline Wiki" to **Insula**: package `com.offlinewiki.*` → `com.insula.*`, module
   and Maven coordinates to match, and the configuration directory from `~/.offline-wiki` to
   `~/.insula` (`OFFLINE_WIKI_CONFIG_DIR` → `INSULA_CONFIG_DIR`).

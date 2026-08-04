@@ -1,7 +1,19 @@
+![Insula logo](branding/insula-128.png)
+
 # Insula
 
 [![build](https://github.com/adriandeleon/insula/actions/workflows/build.yml/badge.svg)](https://github.com/adriandeleon/insula/actions/workflows/build.yml)
-[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/github/license/adriandeleon/insula)](LICENSE)
+![Java](https://img.shields.io/badge/Java-25-orange?logo=openjdk&logoColor=white)
+![JavaFX](https://img.shields.io/badge/JavaFX-26-1e90ff)
+![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
+[![Stars](https://img.shields.io/github/stars/adriandeleon/insula?style=flat)](https://github.com/adriandeleon/insula/stargazers)
+
+<!-- Uncomment after the first vX.Y.Z release tag:
+[![Release](https://img.shields.io/github/v/release/adriandeleon/insula)](https://github.com/adriandeleon/insula/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/adriandeleon/insula/total)](https://github.com/adriandeleon/insula/releases)
+[![Installers](https://github.com/adriandeleon/insula/actions/workflows/release.yml/badge.svg)](https://github.com/adriandeleon/insula/actions/workflows/release.yml)
+-->
 
 A fast, keyboard-first desktop reader for **ZIM** offline content archives — the same archives
 [Kiwix](https://kiwix.org) uses: Wikipedia, Wiktionary, Wikibooks, StackExchange dumps and
