@@ -62,28 +62,17 @@ public final class ArchiveIndexer {
         deleteTree(staging);
         Files.createDirectories(staging);
 
-        long total = archive.entryCount();
         long[] order = articleOrder(archive);
-        long indexed = 0;
-        long skipped = total - order.length;
-        boolean stopped = false;
+        Counts counts = new Counts();
+        counts.skipped = archive.entryCount() - order.length;
+        boolean stopped;
 
         try (FullTextIndex.Builder builder = FullTextIndex.builder(staging)) {
-            for (int at = 0; at < order.length; at++) {
-                if (cancelled != null && cancelled.getAsBoolean()) {
-                    stopped = true;
-                    break;
-                }
-                if (progress != null && (at % 512 == 0 || at == order.length - 1)) {
-                    progress.at(at + 1, order.length, indexed);
-                }
-                if (indexOne(archive, (int) (order[at] & 0xFFFFFFFFL), builder)) {
-                    indexed++;
-                } else {
-                    skipped++;
-                }
-            }
+            stopped = run(archive, order, builder, counts, progress, cancelled);
         }
+
+        long indexed = counts.indexed.get();
+        long skipped = counts.skipped + counts.failed.get();
 
         if (stopped) {
             deleteTree(staging);
@@ -93,6 +82,148 @@ public final class ArchiveIndexer {
         Files.createDirectories(indexDir.getParent());
         Files.move(staging, indexDir);
         return new Result(indexed, skipped, false);
+    }
+
+    /** One article on its way from the archive to the index. */
+    private record Article(String path, String title, byte[] html) {}
+
+    /** Shared tallies. The counters are touched by every worker; the survey figure is not. */
+    private static final class Counts {
+        final java.util.concurrent.atomic.AtomicLong indexed = new java.util.concurrent.atomic.AtomicLong();
+        final java.util.concurrent.atomic.AtomicLong failed = new java.util.concurrent.atomic.AtomicLong();
+        long skipped;
+    }
+
+    /** Stops the workers without a special case for "was there an article or not". */
+    private static final Article POISON = new Article("", "", new byte[0]);
+
+    /**
+     * How many articles may be waiting between the reader and the workers.
+     *
+     * <p>Small on purpose. The queue exists to keep the workers fed, not to buffer the archive:
+     * articles are held decompressed, and a generous queue on a file with large pages is hundreds
+     * of megabytes of nothing useful.
+     */
+    private static final int QUEUE_DEPTH = 32;
+
+    /**
+     * Runs the pass with one reader and a pool of workers.
+     *
+     * <p>Everything that touches the archive stays on the calling thread. {@code ZimArchive} keeps
+     * a cluster cache in a plain LinkedHashMap and reads through one file channel — it is not
+     * thread-safe, and sharing it would corrupt the cache rather than fail loudly. So the reader
+     * decompresses in cluster order, exactly as before, and the workers take it from there.
+     *
+     * <p>That split is also where the work actually is now: with cluster ordering the
+     * decompression is a small fraction of the pass, and turning HTML into text and handing it to
+     * Lucene is the rest. Both are pure CPU, and {@code IndexWriter} is thread-safe.
+     *
+     * @return whether the pass was cancelled
+     */
+    private static boolean run(
+            ZimArchive archive,
+            long[] order,
+            FullTextIndex.Builder builder,
+            Counts counts,
+            Progress progress,
+            BooleanSupplier cancelled)
+            throws IOException {
+
+        int workers = Math.max(1, Math.min(8, Runtime.getRuntime().availableProcessors() - 1));
+        java.util.concurrent.BlockingQueue<Article> queue = new java.util.concurrent.ArrayBlockingQueue<>(QUEUE_DEPTH);
+        java.util.List<Thread> pool = new java.util.ArrayList<>(workers);
+        for (int w = 0; w < workers; w++) {
+            Thread t = new Thread(() -> consume(queue, builder, counts), "fulltext-index-" + w);
+            t.setDaemon(true);
+            // Indexing is something the reader started and is waiting on, but it must not make
+            // the rest of the app unresponsive while it runs.
+            t.setPriority(Thread.NORM_PRIORITY - 1);
+            t.start();
+            pool.add(t);
+        }
+
+        boolean stopped = false;
+        try {
+            for (int at = 0; at < order.length; at++) {
+                if (cancelled != null && cancelled.getAsBoolean()) {
+                    stopped = true;
+                    break;
+                }
+                if (progress != null && (at % 512 == 0 || at == order.length - 1)) {
+                    progress.at(at + 1, order.length, counts.indexed.get());
+                }
+                Article article = read(archive, (int) (order[at] & 0xFFFFFFFFL));
+                if (article == null) {
+                    counts.failed.incrementAndGet();
+                    continue;
+                }
+                queue.put(article);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            stopped = true;
+        } finally {
+            drain(queue, pool);
+        }
+        return stopped;
+    }
+
+    /** Feeds every worker a poison pill and waits for them, so the builder closes on a quiet index. */
+    private static void drain(java.util.concurrent.BlockingQueue<Article> queue, java.util.List<Thread> pool) {
+        try {
+            for (int i = 0; i < pool.size(); i++) {
+                queue.put(POISON);
+            }
+            for (Thread t : pool) {
+                t.join();
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            pool.forEach(Thread::interrupt);
+        }
+    }
+
+    private static void consume(
+            java.util.concurrent.BlockingQueue<Article> queue, FullTextIndex.Builder builder, Counts counts) {
+        try {
+            while (true) {
+                Article article = queue.take();
+                if (article == POISON) {
+                    return;
+                }
+                try {
+                    String text = HtmlText.extract(new String(article.html(), StandardCharsets.UTF_8));
+                    if (text.isBlank()) {
+                        counts.failed.incrementAndGet();
+                        continue;
+                    }
+                    builder.add(article.path(), article.title(), text);
+                    counts.indexed.incrementAndGet();
+                } catch (IOException | RuntimeException e) {
+                    // One article that will not index must not lose the other three hundred
+                    // thousand, and must not take a worker down with it.
+                    LOG.log(Level.FINE, "Skipped " + article.path() + " while indexing", e);
+                    counts.failed.incrementAndGet();
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /** Reads one article out of the archive, or null when it is not one. Caller's thread only. */
+    private static Article read(ZimArchive archive, long i) {
+        try {
+            Dirent dirent = archive.direntAt(i);
+            if (archive.contentLength(dirent) > MAX_ARTICLE_BYTES) {
+                return null;
+            }
+            return new Article(dirent.fullPath(), dirent.title(), archive.content(dirent));
+        } catch (IOException | RuntimeException e) {
+            // A corrupt cluster or an unexpected encoding: skip it and carry on.
+            LOG.log(Level.FINE, "Skipped entry " + i + " while reading", e);
+            return null;
+        }
     }
 
     /**
@@ -133,36 +264,6 @@ public final class ArchiveIndexer {
         long[] order = java.util.Arrays.copyOf(packed, n);
         java.util.Arrays.sort(order);
         return order;
-    }
-
-    /** @return whether this entry was an article and went into the index */
-    private static boolean indexOne(ZimArchive archive, long i, FullTextIndex.Builder builder) {
-        try {
-            Dirent dirent = archive.direntAt(i);
-            // Redirects hold no text of their own, and only the content namespace holds articles:
-            // metadata, layout templates and the archive's own search index are not reading.
-            if (dirent.isRedirect() || !dirent.hasContent() || dirent.namespace() != archive.contentNamespace()) {
-                return false;
-            }
-            String mime = archive.mimeType(dirent);
-            if (mime == null || !mime.startsWith("text/html")) {
-                return false;
-            }
-            if (archive.contentLength(dirent) > MAX_ARTICLE_BYTES) {
-                return false;
-            }
-            String text = HtmlText.extract(new String(archive.content(dirent), StandardCharsets.UTF_8));
-            if (text.isBlank()) {
-                return false;
-            }
-            builder.add(dirent.fullPath(), dirent.title(), text);
-            return true;
-        } catch (IOException | RuntimeException e) {
-            // One unreadable entry — a corrupt cluster, an unexpected encoding — must not lose the
-            // other three hundred thousand. It is skipped and the pass carries on.
-            LOG.log(Level.FINE, "Skipped entry " + i + " while indexing", e);
-            return false;
-        }
     }
 
     private static void deleteTree(Path dir) throws IOException {
