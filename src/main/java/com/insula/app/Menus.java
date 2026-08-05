@@ -79,6 +79,7 @@ final class Menus {
                             "catalog.open",
                             SEPARATOR,
                             "readerview.toggle",
+                            "view.toggleZen",
                             SEPARATOR,
                             "view.toggleSidebar",
                             "view.sidebarSide",
@@ -108,7 +109,9 @@ final class Menus {
                             SEPARATOR,
                             "download.pauseAll",
                             "download.resumeAll")),
-            new MenuSpec("Help", List.of("help.shortcuts", "help.zimFormat", "help.about")));
+            new MenuSpec(
+                    "Help",
+                    List.of("help.shortcuts", "help.zimFormat", SEPARATOR, "help.checkForUpdates", "help.about")));
 
     private record MenuSpec(String title, List<String> items) {}
 

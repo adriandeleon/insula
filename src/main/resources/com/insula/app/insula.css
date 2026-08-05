@@ -283,6 +283,42 @@
 .starter-lead { -fx-border-color: -insula-accent; }
 .starter-label { -fx-font-size: 15.5px; -fx-font-weight: 700; }
 
+/* ============ zen mode ============ */
+
+/*
+ * Zen takes the tab strip away. A TabPane draws its own header, so there is no node to hide —
+ * the header area has to be collapsed to nothing from here instead. All three heights are
+ * needed: pref alone still leaves the min, and visibility alone still leaves the space.
+ */
+.zen-tabs > .tab-header-area {
+    visibility: hidden;
+    -fx-min-height: 0;
+    -fx-pref-height: 0;
+    -fx-max-height: 0;
+    -fx-padding: 0;
+}
+
+/*
+ * The way out. Faint over the article until the pointer reaches it: it has to be findable without
+ * being one more thing to look at, which is the whole of what the mode it exits is for.
+ */
+.zen-exit {
+    -fx-background-color: -insula-surface;
+    -fx-border-color: -insula-line;
+    -fx-border-radius: 6;
+    -fx-background-radius: 6;
+    -fx-text-fill: -insula-faint;
+    -fx-font-weight: bold;
+    -fx-padding: 2 8 2 8;
+    -fx-opacity: 0.55;
+}
+
+.zen-exit:hover {
+    -fx-text-fill: -insula-accent;
+    -fx-border-color: -insula-accent;
+    -fx-opacity: 1;
+}
+
 /* ============ reader ============ */
 
 /*
@@ -357,6 +393,10 @@
  * The status line reads back. It is one message at a time and is never cleared — only replaced —
  * so the click target is what keeps a failure from vanishing under the next routine notice.
  */
+/* The update notice. A pill because it is an offer, not a fact like the segments beside it. */
+.status-update { -fx-cursor: hand; }
+.status-update:hover { -fx-background-color: -insula-accent; -fx-text-fill: -insula-on-accent; }
+
 .status-message { -fx-cursor: hand; }
 .status-message:hover { -fx-text-fill: -insula-ink; -fx-underline: true; }
 

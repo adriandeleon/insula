@@ -24,6 +24,11 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>25</maven.compiler.release>
+        <!-- Baked into build-info.properties. The indirection through build.timestamp is the
+             standard workaround for the format being ignored when maven.build.timestamp is
+             filtered into a resource directly. -->
+        <maven.build.timestamp.format>yyyy-MM-dd HH:mm:ss 'UTC'</maven.build.timestamp.format>
+        <build.timestamp>${maven.build.timestamp}</build.timestamp>
         <javafx.version>26.0.1</javafx.version>
         <javafx.plugin.version>0.0.8</javafx.plugin.version>
         <atlantafx.version>2.1.0</atlantafx.version>
@@ -52,6 +57,7 @@
         <jlibtorrent.native.path></jlibtorrent.native.path>
         <jlibtorrent.natives.dir>${project.build.directory}/natives</jlibtorrent.natives.dir>
         <twelvemonkeys.version>3.12.0</twelvemonkeys.version>
+        <jackson.version>2.19.0</jackson.version>
         <!-- Overridden per OS below; -Djpackage.type=app-image gives an unpackaged bundle. -->
         <jpackage.type>app-image</jpackage.type>
         <lucene.version>10.1.0</lucene.version>
@@ -133,6 +139,20 @@
             <groupId>org.apache.lucene</groupId>
             <artifactId>lucene-core</artifactId>
             <version>${lucene.version}</version>
+        </dependency>
+        <!--
+          JSON, for the one thing that speaks it: GitHub's releases API (see com.insula.update).
+          Deliberately jackson-core, the streaming parser, and not jackson-databind: the check
+          reads five scalars out of one object, which is a token loop, and databind would bring
+          jackson-annotations and a tree/binding layer nothing here would use. Hand-rolling was the
+          alternative and is worse — this is remote input, and "remote input is hostile" is not a
+          rule to make an exception to for the sake of avoiding a dependency. Real JPMS module, no
+          transitive deps, so it links under jlink with no moditect entry.
+        -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-core</artifactId>
+            <version>${jackson.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.lucene</groupId>
@@ -445,6 +465,16 @@
             </resource>
         </resources>
         <plugins>
+            <plugin>
+                <!-- Only here to state the encoding for the one filtered .properties file, which
+                     Maven otherwise warns about on every single build. -->
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <version>3.3.1</version>
+                <configuration>
+                    <propertiesEncoding>UTF-8</propertiesEncoding>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>

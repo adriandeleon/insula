@@ -41,6 +41,7 @@ import javafx.util.Duration;
 
 import atlantafx.base.theme.PrimerDark;
 import atlantafx.base.theme.PrimerLight;
+import com.insula.AppInfo;
 import com.insula.catalog.CatalogCache;
 import com.insula.catalog.CatalogFilter;
 import com.insula.catalog.StarterPicks;
@@ -73,6 +74,8 @@ import com.insula.reader.ReadingPositions;
 import com.insula.reader.WebViewRenderer;
 import com.insula.search.LibrarySearch;
 import com.insula.server.ZimHttpServer;
+import com.insula.update.ReleaseCheck;
+import com.insula.update.ReleaseService;
 import com.insula.zim.Dirent;
 import com.insula.zim.ZimArchive;
 
@@ -104,6 +107,14 @@ final class ReaderController {
     private ReaderViewSession readerView;
     private final javafx.scene.control.ToggleButton libraryTab = new javafx.scene.control.ToggleButton("Library");
     private HomePane homePane;
+    /** "Insula 0.2.0 available" — shown only once a check has found one, and dismissible. */
+    private final Label statusUpdate = new Label();
+
+    private final com.insula.update.ReleaseService releases = new com.insula.update.ReleaseService();
+
+    /** The newest release found this session, or null. Not persisted: a check is cheap to redo. */
+    private com.insula.update.ReleaseInfo latestRelease;
+
     private final Label statusArchive = new Label();
     private final Label statusArriving = new Label();
     private final Label statusLan = new Label();
@@ -144,6 +155,13 @@ final class ReaderController {
     private javafx.scene.control.MenuBar menuBar;
     private Region readerPane;
     private VBox tabContent;
+
+    // Zen mode's surfaces. topChrome is what it hides; navRow and statusBar are what it
+    // deliberately keeps, and are fields so a test can hold that decision in place. See Chrome.
+    private VBox topChrome;
+    private HBox statusBar;
+    private HBox navRow;
+    private final Button zenExitButton = new Button("Z");
 
     private final HBox restoredBar = new HBox(10);
     private final Label restoredLabel = new Label();
@@ -230,6 +248,7 @@ final class ReaderController {
 
             @Override
             public void afterSwitch() {
+                applyChrome(); // Zen applies to the Reader only, so a switch can turn it on or off
                 refreshStatusBar();
                 refreshOmniPlaceholder();
             }
@@ -366,6 +385,7 @@ final class ReaderController {
                 libraryPane.activate();
             }
         }));
+        maybeCheckForNewVersion();
     }
 
     Parent root() {
@@ -486,6 +506,37 @@ final class ReaderController {
 
     javafx.scene.control.TabPane tabBarForTest() {
         return tabCoordinator.strip();
+    }
+
+    /** The menubar-plus-toolbar box, the status line and the tab's own navigation row. */
+    Region topChromeForTest() {
+        return topChrome;
+    }
+
+    Region statusBarForTest() {
+        return statusBar;
+    }
+
+    Region navRowForTest() {
+        return navRow;
+    }
+
+    Button zenExitForTest() {
+        return zenExitButton;
+    }
+
+    boolean zenActiveForTest() {
+        return zenActive();
+    }
+
+    /** The update notice: text when showing, {@code ""} when not. */
+    Label updateNoticeForTest() {
+        return statusUpdate;
+    }
+
+    /** Feeds an outcome in as if a check had returned it, so the UI can be driven without a network. */
+    void onUpdateOutcomeForTest(ReleaseService.Outcome outcome, boolean asked) {
+        onUpdateOutcome(outcome, asked);
     }
 
     void openRefForTest(ArticleRef ref, boolean inNewTab) {
@@ -616,10 +667,21 @@ final class ReaderController {
                 () -> eachActiveDownload(DownloadManager.Job::resume, "Resumed all downloads"));
         commands.register("view.toggleSidebar", "Show/Hide Sidebar", this::toggleSidebar);
         commands.register("view.sidebarSide", "Move Sidebar Left/Right", this::toggleSidebarSide);
+        commands.register("view.toggleZen", "Toggle Zen Mode", this::toggleZen);
         commands.register("library.import", "Import Archive into Library…", this::importArchive);
         commands.register("catalog.starterPicks", "Starter Picks", this::showStarterPicks);
         commands.register("help.zimFormat", "What's in a ZIM File?", this::showZimExplainer);
         commands.register("help.shortcuts", "Keyboard Shortcuts", this::showShortcuts);
+        // "Insula Updates", not "Check for Updates": library.checkUpdates below is "Check for
+        // Archive Updates", and two commands a few rows apart in the same palette both offering to
+        // check for updates is a coin toss. Each says what it updates.
+        commands.register("help.checkForUpdates", "Check for Insula Updates", this::checkForNewVersionNow);
+        commands.register("update.openDownloadPage", "Open the Insula Download Page", this::openReleasePage);
+        commands.register("view.toggleUpdateCheck", "Toggle: Check for Insula Updates Daily", () -> {
+            settings.setUpdateCheck(!settings.isUpdateCheck());
+            saveAndApply();
+            setStatus("Daily update check: " + (settings.isUpdateCheck() ? "on" : "off"));
+        });
         commands.register("help.about", "About Insula", this::showAbout);
         commands.register("app.quit", "Quit Insula", () -> stage.close());
         commands.register("catalog.open", "Show the Catalog", this::showCatalog);
@@ -684,6 +746,11 @@ final class ReaderController {
         keys.bind("app.quit", new KeyCodeCombination(KeyCode.Q, KeyCombination.SHORTCUT_DOWN));
         keys.bind("help.shortcuts", new KeyCodeCombination(KeyCode.SLASH, KeyCombination.SHORTCUT_DOWN));
         keys.bind("view.toggleSidebar", new KeyCodeCombination(KeyCode.BACK_SLASH, KeyCombination.SHORTCUT_DOWN));
+        // Shift+Z rather than plain Ctrl+Z: there is nothing to undo in a reader, but the key is
+        // reflex enough everywhere else that taking it here would be a trap of its own.
+        keys.bind(
+                "view.toggleZen",
+                new KeyCodeCombination(KeyCode.Z, KeyCombination.SHORTCUT_DOWN, KeyCombination.SHIFT_DOWN));
         keys.bind(
                 "tab.reopen",
                 new KeyCodeCombination(KeyCode.T, KeyCombination.SHORTCUT_DOWN, KeyCombination.SHIFT_DOWN));
@@ -705,6 +772,7 @@ final class ReaderController {
 
     void installShortcuts(Scene scene) {
         keys.install(scene, commands);
+        installZenEscape(scene);
         Fonts.load();
         scene.getStylesheets().add(getClass().getResource("insula.css").toExternalForm());
         scene.getStylesheets().add(getClass().getResource("app.css").toExternalForm());
@@ -904,7 +972,7 @@ final class ReaderController {
         }
         HBox tabActions = new HBox(4, fontSmaller, fontLarger, readerViewButton, typePanelButton, bookmarkButton);
         tabActions.setAlignment(Pos.CENTER_RIGHT);
-        HBox navRow = new HBox(8, tabNav, restoredBar, find.bar(), tabActions);
+        navRow = new HBox(8, tabNav, restoredBar, find.bar(), tabActions);
         navRow.setAlignment(Pos.CENTER_LEFT);
         navRow.getStyleClass().add("tab-nav-row");
 
@@ -943,18 +1011,32 @@ final class ReaderController {
         for (Label label : List.of(statusArchive, statusArriving, statusLan, network.segment())) {
             label.getStyleClass().add("card-faint");
         }
+        // The update notice is the one status segment that is an offer rather than a fact, so it
+        // is an accent pill and a click target rather than another quiet grey label.
+        statusUpdate.getStyleClass().addAll("pill", "pill-accent", "status-update");
+        statusUpdate.setOnMouseClicked(e -> commands.run("update.openDownloadPage"));
+        statusUpdate.setTooltip(new javafx.scene.control.Tooltip("Open the release page, and stop showing this"));
+        refreshUpdateNotice();
         Region statusGap = new Region();
         HBox.setHgrow(statusGap, Priority.ALWAYS);
         // The line is a target: click it to read back what has scrolled past.
         status.getStyleClass().add("status-message");
         status.setOnMouseClicked(e -> messageLogPopup.toggle());
         status.setTooltip(new javafx.scene.control.Tooltip("Messages from this session"));
-        HBox statusBar = new HBox(
-                18, status, statusGap, fullText.strip(), network.segment(), statusArchive, statusArriving, statusLan);
+        statusBar = new HBox(
+                18,
+                status,
+                statusGap,
+                fullText.strip(),
+                statusUpdate,
+                network.segment(),
+                statusArchive,
+                statusArriving,
+                statusLan);
         statusBar.setPadding(new Insets(4, 10, 4, 10));
 
         menuBar = Menus.build(commands, keys, menuDynamics());
-        VBox topChrome = new VBox(menuBar, toolbar);
+        topChrome = new VBox(menuBar, toolbar);
         shell.setTop(topChrome);
         // Each surface is a node, something to do when it appears and something when it goes
         // away. The coordinator knows no more about them than that.
@@ -980,6 +1062,27 @@ final class ReaderController {
         shell.setCenter(readerSplit);
         shell.setBottom(statusBar);
         root.getChildren().add(shell);
+        installZenExit();
+        applyChrome();
+    }
+
+    /**
+     * The floating way out of Zen mode: a small "Z" in the window's top-right corner, over the
+     * article.
+     *
+     * <p>Zen hides the menubar and the toolbar, which between them are every <em>clickable</em> way
+     * to turn it off again — the status line it keeps reports things, it does not offer any. Without
+     * this button a keyboard shortcut would be the only exit from a mode a reader can enter by
+     * accident, and it is what makes the setting safe to persist across a restart.
+     */
+    private void installZenExit() {
+        zenExitButton.getStyleClass().add("zen-exit");
+        zenExitButton.setTooltip(new javafx.scene.control.Tooltip("Leave Zen mode (Esc)"));
+        zenExitButton.setFocusTraversable(false);
+        zenExitButton.setOnAction(e -> setZen(false));
+        StackPane.setAlignment(zenExitButton, Pos.TOP_RIGHT);
+        StackPane.setMargin(zenExitButton, new Insets(10, 12, 0, 0));
+        root.getChildren().add(zenExitButton);
     }
 
     // ---------------------------------------------------------------- library organization
@@ -2246,6 +2349,7 @@ final class ReaderController {
         transports.setTorrentEnabled(settings.isTorrentEnabled());
         transports.setTorrentThreshold(settings.getTorrentThresholdBytes());
         applyTranscodeSupport();
+        applyChrome();
         if (settingsDialog != null) {
             settingsDialog.sync();
         }
@@ -2512,7 +2616,9 @@ final class ReaderController {
             return;
         }
         boolean right = settings.isSidebarOnRight();
-        if (!settings.isSidebarVisible()) {
+        // Zen gates the preference rather than overwriting it, so leaving the mode gives back the
+        // sidebar the reader actually had rather than the one Zen assumed they had.
+        if (!Chrome.sidebar(settings.isSidebarVisible(), settings.isZenMode())) {
             readerSplit.getItems().setAll(readerPane);
             return;
         }
@@ -2526,9 +2632,207 @@ final class ReaderController {
 
     private void toggleSidebar() {
         settings.setSidebarVisible(!settings.isSidebarVisible());
+        // Asking for the sidebar while Zen is hiding it is asking to leave Zen. Setting the
+        // preference and doing nothing visible would read as the shortcut being broken.
+        if (settings.isSidebarVisible() && zenActive()) {
+            setZen(false);
+            return;
+        }
         settings.save();
         applySidebarLayout();
         setStatus(settings.isSidebarVisible() ? "Sidebar shown" : "Sidebar hidden");
+    }
+
+    // ---------------------------------------------------------------- updates to Insula itself
+
+    /*
+     * Updates to the *application*. Archive updates — newer ZIM builds for what is on the shelf —
+     * are checkForUpdates()/library.checkUpdates, a different thing that shares a word. Anything
+     * added here should say which of the two it means in its own name.
+     */
+
+    /**
+     * Asks GitHub whether there is a newer Insula, at most once a day, if all of this holds.
+     *
+     * <p>The gates live in {@link ReleaseCheck#shouldCheckInBackground}, where a test can reach
+     * every one of them; each is documented there.
+     *
+     * <p>The timestamp is stamped <em>before</em> the request rather than after it. A network that
+     * is down stays down, and a check that only recorded its successes would retry on every launch
+     * of a day spent offline — which is the case where the traffic is least wanted and the answer
+     * least likely to arrive.
+     */
+    private void maybeCheckForNewVersion() {
+        long now = System.currentTimeMillis();
+        if (!ReleaseCheck.shouldCheckInBackground(
+                settings.isUpdateCheck(),
+                settings.isWorkOffline(),
+                AppInfo.isSnapshot(),
+                settings.getLastUpdateCheckEpoch(),
+                now,
+                ReleaseCheck.DEFAULT_INTERVAL_MS)) {
+            return;
+        }
+        settings.setLastUpdateCheckEpoch(now);
+        settings.save();
+        releases.check(AppInfo.releaseVersion(), outcome -> onUpdateOutcome(outcome, false));
+    }
+
+    /**
+     * The "Check for Insula Updates" command: ignores the throttle, the setting and the snapshot
+     * gate, because the user asked directly and the answer is the point. It still respects working
+     * offline — that switch means no requests, not fewer requests.
+     */
+    private void checkForNewVersionNow() {
+        if (!network.require("checking for updates")) {
+            return;
+        }
+        setStatus("Checking for updates…");
+        settings.setLastUpdateCheckEpoch(System.currentTimeMillis());
+        settings.save();
+        releases.check(AppInfo.releaseVersion(), outcome -> onUpdateOutcome(outcome, true));
+    }
+
+    /** On the FX thread. {@code asked} distinguishes a command from the quiet daily check. */
+    private void onUpdateOutcome(ReleaseService.Outcome outcome, boolean asked) {
+        if (outcome.available()) {
+            latestRelease = outcome.latest();
+            refreshUpdateNotice();
+            if (asked) {
+                setStatus(AppInfo.NAME + " " + outcome.latest().version() + " is available");
+            }
+            return;
+        }
+        // A background check that finds nothing, or fails, says nothing: it was nobody's question.
+        if (asked) {
+            setStatus(
+                    outcome.error() != null
+                            ? "Could not check for updates — " + outcome.error()
+                            : "Insula is up to date");
+        }
+    }
+
+    /** Shows the pill for a release that was found and not already dismissed. */
+    private void refreshUpdateNotice() {
+        boolean show = latestRelease != null && !latestRelease.version().equals(settings.getDismissedUpdateVersion());
+        statusUpdate.setText(show ? AppInfo.NAME + " " + latestRelease.version() + " available" : "");
+        statusUpdate.setVisible(show);
+        statusUpdate.setManaged(show);
+    }
+
+    /**
+     * Opens the release page and stops offering it.
+     *
+     * <p>Dismissing on open rather than on a separate control: someone who has gone to the download
+     * page has dealt with this release, and a notice that stays after being acted on is the part of
+     * an update prompt people resent. The next version says so again, since what is recorded is the
+     * version and not a flag.
+     */
+    private void openReleasePage() {
+        if (latestRelease != null) {
+            settings.setDismissedUpdateVersion(latestRelease.version());
+            settings.save();
+        }
+        String url =
+                latestRelease == null || latestRelease.url().isBlank() ? AppInfo.RELEASES_PAGE : latestRelease.url();
+        if (hostServices != null) {
+            hostServices.showDocument(url);
+        }
+        refreshUpdateNotice();
+    }
+
+    // ---------------------------------------------------------------- zen mode
+
+    /**
+     * Pushes the effective chrome visibility onto the window. Cheap — six flags and one layout pass
+     * — and idempotent, so every path into Zen can just call it.
+     *
+     * <p>Hidden nodes are unmanaged as well as invisible: a merely invisible one still reserves its
+     * height, which in Zen means a band of empty window where the toolbar used to be.
+     */
+    private void applyChrome() {
+        if (topChrome == null) {
+            return; // called from applySettings() before the UI exists
+        }
+        boolean zen = zenActive();
+        show(topChrome, Chrome.topChrome(zen));
+        // The nav row and the status bar are not listed: Zen keeps both. See Chrome.
+        // A TabPane draws its header itself; a style class is the only way to take it away.
+        tabCoordinator.strip().getStyleClass().remove("zen-tabs");
+        if (!Chrome.tabStrip(zen)) {
+            tabCoordinator.strip().getStyleClass().add("zen-tabs");
+        }
+        show(zenExitButton, Chrome.zenExit(zen));
+        applySidebarLayout();
+    }
+
+    private static void show(javafx.scene.Node node, boolean visible) {
+        if (node != null) {
+            node.setVisible(visible);
+            node.setManaged(visible);
+        }
+    }
+
+    /**
+     * Whether Zen is hiding anything <em>right now</em> — the preference, and the Reader on screen.
+     *
+     * <p>Zen is about an article, so it does not apply to the Library or the Catalog: stripping
+     * those leaves a shelf with no switcher and no way back. Making it an effective value rather
+     * than clearing the preference on the way out means one rule covers every route out of the
+     * Reader — a surface switch, the last tab closing, or a persisted Zen at a startup that opened
+     * nothing — instead of a hook on each, which is where the one nobody thought of gets missed.
+     */
+    private boolean zenActive() {
+        return settings.isZenMode()
+                && surfaces.readerAvailable()
+                && surfaces.showing(SurfaceCoordinator.Surface.READER);
+    }
+
+    private void toggleZen() {
+        setZen(!settings.isZenMode());
+    }
+
+    /**
+     * Enters or leaves distraction-free reading.
+     *
+     * <p>Zen is about the article, so it only means anything on the Reader: entering from Home, the
+     * Library or the Catalog brings the Reader forward first, and refuses outright when there is
+     * nothing open to read rather than stripping the window down to an empty one.
+     *
+     * <p>Nothing is hidden by writing to a preference — see {@link Chrome} — so leaving restores
+     * exactly what was there. Idempotent.
+     */
+    void setZen(boolean on) {
+        if (settings.isZenMode() == on) {
+            return;
+        }
+        if (on) {
+            if (!surfaces.readerAvailable()) {
+                setStatus("Nothing open to read — open an archive first");
+                return;
+            }
+            surfaces.show(SurfaceCoordinator.Surface.READER);
+        }
+        settings.setZenMode(on);
+        settings.save();
+        applyChrome();
+        setStatus(on ? "Zen mode on — press Esc or Ctrl+Shift+Z to leave" : "Zen mode off");
+    }
+
+    /**
+     * Escape leaves Zen — the gesture a reader reaches for before finding a shortcut.
+     *
+     * <p>A scene filter, so it runs before the WebView, which has no use for the key anyway. It
+     * gives way to anything that owns Escape more specifically: the palette and the find bar both
+     * close on it, and taking it from them would make Zen break two working controls.
+     */
+    private void installZenEscape(Scene scene) {
+        scene.addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, e -> {
+            if (e.getCode() == KeyCode.ESCAPE && zenActive() && !palette.isShowing() && !find.showing()) {
+                setZen(false);
+                e.consume();
+            }
+        });
     }
 
     private void toggleSidebarSide() {
@@ -3457,6 +3761,7 @@ final class ReaderController {
         // caller before the callee closes it.
         searchExecutor.shutdownNow();
         librarySearch.close();
+        releases.shutdown();
         fullText.close();
         savePosition();
         try {

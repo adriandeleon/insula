@@ -86,6 +86,54 @@ download layer never import JavaFX**, and `app` is the only package that builds 
   Arriving + Needs-attention + device rows + starter empty-state), `StorePane`, `DownloadRow`
   (built once per job, updated in place by the 4 Hz tick), `IconCache`, `QrImage`, and the pure
   `Formats`.
+- **`app/Chrome`** — **Zen mode**, distraction-free reading (`view.toggleZen`, `Ctrl+Shift+Z`, the
+  View menu). The pure truth table for what the window shows; `ReaderController.applyChrome()`
+  pushes it onto the nodes. Four properties worth keeping:
+  - **It strips the *window*, not the reading surface.** Out go the menubar, toolbar, tab strip and
+    sidebar. The row below the tabs (back/forward, find, text size, Reader View, the bookmark star)
+    and the status line **stay**: they are about what is being read rather than about the app
+    talking about itself, and a reader who has to leave Zen to go back leaves it constantly.
+    Anything added later answers the same question — is this the window, or the article?
+  - **Zen gates preferences, it never writes to them.** `Chrome.sidebar(pref, zen)` is the case
+    that shows why: turning the sidebar preference off on the way in hands a sidebar to a reader
+    who deliberately had none — silently, and for good.
+  - **It is an *effective* value** (`ReaderController.zenActive()` = the setting AND the Reader on
+    screen), not a flag cleared by hooks. Zen means nothing on the Library or the Catalog — a
+    stripped shelf has no switcher and no way back — and one predicate covers every route off the
+    Reader, including the last tab closing and a persisted Zen at a startup that opened nothing.
+    Hooks would need one per route, and the route nobody thought of is the bug.
+  - **Persisted, because it is never a trap**: the floating `.zen-exit` "Z" over the article,
+    Escape, `Ctrl+Shift+Z` and leaving the Reader all get out. It hides every *clickable* way out
+    (the status line it keeps only reports things), which is what the "Z" is for. Escape is a scene
+    filter that gives way to the palette and the find bar, which own that key more specifically.
+    The tab strip is collapsed by the `.zen-tabs` style class — a `TabPane` draws its own header,
+    so there is no node to hide.
+
+- **`update/`** — whether a newer **Insula** has been published: `ReleaseInfo`, the pure
+  `ReleaseCheck` (parse, compare, throttle) and `ReleaseService` (the fetch, off-thread).
+  **Not to be confused with `catalog/UpdateCheck`, which is about archives** — newer ZIM builds for
+  what is on the shelf. They share a word and nothing else; that is why this one is not called
+  `UpdateCheck`, and why the commands say which they mean (`help.checkForUpdates` is "Check for
+  Insula Updates", `library.checkUpdates` is "Check for Archive Updates").
+  - **The gates live in `ReleaseCheck.shouldCheckInBackground`, not in the controller** — setting,
+    `workOffline`, snapshot build, daily throttle. Inline they were untestable: a test build is
+    *always* a snapshot, so a test driving the real window hits that gate and never reaches the
+    rest, and the offline gate could be deleted with everything still green.
+  - **`workOffline` means no requests, not fewer.** An app whose premise is running without a
+    connection cannot be the one thing that ignores its own switch.
+  - **jackson-core, not databind**: five scalars out of one object is a token loop. Hand-rolling
+    was the alternative and is worse — this is remote input. Real JPMS module, no transitive deps,
+    links under jlink with no moditect entry (verified against the app image).
+  - A background check that finds nothing, or fails, **says nothing** — nobody asked. Only
+    `help.checkForUpdates` always answers. Opening the release page **dismisses that version**, so
+    a notice cannot outlive being acted on, and the *next* release still announces itself.
+- **`AppInfo.VERSION` comes from `pom.xml`**, Maven-filtered into `build-info.properties`, so a
+  release bumps one file. Originally for the User-Agent — a version that is not what is running is
+  a lie told to somebody paying for the bandwidth — and load-bearing a second time for the update
+  check, where a stale literal would mean "up to date" forever, reported silently. `AppInfoTest`
+  fails if filtering ever stops reaching it. An unfiltered run (straight from an IDE) reports
+  `0.0.0`, which is visibly not a release; the update check reads that as older than anything and
+  offers the newest release, which is the useful answer there.
 
 Config lives in `~/.insula/` (`INSULA_CONFIG_DIR` overrides): `settings.properties`,
 `library.properties`, `archives/` (plus per-download `*.zim.insula` recovery sidecars and
