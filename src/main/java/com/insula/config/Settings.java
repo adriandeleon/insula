@@ -82,6 +82,37 @@ public final class Settings {
 
     private String sidebarSide = "left";
 
+    /**
+     * Distraction-free reading: the article and nothing else.
+     *
+     * <p>Persisted, so a mode entered deliberately is still on tomorrow. Safe to persist because it
+     * is never a trap — the floating exit button, Escape, {@code Ctrl+Shift+Z} and leaving the
+     * Reader surface all get out of it.
+     */
+    private boolean zenMode;
+
+    /**
+     * Whether to ask GitHub, once a day, whether a newer Insula has been published.
+     *
+     * <p>On by default, and honest about it: the app already fetches the catalog unprompted, so
+     * this is not a new kind of traffic. It is off whenever {@link #workOffline} is on — an app
+     * whose premise is working without a connection must not be the one thing that ignores the
+     * switch — and the Settings entry says what it contacts and that it sends nothing.
+     */
+    private boolean updateCheck = true;
+
+    /** When the background check last ran, so it runs at most daily rather than at every launch. */
+    private long lastUpdateCheckEpoch;
+
+    /**
+     * A version the user has already been shown and acted on.
+     *
+     * <p>The notice is a small permanent thing in the status bar, not a dialog, so it needs a way
+     * to stop being there. Recording the <em>version</em> rather than a flag means the next release
+     * is announced again without anything having to clear it.
+     */
+    private String dismissedUpdateVersion = "";
+
     private String libraryGroupBy = "THEME";
 
     private String librarySortBy = "CUSTOM";
@@ -143,6 +174,10 @@ public final class Settings {
                     MAX_TORRENT_THRESHOLD_GB);
             settings.sidebarVisible = Boolean.parseBoolean(props.getProperty("sidebarVisible", "true"));
             settings.sidebarSide = props.getProperty("sidebarSide", settings.sidebarSide);
+            settings.zenMode = Boolean.parseBoolean(props.getProperty("zenMode", "false"));
+            settings.updateCheck = Boolean.parseBoolean(props.getProperty("updateCheck", "true"));
+            settings.lastUpdateCheckEpoch = Math.max(0, parseLong(props.getProperty("lastUpdateCheckEpoch"), 0));
+            settings.dismissedUpdateVersion = props.getProperty("dismissedUpdateVersion", "");
             settings.updatePolicy = props.getProperty("updatePolicy", settings.updatePolicy);
             settings.maxConcurrentDownloads = clamp(
                     parseInt(props.getProperty("maxConcurrentDownloads"), settings.maxConcurrentDownloads),
@@ -188,6 +223,10 @@ public final class Settings {
         props.setProperty("torrentThresholdGb", String.valueOf(torrentThresholdGb));
         props.setProperty("sidebarVisible", String.valueOf(sidebarVisible));
         props.setProperty("sidebarSide", sidebarSide);
+        props.setProperty("zenMode", String.valueOf(zenMode));
+        props.setProperty("updateCheck", String.valueOf(updateCheck));
+        props.setProperty("lastUpdateCheckEpoch", String.valueOf(lastUpdateCheckEpoch));
+        props.setProperty("dismissedUpdateVersion", dismissedUpdateVersion);
         props.setProperty("updatePolicy", updatePolicy);
         props.setProperty("maxConcurrentDownloads", String.valueOf(maxConcurrentDownloads));
         props.setProperty("libraryGroupBy", libraryGroupBy);
@@ -231,6 +270,17 @@ public final class Settings {
         }
         try {
             return Integer.parseInt(value.strip());
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+
+    private static long parseLong(String value, long fallback) {
+        if (value == null) {
+            return fallback;
+        }
+        try {
+            return Long.parseLong(value.strip());
         } catch (NumberFormatException e) {
             return fallback;
         }
@@ -484,6 +534,41 @@ public final class Settings {
 
     public void setSidebarOnRight(boolean right) {
         this.sidebarSide = right ? "right" : "left";
+    }
+
+    /** Distraction-free reading. See {@code Chrome} for what it actually hides. */
+    public boolean isZenMode() {
+        return zenMode;
+    }
+
+    public void setZenMode(boolean zenMode) {
+        this.zenMode = zenMode;
+    }
+
+    /** Whether to check GitHub for a newer Insula. Never runs while working offline. */
+    public boolean isUpdateCheck() {
+        return updateCheck;
+    }
+
+    public void setUpdateCheck(boolean updateCheck) {
+        this.updateCheck = updateCheck;
+    }
+
+    public long getLastUpdateCheckEpoch() {
+        return lastUpdateCheckEpoch;
+    }
+
+    public void setLastUpdateCheckEpoch(long epochMillis) {
+        this.lastUpdateCheckEpoch = Math.max(0, epochMillis);
+    }
+
+    /** The newest version whose notice the user has already dealt with; {@code ""} for none. */
+    public String getDismissedUpdateVersion() {
+        return dismissedUpdateVersion;
+    }
+
+    public void setDismissedUpdateVersion(String version) {
+        this.dismissedUpdateVersion = version == null ? "" : version.strip();
     }
 
     /** The configured archives folder, or {@code defaultFolder} when the user has not chosen one. */

@@ -98,6 +98,7 @@ final class SettingsDialog {
 
     // -- System
     private final ToggleSwitch reopenSwitch = new ToggleSwitch();
+    private final ToggleSwitch updateCheckSwitch = new ToggleSwitch();
 
     private final ListView<Object> sidebar = new ListView<>();
     private final StackPane content = new StackPane();
@@ -606,6 +607,12 @@ final class SettingsDialog {
                 applyAndSave();
             }
         });
+        updateCheckSwitch.selectedProperty().addListener((obs, old, selected) -> {
+            if (!loading) {
+                settings.setUpdateCheck(selected);
+                applyAndSave();
+            }
+        });
         return page(
                 "Startup",
                 "What Insula does when it opens.",
@@ -613,7 +620,15 @@ final class SettingsDialog {
                         "Reopen where I left off",
                         "Restores last sitting's tabs. A tab whose archive is gone is skipped and counted, "
                                 + "never restored broken.",
-                        reopenSwitch)));
+                        reopenSwitch)),
+                card(row(
+                        "Check for new versions of Insula",
+                        "Asks GitHub once a day whether a newer release exists, and says so in the status "
+                                + "bar. It sends nothing but the request — no identifier, no usage, no "
+                                + "account. Never runs while you are working offline.",
+                        updateCheckSwitch)),
+                note("This is about Insula itself. Updates to your archives are a separate thing, on the "
+                        + "Library shelf and under Library → Check for Archive Updates."));
     }
 
     private Region advancedPage() {
@@ -728,6 +743,7 @@ final class SettingsDialog {
             transcodeSwitch.setSelected(settings.isVideoTranscode());
             lanPortSpinner.getValueFactory().setValue(settings.getLanPort());
             reopenSwitch.setSelected(settings.isReopenLastArchive());
+            updateCheckSwitch.setSelected(settings.isUpdateCheck());
             configPath.setText(configFolder == null ? "" : Formats.collapseHome(configFolder.toString()));
             refreshArchivesRow();
             refreshCatalogRow();

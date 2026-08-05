@@ -7,7 +7,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Zen mode** (`Ctrl+Shift+Z`, View menu, palette): the window steps aside and leaves the article.
+  Menubar, toolbar, tab strip and sidebar go; the row below the tabs — back/forward, find, text
+  size, Reader View, the bookmark star — and the status line stay, because they are about what you
+  are reading rather than about the app, and having to leave the mode to go back a page means
+  leaving it constantly. It applies to the Reader only, since a stripped Library has no switcher
+  and no way back, and it hides things by *gating* preferences rather than writing to them, so
+  leaving gives back the sidebar you actually had. Ways out: a floating "Z" over the article,
+  Escape (which still gives way to the palette and the find bar), the shortcut, or simply going
+  somewhere else.
+- **Update notifications for Insula itself.** Once a day it asks GitHub whether a newer release
+  exists and, if so, says so as a small pill in the status bar; clicking it opens the release page
+  and stops offering that version, while the next one still announces itself. Never runs while you
+  are working offline, never from an unreleased build, and never says anything when a background
+  check finds nothing or fails — only **Help → Check for Insula Updates** always answers. It sends
+  the request and nothing else: no identifier, no usage, no account. Off with one switch in
+  Settings → Startup. *(Distinct from **Check for Archive Updates**, which is about your ZIM files;
+  both now say which they mean.)*
 
 ## [0.1.0] - 2026-08-04
 

@@ -15,6 +15,9 @@ module com.insula {
     requires java.logging;
     requires java.net.http;
     requires java.xml;
+    // JSON, for GitHub's releases API alone. The streaming parser only — nothing here binds POJOs,
+    // so there is no databind, and so no reflective access needing a package opened to it.
+    requires com.fasterxml.jackson.core;
     requires org.tukaani.xz;
     requires com.github.luben.zstd_jni;
     // Optional, and static on purpose. jlibtorrent is an automatic module whose native library
